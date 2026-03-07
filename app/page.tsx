@@ -310,10 +310,8 @@ export default function Dashboard() {
         style={{ borderBottom: '1px solid rgba(0,212,255,0.08)', background: 'rgba(6,11,20,0.85)' }}>
         <div className="mx-auto max-w-[1400px] px-6 py-4 flex items-center justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl font-black text-sm"
-              style={{ background: 'linear-gradient(135deg,#00d4ff20,#0070f320)', border: '1px solid rgba(0,212,255,0.3)', color: '#00d4ff', textShadow: '0 0 10px rgba(0,212,255,0.8)' }}>
-              CB
-            </div>
+            <img src="/logo.png" alt="CriptoBlue" className="h-10 w-10 rounded-xl object-cover"
+              style={{ boxShadow: '0 0 16px rgba(0,212,255,0.35)' }} />
             <div>
               <h1 className="text-base font-bold text-white leading-tight">CriptoBlue</h1>
               <p className="text-xs leading-tight" style={{ color: 'rgba(0,212,255,0.5)' }}>Conciliación MP · TiendaNube</p>

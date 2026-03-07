@@ -53,14 +53,10 @@ export default function LoginPage() {
             initial={{ scale: 0.8, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             transition={{ delay: 0.1, duration: 0.5 }}
-            className="inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-4"
-            style={{
-              background: 'linear-gradient(135deg, #00d4ff20, #0070f320)',
-              border: '1px solid rgba(0,212,255,0.3)',
-              boxShadow: '0 0 30px rgba(0,212,255,0.2)',
-            }}
+            className="inline-block mb-4"
           >
-            <span className="text-2xl font-black text-cyan-400" style={{ textShadow: '0 0 20px rgba(0,212,255,0.8)' }}>CB</span>
+            <img src="/logo.png" alt="CriptoBlue" className="w-20 h-20 rounded-2xl object-cover"
+              style={{ boxShadow: '0 0 40px rgba(0,212,255,0.4), 0 0 80px rgba(0,212,255,0.15)' }} />
           </motion.div>
           <h1 className="text-2xl font-bold text-white">CriptoBlue</h1>
           <p className="text-sm mt-1" style={{ color: 'rgba(0,212,255,0.6)' }}>Sistema de conciliación de pagos</p>
