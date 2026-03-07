@@ -1,65 +1,398 @@
-import Image from "next/image";
+'use client'
 
-export default function Home() {
+import { useState, useEffect, useCallback, useRef } from 'react'
+import StatsBar from '@/components/StatsBar'
+import MatchTable from '@/components/MatchTable'
+import ManualMatchTab from '@/components/ManualMatchTab'
+import TransferenciasTable from '@/components/TransferenciasTable'
+import OrdersTable from '@/components/OrdersTable'
+import CancelacionesTable from '@/components/CancelacionesTable'
+import ActivityLog from '@/components/ActivityLog'
+import type { PendingMatch, Order, LogEntry, UnmatchedPayment } from '@/lib/types'
+
+type Tab = 'transferencias' | 'pedidos' | 'match' | 'manual' | 'cancelaciones'
+
+interface Stats {
+  pendingMatch: number
+  manualPaid: number
+  noMatch: number
+  totalAmount: number
+  processedPayments: number
+  lastMPCheck?: string
+}
+
+interface Toast {
+  id: number
+  message: string
+  type: 'success' | 'error'
+}
+
+function fmtDate(iso: string) {
+  if (!iso) return null
+  return new Date(iso).toLocaleString('es-AR', {
+    timeZone: 'America/Argentina/Buenos_Aires',
+    day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+  })
+}
+
+export default function Dashboard() {
+  const [tab, setTab] = useState<Tab>('match')
+  const [stats, setStats] = useState<Stats | null>(null)
+  const [pendingMatches, setPendingMatches] = useState<PendingMatch[]>([])
+  const [orders, setOrders] = useState<Order[]>([])
+  const [unmatchedPayments, setUnmatchedPayments] = useState<UnmatchedPayment[]>([])
+  const [matchLog, setMatchLog] = useState<LogEntry[]>([])
+  const [toasts, setToasts] = useState<Toast[]>([])
+  const [running, setRunning] = useState(false)
+  const [matchLoading, setMatchLoading] = useState<string | null>(null)
+  const [actionLoading, setActionLoading] = useState(false)
+  const toastIdRef = useRef(0)
+
+  const addToast = useCallback((message: string, type: 'success' | 'error') => {
+    const id = ++toastIdRef.current
+    setToasts(prev => [...prev, { id, message, type }])
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 4000)
+  }, [])
+
+  const fetchStatus = useCallback(async () => {
+    try {
+      const res = await fetch('/api/status')
+      if (res.ok) setStats(await res.json())
+    } catch { /* ignore */ }
+  }, [])
+
+  const fetchPendingMatches = useCallback(async () => {
+    try {
+      const res = await fetch('/api/pending-matches')
+      if (res.ok) setPendingMatches(await res.json())
+    } catch { /* ignore */ }
+  }, [])
+
+  const fetchUnmatched = useCallback(async () => {
+    try {
+      const res = await fetch('/api/unmatched-payments')
+      if (res.ok) setUnmatchedPayments(await res.json())
+    } catch { /* ignore */ }
+  }, [])
+
+  const fetchOrders = useCallback(async () => {
+    try {
+      const res = await fetch('/api/orders')
+      if (res.ok) setOrders(await res.json())
+    } catch { /* ignore */ }
+  }, [])
+
+  const fetchLog = useCallback(async () => {
+    try {
+      const res = await fetch('/api/log')
+      if (res.ok) setMatchLog(await res.json())
+    } catch { /* ignore */ }
+  }, [])
+
+  // Initial loads
+  useEffect(() => {
+    fetchStatus()
+    fetchPendingMatches()
+    fetchUnmatched()
+  }, [fetchStatus, fetchPendingMatches, fetchUnmatched])
+
+  // Poll every 5 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchStatus()
+      fetchPendingMatches()
+    }, 5000)
+    return () => clearInterval(interval)
+  }, [fetchStatus, fetchPendingMatches])
+
+  // Load orders when tab is shown
+  useEffect(() => {
+    if (tab === 'pedidos' || tab === 'cancelaciones' || tab === 'manual') {
+      fetchOrders()
+    }
+    if (tab === 'manual') {
+      fetchUnmatched()
+    }
+    if (tab === 'transferencias') {
+      fetchLog()
+    }
+  }, [tab, fetchOrders, fetchUnmatched, fetchLog])
+
+
+  const runCycle = async () => {
+    setRunning(true)
+    try {
+      const res = await fetch('/api/run', { method: 'POST' })
+      const data = await res.json()
+      if (data.success) {
+        addToast(`Ciclo completado: ${data.autoPaid} pagados, ${data.needsReview} en revisión, ${data.noMatch} sin match`, 'success')
+        await Promise.all([fetchStatus(), fetchPendingMatches(), fetchUnmatched()])
+      } else {
+        addToast(`Error: ${data.error}`, 'error')
+      }
+    } catch (err) {
+      addToast(`Error de red: ${err}`, 'error')
+    } finally {
+      setRunning(false)
+    }
+  }
+
+  const handleApprove = async (mpPaymentId: string) => {
+    setMatchLoading(mpPaymentId)
+    try {
+      const res = await fetch('/api/approve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mpPaymentId }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        addToast('Pago aprobado correctamente', 'success')
+        await Promise.all([fetchPendingMatches(), fetchStatus()])
+      } else {
+        addToast(`Error: ${data.error}`, 'error')
+      }
+    } catch (err) {
+      addToast(`Error: ${err}`, 'error')
+    } finally {
+      setMatchLoading(null)
+    }
+  }
+
+  const handleDismiss = async (mpPaymentId: string) => {
+    setMatchLoading(mpPaymentId)
+    try {
+      const res = await fetch('/api/dismiss', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mpPaymentId }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        addToast('Match descartado', 'success')
+        await fetchPendingMatches()
+      } else {
+        addToast(`Error: ${data.error}`, 'error')
+      }
+    } catch (err) {
+      addToast(`Error: ${err}`, 'error')
+    } finally {
+      setMatchLoading(null)
+    }
+  }
+
+  const handleMarkOrderPaid = async (storeId: string, orderId: string) => {
+    setActionLoading(true)
+    try {
+      const res = await fetch('/api/mark-order-paid', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ storeId, orderId }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        addToast('Orden marcada como pagada', 'success')
+        await Promise.all([fetchOrders(), fetchStatus()])
+      } else {
+        addToast(`Error: ${data.error}`, 'error')
+      }
+    } catch (err) {
+      addToast(`Error: ${err}`, 'error')
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  const handleCancelOrder = async (storeId: string, orderId: string) => {
+    setActionLoading(true)
+    try {
+      const res = await fetch('/api/cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ storeId, orderId }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        addToast('Orden cancelada', 'success')
+        await Promise.all([fetchOrders(), fetchStatus()])
+      } else {
+        addToast(`Error: ${data.error}`, 'error')
+      }
+    } catch (err) {
+      addToast(`Error: ${err}`, 'error')
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  const handleManualMatch = async (mpPaymentId: string, orderId: string, storeId: string) => {
+    setActionLoading(true)
+    try {
+      const res = await fetch('/api/manual-match', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mpPaymentId, orderId, storeId }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        addToast('Match manual confirmado', 'success')
+        await Promise.all([fetchUnmatched(), fetchOrders(), fetchStatus()])
+      } else {
+        addToast(`Error: ${data.error}`, 'error')
+      }
+    } catch (err) {
+      addToast(`Error: ${err}`, 'error')
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  const handleDismissPayment = async (mpPaymentId: string) => {
+    setActionLoading(true)
+    try {
+      const res = await fetch('/api/dismiss', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mpPaymentId }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        addToast('Pago eliminado', 'success')
+        await fetchUnmatched()
+      } else {
+        addToast(`Error: ${data.error}`, 'error')
+      }
+    } catch (err) {
+      addToast(`Error: ${err}`, 'error')
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  const tabs: { id: Tab; label: string; badge?: number }[] = [
+    { id: 'match', label: 'Match', badge: pendingMatches.length },
+    { id: 'transferencias', label: 'Transferencias' },
+    { id: 'pedidos', label: 'Pedidos' },
+    { id: 'manual', label: 'Match Manual', badge: unmatchedPayments.length },
+    { id: 'cancelaciones', label: 'Cancelaciones' },
+  ]
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+    <div className="min-h-screen" style={{ background: '#060b14' }}>
+      {/* Ambient background */}
+      <div className="fixed inset-0 pointer-events-none overflow-hidden">
+        <div className="absolute top-0 left-1/4 w-96 h-96 rounded-full opacity-10"
+          style={{ background: 'radial-gradient(circle, #00d4ff, transparent 70%)', filter: 'blur(80px)' }} />
+        <div className="absolute bottom-0 right-1/4 w-96 h-96 rounded-full opacity-5"
+          style={{ background: 'radial-gradient(circle, #0070f3, transparent 70%)', filter: 'blur(100px)' }} />
+        <div className="absolute inset-0 opacity-[0.025]"
+          style={{ backgroundImage: 'linear-gradient(rgba(0,212,255,1) 1px, transparent 1px), linear-gradient(90deg, rgba(0,212,255,1) 1px, transparent 1px)', backgroundSize: '80px 80px' }} />
+      </div>
+
+      {/* Toasts */}
+      <div className="fixed top-4 right-4 z-50 space-y-2">
+        {toasts.map(t => (
+          <div
+            key={t.id}
+            className="rounded-xl px-4 py-3 text-sm font-medium shadow-2xl max-w-xs"
+            style={t.type === 'success'
+              ? { background: 'linear-gradient(135deg,#0d2b1a,#0d1117)', border: '1px solid rgba(0,255,136,0.3)', color: '#00ff88', boxShadow: '0 0 20px rgba(0,255,136,0.15)' }
+              : { background: 'linear-gradient(135deg,#2b0d0d,#0d1117)', border: '1px solid rgba(248,113,113,0.3)', color: '#f87171', boxShadow: '0 0 20px rgba(248,113,113,0.15)' }
+            }
           >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+            {t.message}
+          </div>
+        ))}
+      </div>
+
+      {/* Header */}
+      <header className="sticky top-0 z-40 backdrop-blur-xl relative"
+        style={{ borderBottom: '1px solid rgba(0,212,255,0.08)', background: 'rgba(6,11,20,0.85)' }}>
+        <div className="mx-auto max-w-[1400px] px-6 py-4 flex items-center justify-between gap-4 flex-wrap">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl font-black text-sm"
+              style={{ background: 'linear-gradient(135deg,#00d4ff20,#0070f320)', border: '1px solid rgba(0,212,255,0.3)', color: '#00d4ff', textShadow: '0 0 10px rgba(0,212,255,0.8)' }}>
+              CB
+            </div>
+            <div>
+              <h1 className="text-base font-bold text-white leading-tight">CriptoBlue</h1>
+              <p className="text-xs leading-tight" style={{ color: 'rgba(0,212,255,0.5)' }}>Conciliación MP · TiendaNube</p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            {stats?.lastMPCheck && (
+              <p className="text-xs hidden sm:block" style={{ color: 'rgba(148,163,184,0.5)' }}>
+                Último ciclo: {fmtDate(stats.lastMPCheck)}
+              </p>
+            )}
+            <a href="/tiendas"
+              className="hidden sm:flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-medium transition-all"
+              style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', color: 'rgba(148,163,184,0.8)' }}>
+              🏪 Tiendas
+            </a>
+            <button
+              onClick={runCycle}
+              disabled={running}
+              className="flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold transition-all"
+              style={{
+                background: running ? 'rgba(0,212,255,0.08)' : 'linear-gradient(135deg, #00d4ff, #0070f3)',
+                boxShadow: running ? 'none' : '0 0 20px rgba(0,212,255,0.3)',
+                color: running ? '#00d4ff' : 'white',
+                border: '1px solid rgba(0,212,255,0.3)',
+                cursor: running ? 'not-allowed' : 'pointer',
+              }}
+            >
+              <span className={running ? 'animate-spin' : ''}>⚡</span>
+              {running ? 'Procesando...' : 'Correr ciclo MP'}
+            </button>
+          </div>
         </div>
+      </header>
+
+      <main className="relative mx-auto max-w-[1400px] px-6 py-6 space-y-6">
+        <StatsBar stats={stats} />
+
+        {/* Tabs */}
+        <div style={{ borderBottom: '1px solid rgba(0,212,255,0.08)' }}>
+          <div className="flex gap-1 overflow-x-auto pb-px">
+            {tabs.map(t => (
+              <button
+                key={t.id}
+                onClick={() => setTab(t.id)}
+                className="flex items-center gap-1.5 whitespace-nowrap px-4 py-3 text-sm font-medium transition-all relative"
+                style={{
+                  color: tab === t.id ? '#00d4ff' : 'rgba(148,163,184,0.6)',
+                  borderBottom: tab === t.id ? '2px solid #00d4ff' : '2px solid transparent',
+                  textShadow: tab === t.id ? '0 0 12px rgba(0,212,255,0.6)' : 'none',
+                }}
+              >
+                {t.label}
+                {t.badge != null && t.badge > 0 && (
+                  <span className="rounded-full px-1.5 py-0.5 text-xs font-bold"
+                    style={tab === t.id
+                      ? { background: 'rgba(0,212,255,0.15)', color: '#00d4ff' }
+                      : { background: 'rgba(255,255,255,0.07)', color: 'rgba(148,163,184,0.7)' }
+                    }>
+                    {t.badge}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Tab content */}
+        <div>
+          {tab === 'match' && <MatchTable matches={pendingMatches} onApprove={handleApprove} onDismiss={handleDismiss} loading={matchLoading} />}
+          {tab === 'transferencias' && <TransferenciasTable entries={matchLog} />}
+          {tab === 'pedidos' && <OrdersTable orders={orders} onMarkPaid={handleMarkOrderPaid} onCancel={handleCancelOrder} loading={actionLoading} />}
+          {tab === 'manual' && <ManualMatchTab unmatchedPayments={unmatchedPayments} orders={orders} onManualMatch={handleManualMatch} onDismissPayment={handleDismissPayment} onMarkOrderPaid={handleMarkOrderPaid} loading={actionLoading} />}
+          {tab === 'cancelaciones' && <CancelacionesTable orders={orders} onCancel={handleCancelOrder} loading={actionLoading} />}
+        </div>
+
+        <ActivityLog entries={matchLog} />
       </main>
     </div>
-  );
+  )
 }
