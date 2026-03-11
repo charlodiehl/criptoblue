@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { useRouter } from 'next/navigation'
 import StatsBar from '@/components/StatsBar'
 import MatchTable from '@/components/MatchTable'
 import ManualMatchTab from '@/components/ManualMatchTab'
@@ -36,6 +37,7 @@ function fmtDate(iso: string) {
 }
 
 export default function Dashboard() {
+  const router = useRouter()
   const [tab, setTab] = useState<Tab>('match')
   const [stats, setStats] = useState<Stats | null>(null)
   const [pendingMatches, setPendingMatches] = useState<PendingMatch[]>([])
@@ -47,6 +49,23 @@ export default function Dashboard() {
   const [matchLoading, setMatchLoading] = useState<string | null>(null)
   const [actionLoading, setActionLoading] = useState(false)
   const toastIdRef = useRef(0)
+  const [userMenuOpen, setUserMenuOpen] = useState(false)
+  const userMenuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
+        setUserMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [])
+
+  const handleLogout = async () => {
+    await fetch('/api/auth/login', { method: 'DELETE' })
+    router.push('/login')
+  }
 
   const addToast = useCallback((message: string, type: 'success' | 'error') => {
     const id = ++toastIdRef.current
@@ -315,6 +334,46 @@ export default function Dashboard() {
             <div>
               <h1 className="text-base font-bold text-white leading-tight">CriptoBlue</h1>
               <p className="text-xs leading-tight" style={{ color: 'rgba(0,212,255,0.5)' }}>Conciliación MP · TiendaNube</p>
+            </div>
+
+            {/* User avatar dropdown */}
+            <div ref={userMenuRef} className="relative ml-2">
+              <button
+                onClick={() => setUserMenuOpen(v => !v)}
+                className="flex items-center justify-center w-9 h-9 rounded-full text-sm font-bold transition-all"
+                style={{
+                  background: 'linear-gradient(135deg, #00d4ff22, #0070f322)',
+                  border: '1px solid rgba(0,212,255,0.3)',
+                  color: '#00d4ff',
+                  boxShadow: userMenuOpen ? '0 0 14px rgba(0,212,255,0.25)' : 'none',
+                }}
+              >
+                B
+              </button>
+              {userMenuOpen && (
+                <div
+                  className="absolute left-0 mt-2 w-44 rounded-xl overflow-hidden z-50"
+                  style={{
+                    background: 'linear-gradient(135deg, #0d1117, #111827)',
+                    border: '1px solid rgba(0,212,255,0.15)',
+                    boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+                  }}
+                >
+                  <div className="px-4 py-3" style={{ borderBottom: '1px solid rgba(0,212,255,0.08)' }}>
+                    <p className="text-xs font-semibold text-white">Benancio</p>
+                    <p className="text-xs mt-0.5" style={{ color: 'rgba(0,212,255,0.5)' }}>Administrador</p>
+                  </div>
+                  <button
+                    onClick={handleLogout}
+                    className="w-full text-left px-4 py-3 text-sm transition-all flex items-center gap-2"
+                    style={{ color: '#f87171' }}
+                    onMouseEnter={e => (e.currentTarget.style.background = 'rgba(248,113,113,0.07)')}
+                    onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                  >
+                    <span>→</span> Cerrar sesión
+                  </button>
+                </div>
+              )}
             </div>
           </div>
 
