@@ -2,8 +2,6 @@ import { fetchAllPaymentsSince } from './mercadopago'
 import { getPendingOrders, markOrderAsPaid } from './tiendanube'
 import { loadState, saveState, getStores, getMatchId } from './storage'
 import { findBestMatch } from './matcher'
-import { aiValidateMatch } from './ai-matcher'
-import { CONFIG } from './config'
 import type { PendingMatch, UnmatchedPayment, LogEntry } from './types'
 
 interface CycleResult {
@@ -60,24 +58,7 @@ export async function processMPPayments(): Promise<CycleResult> {
   for (const payment of newPayments) {
     processedSet.add(payment.mpPaymentId)
 
-    let match = findBestMatch(payment, allOrders)
-
-    // Si el match requiere revisión manual, intentar mejorar con IA
-    if (match && match.decision === 'needs_review') {
-      const aiResult = await aiValidateMatch(payment, match.order)
-      if (aiResult) {
-        if (aiResult.confirmed && aiResult.confidence >= 85) {
-          match = {
-            ...match,
-            decision: 'auto_paid',
-            score: Math.max(match.score, CONFIG.matching.autoThreshold),
-            matchType: `${match.matchType}_ai_confirmed`,
-          }
-        } else if (!aiResult.confirmed && aiResult.confidence >= 70) {
-          match = null
-        }
-      }
-    }
+    const match = findBestMatch(payment, allOrders)
 
     if (!match) {
       result.noMatch++
