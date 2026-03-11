@@ -55,7 +55,12 @@ export async function GET(req: NextRequest) {
     })
     if (storeRes.ok) {
       const storeData = await storeRes.json()
-      storeName = storeData.name?.es || storeData.name?.pt || Object.values(storeData.name || {})[0] as string || storeName
+      const name = storeData.name
+      if (typeof name === 'string' && name) {
+        storeName = name
+      } else if (name && typeof name === 'object') {
+        storeName = name.es || name.pt || Object.values(name).find((v): v is string => typeof v === 'string') || storeName
+      }
     }
   } catch {
     // usar nombre por defecto

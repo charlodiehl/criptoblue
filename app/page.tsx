@@ -3,21 +3,19 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import StatsBar from '@/components/StatsBar'
-import MatchTable from '@/components/MatchTable'
 import ManualMatchTab from '@/components/ManualMatchTab'
-import TransferenciasTable from '@/components/TransferenciasTable'
-import OrdersTable from '@/components/OrdersTable'
-import CancelacionesTable from '@/components/CancelacionesTable'
-import ActivityLog from '@/components/ActivityLog'
-import type { PendingMatch, Order, LogEntry, UnmatchedPayment, Store } from '@/lib/types'
+import OrdersListTab from '@/components/OrdersListTab'
+import PaymentsListTab from '@/components/PaymentsListTab'
+import type { Order, UnmatchedPayment, Store } from '@/lib/types'
 
-type Tab = 'transferencias' | 'pedidos' | 'match' | 'manual' | 'cancelaciones'
+type Tab = 'manual' | 'ordenes' | 'pagos'
 
 interface Stats {
   paidThisMonth: number
   paidVolumeThisMonth: number
   pendingOrders: number
   pendingPayments: number
+  lastMPCheck: string | null
 }
 
 interface Toast {
@@ -28,14 +26,11 @@ interface Toast {
 
 export default function Dashboard() {
   const router = useRouter()
-  const [tab, setTab] = useState<Tab>('match')
+  const [tab, setTab] = useState<Tab>('manual')
   const [stats, setStats] = useState<Stats | null>(null)
-  const [pendingMatches, setPendingMatches] = useState<PendingMatch[]>([])
   const [orders, setOrders] = useState<Order[]>([])
   const [unmatchedPayments, setUnmatchedPayments] = useState<UnmatchedPayment[]>([])
-  const [matchLog, setMatchLog] = useState<LogEntry[]>([])
   const [toasts, setToasts] = useState<Toast[]>([])
-  const [matchLoading, setMatchLoading] = useState<string | null>(null)
   const [actionLoading, setActionLoading] = useState(false)
   const toastIdRef = useRef(0)
 
@@ -82,13 +77,6 @@ export default function Dashboard() {
     } catch { /* ignore */ }
   }, [])
 
-  const fetchPendingMatches = useCallback(async () => {
-    try {
-      const res = await fetch('/api/pending-matches')
-      if (res.ok) setPendingMatches(await res.json())
-    } catch { /* ignore */ }
-  }, [])
-
   const fetchUnmatched = useCallback(async () => {
     try {
       const res = await fetch('/api/unmatched-payments')
@@ -100,13 +88,6 @@ export default function Dashboard() {
     try {
       const res = await fetch('/api/orders')
       if (res.ok) setOrders(await res.json())
-    } catch { /* ignore */ }
-  }, [])
-
-  const fetchLog = useCallback(async () => {
-    try {
-      const res = await fetch('/api/log')
-      if (res.ok) setMatchLog(await res.json())
     } catch { /* ignore */ }
   }, [])
 
@@ -123,34 +104,28 @@ export default function Dashboard() {
   // Initial loads
   useEffect(() => {
     fetchStatus()
-    fetchPendingMatches()
     fetchUnmatched()
     fetchStores()
-  }, [fetchStatus, fetchPendingMatches, fetchUnmatched, fetchStores])
+  }, [fetchStatus, fetchUnmatched, fetchStores])
 
-
-  // Poll every 5 seconds (incluye tiendas para detectar nueva conexión desde otra pestaña)
+  // Poll every 5 seconds
   useEffect(() => {
     const interval = setInterval(() => {
       fetchStatus()
-      fetchPendingMatches()
       fetchStores()
     }, 5000)
     return () => clearInterval(interval)
-  }, [fetchStatus, fetchPendingMatches, fetchStores])
+  }, [fetchStatus, fetchStores])
 
-  // Load orders when tab is shown
+  // Load orders/payments when tab is shown
   useEffect(() => {
-    if (tab === 'pedidos' || tab === 'cancelaciones' || tab === 'manual') {
+    if (tab === 'manual' || tab === 'ordenes') {
       fetchOrders()
     }
-    if (tab === 'manual') {
+    if (tab === 'manual' || tab === 'pagos') {
       fetchUnmatched()
     }
-    if (tab === 'transferencias') {
-      fetchLog()
-    }
-  }, [tab, fetchOrders, fetchUnmatched, fetchLog])
+  }, [tab, fetchOrders, fetchUnmatched])
 
   const handleDeleteStore = async (storeId: string, storeName: string) => {
     if (!confirm(`¿Eliminar "${storeName}"? Se borrarán todas sus órdenes del registro.`)) return
@@ -165,7 +140,7 @@ export default function Dashboard() {
       if (data.success) {
         addToast(`Tienda "${storeName}" eliminada`, 'success')
         setStores(prev => prev.filter(s => s.storeId !== storeId))
-        await Promise.all([fetchPendingMatches(), fetchStatus()])
+        await fetchStatus()
       } else {
         addToast(`Error: ${data.error}`, 'error')
       }
@@ -173,50 +148,6 @@ export default function Dashboard() {
       addToast(`Error: ${err}`, 'error')
     } finally {
       setDeletingStore(null)
-    }
-  }
-
-  const handleApprove = async (mpPaymentId: string) => {
-    setMatchLoading(mpPaymentId)
-    try {
-      const res = await fetch('/api/approve', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mpPaymentId }),
-      })
-      const data = await res.json()
-      if (data.success) {
-        addToast('Pago aprobado correctamente', 'success')
-        await Promise.all([fetchPendingMatches(), fetchStatus()])
-      } else {
-        addToast(`Error: ${data.error}`, 'error')
-      }
-    } catch (err) {
-      addToast(`Error: ${err}`, 'error')
-    } finally {
-      setMatchLoading(null)
-    }
-  }
-
-  const handleDismiss = async (mpPaymentId: string) => {
-    setMatchLoading(mpPaymentId)
-    try {
-      const res = await fetch('/api/dismiss', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mpPaymentId }),
-      })
-      const data = await res.json()
-      if (data.success) {
-        addToast('Match descartado', 'success')
-        await fetchPendingMatches()
-      } else {
-        addToast(`Error: ${data.error}`, 'error')
-      }
-    } catch (err) {
-      addToast(`Error: ${err}`, 'error')
-    } finally {
-      setMatchLoading(null)
     }
   }
 
@@ -242,28 +173,6 @@ export default function Dashboard() {
     }
   }
 
-  const handleCancelOrder = async (storeId: string, orderId: string) => {
-    setActionLoading(true)
-    try {
-      const res = await fetch('/api/cancel', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ storeId, orderId }),
-      })
-      const data = await res.json()
-      if (data.success) {
-        addToast('Orden cancelada', 'success')
-        await Promise.all([fetchOrders(), fetchStatus()])
-      } else {
-        addToast(`Error: ${data.error}`, 'error')
-      }
-    } catch (err) {
-      addToast(`Error: ${err}`, 'error')
-    } finally {
-      setActionLoading(false)
-    }
-  }
-
   const handleManualMatch = async (mpPaymentId: string, orderId: string, storeId: string) => {
     setActionLoading(true)
     try {
@@ -274,7 +183,11 @@ export default function Dashboard() {
       })
       const data = await res.json()
       if (data.success) {
-        addToast('Match manual confirmado', 'success')
+        if (data.method === 'note') {
+          addToast('Pago registrado — TiendaNube no permite cambiar el estado vía API, se agregó una nota a la orden. Marcalo manualmente en TN.', 'error')
+        } else {
+          addToast('Orden marcada como pagada en TiendaNube', 'success')
+        }
         await Promise.all([fetchUnmatched(), fetchOrders(), fetchStatus()])
       } else {
         addToast(`Error: ${data.error}`, 'error')
@@ -308,12 +221,28 @@ export default function Dashboard() {
     }
   }
 
-  const tabs: { id: Tab; label: string; badge?: number }[] = [
-    { id: 'match', label: 'Match', badge: pendingMatches.length },
-    { id: 'transferencias', label: 'Transferencias' },
-    { id: 'pedidos', label: 'Pedidos' },
-    { id: 'manual', label: 'Match Manual', badge: unmatchedPayments.length },
-    { id: 'cancelaciones', label: 'Cancelaciones' },
+  const handleReevaluar = async () => {
+    setActionLoading(true)
+    try {
+      const res = await fetch('/api/reevaluar', { method: 'POST' })
+      const data = await res.json()
+      if (data.success) {
+        addToast(`Actualizado: ${data.processed} pagos procesados, ${data.noMatch} sin match`, 'success')
+        await Promise.all([fetchUnmatched(), fetchOrders(), fetchStatus()])
+      } else {
+        addToast(`Error al reevaluar: ${data.error}`, 'error')
+      }
+    } catch (err) {
+      addToast(`Error: ${err}`, 'error')
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  const tabs: { id: Tab; label: string; primary?: boolean }[] = [
+    { id: 'manual', label: 'Marcar Pagado Manualmente', primary: true },
+    { id: 'ordenes', label: 'Órdenes' },
+    { id: 'pagos', label: 'Pagos' },
   ]
 
   return (
@@ -406,8 +335,20 @@ export default function Dashboard() {
             </span>
           </div>
 
-          {/* RIGHT: Tiendas dropdown */}
-          <div className="flex items-center justify-end">
+          {/* RIGHT: Actualizar + Tiendas dropdown */}
+          <div className="flex items-center justify-end gap-2">
+            <button
+              onClick={handleReevaluar}
+              disabled={actionLoading}
+              className="flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-medium transition-all disabled:opacity-50"
+              style={{
+                background: 'rgba(0,212,255,0.08)',
+                border: '1px solid rgba(0,212,255,0.25)',
+                color: '#00d4ff',
+              }}
+            >
+              {actionLoading ? '...' : '↻ Actualizar'}
+            </button>
             <div ref={storesMenuRef} className="relative">
               <button
                 onClick={() => { setStoresOpen(v => !v); if (!storesOpen) fetchStores() }}
@@ -506,44 +447,61 @@ export default function Dashboard() {
         <StatsBar stats={stats} />
 
         {/* Tabs */}
-        <div style={{ borderBottom: '1px solid rgba(0,212,255,0.08)' }}>
-          <div className="flex gap-1 overflow-x-auto pb-px">
-            {tabs.map(t => (
+        <div className="flex gap-4 overflow-x-auto pb-1">
+          {tabs.map(t => {
+            const isActive = tab === t.id
+            const isPrimary = t.primary
+            return (
               <button
                 key={t.id}
                 onClick={() => setTab(t.id)}
-                className="flex items-center gap-1.5 whitespace-nowrap px-4 py-3 text-sm font-medium transition-all relative"
+                className="whitespace-nowrap transition-all"
                 style={{
-                  color: tab === t.id ? '#00d4ff' : 'rgba(148,163,184,0.6)',
-                  borderBottom: tab === t.id ? '2px solid #00d4ff' : '2px solid transparent',
-                  textShadow: tab === t.id ? '0 0 12px rgba(0,212,255,0.6)' : 'none',
+                  padding: isPrimary ? '11px 28px' : '10px 22px',
+                  borderRadius: '12px',
+                  fontSize: isPrimary ? '14px' : '13px',
+                  fontWeight: isPrimary ? 700 : 500,
+                  letterSpacing: isPrimary ? '0.02em' : '0.04em',
+                  border: isActive
+                    ? isPrimary
+                      ? '1px solid rgba(0,212,255,0.45)'
+                      : '1px solid rgba(0,212,255,0.25)'
+                    : isPrimary
+                    ? '1px solid rgba(0,212,255,0.2)'
+                    : '1px solid rgba(255,255,255,0.07)',
+                  background: isActive
+                    ? isPrimary
+                      ? 'linear-gradient(135deg, rgba(0,212,255,0.12), rgba(0,112,243,0.08))'
+                      : 'rgba(0,212,255,0.07)'
+                    : isPrimary
+                    ? 'rgba(0,212,255,0.05)'
+                    : 'rgba(255,255,255,0.03)',
+                  color: isActive
+                    ? isPrimary ? '#00d4ff' : 'rgba(0,212,255,0.85)'
+                    : isPrimary
+                    ? 'rgba(0,212,255,0.55)'
+                    : 'rgba(148,163,184,0.5)',
+                  boxShadow: isActive && isPrimary
+                    ? '0 0 18px rgba(0,212,255,0.15), inset 0 0 12px rgba(0,212,255,0.04)'
+                    : isActive
+                    ? '0 0 10px rgba(0,212,255,0.08)'
+                    : 'none',
+                  textShadow: isActive && isPrimary ? '0 0 16px rgba(0,212,255,0.5)' : 'none',
+                  cursor: 'pointer',
                 }}
               >
                 {t.label}
-                {t.badge != null && t.badge > 0 && (
-                  <span className="rounded-full px-1.5 py-0.5 text-xs font-bold"
-                    style={tab === t.id
-                      ? { background: 'rgba(0,212,255,0.15)', color: '#00d4ff' }
-                      : { background: 'rgba(255,255,255,0.07)', color: 'rgba(148,163,184,0.7)' }
-                    }>
-                    {t.badge}
-                  </span>
-                )}
               </button>
-            ))}
-          </div>
+            )
+          })}
         </div>
 
         {/* Tab content */}
         <div>
-          {tab === 'match' && <MatchTable matches={pendingMatches} onApprove={handleApprove} onDismiss={handleDismiss} loading={matchLoading} />}
-          {tab === 'transferencias' && <TransferenciasTable entries={matchLog} />}
-          {tab === 'pedidos' && <OrdersTable orders={orders} onMarkPaid={handleMarkOrderPaid} onCancel={handleCancelOrder} loading={actionLoading} />}
-          {tab === 'manual' && <ManualMatchTab unmatchedPayments={unmatchedPayments} orders={orders} onManualMatch={handleManualMatch} onDismissPayment={handleDismissPayment} onMarkOrderPaid={handleMarkOrderPaid} loading={actionLoading} />}
-          {tab === 'cancelaciones' && <CancelacionesTable orders={orders} onCancel={handleCancelOrder} loading={actionLoading} />}
+          {tab === 'manual' && <ManualMatchTab unmatchedPayments={unmatchedPayments} orders={orders} onManualMatch={handleManualMatch} onDismissPayment={handleDismissPayment} onMarkOrderPaid={handleMarkOrderPaid} loading={actionLoading} lastMPCheck={stats?.lastMPCheck ?? null} />}
+          {tab === 'ordenes' && <OrdersListTab orders={orders} />}
+          {tab === 'pagos' && <PaymentsListTab payments={unmatchedPayments} />}
         </div>
-
-        <ActivityLog entries={matchLog} />
       </main>
     </div>
   )

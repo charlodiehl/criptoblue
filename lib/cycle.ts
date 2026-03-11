@@ -2,8 +2,6 @@ import { fetchAllPaymentsSince } from './mercadopago'
 import { getPendingOrders, markOrderAsPaid } from './tiendanube'
 import { loadState, saveState, getStores, getMatchId } from './storage'
 import { findBestMatch } from './matcher'
-import { aiValidateMatch } from './ai-matcher'
-import { CONFIG } from './config'
 import type { PendingMatch, UnmatchedPayment, LogEntry } from './types'
 
 interface CycleResult {
@@ -20,10 +18,18 @@ export async function processMPPayments(): Promise<CycleResult> {
   const [state, stores] = await Promise.all([loadState(), getStores()])
 
   const now = new Date()
-  const maxLookback = new Date(now.getTime() - 48 * 60 * 60 * 1000)
+  const cutoff48h = new Date(now.getTime() - 48 * 60 * 60 * 1000)
+
+  // Purge unmatched payments older than 48h
+  state.unmatchedPayments = state.unmatchedPayments.filter(u => {
+    const date = u.payment.fechaPago ? new Date(u.payment.fechaPago) : new Date(u.timestamp)
+    return date >= cutoff48h
+  })
+
+  // Always fetch last 48 hours
   const sinceDate = state.lastMPCheck
-    ? new Date(Math.max(new Date(state.lastMPCheck).getTime(), maxLookback.getTime()))
-    : maxLookback
+    ? new Date(Math.max(new Date(state.lastMPCheck).getTime(), cutoff48h.getTime()))
+    : cutoff48h
 
   let payments
   try {
@@ -49,27 +55,14 @@ export async function processMPPayments(): Promise<CycleResult> {
     return []
   })
 
+  // Purge pendingMatches whose order is no longer pending in TiendaNube (already paid or cancelled)
+  const pendingOrderIds = new Set(allOrders.map(o => o.orderId))
+  state.pendingMatches = state.pendingMatches.filter(m => pendingOrderIds.has(m.order.orderId))
+
   for (const payment of newPayments) {
     processedSet.add(payment.mpPaymentId)
 
-    let match = findBestMatch(payment, allOrders)
-
-    // Si el match requiere revisión manual, intentar mejorar con IA
-    if (match && match.decision === 'needs_review') {
-      const aiResult = await aiValidateMatch(payment, match.order)
-      if (aiResult) {
-        if (aiResult.confirmed && aiResult.confidence >= 85) {
-          match = {
-            ...match,
-            decision: 'auto_paid',
-            score: Math.max(match.score, CONFIG.matching.autoThreshold),
-            matchType: `${match.matchType}_ai_confirmed`,
-          }
-        } else if (!aiResult.confirmed && aiResult.confidence >= 70) {
-          match = null
-        }
-      }
-    }
+    const match = findBestMatch(payment, allOrders)
 
     if (!match) {
       result.noMatch++
@@ -177,9 +170,6 @@ export async function processMPPayments(): Promise<CycleResult> {
 
   state.processedPayments = Array.from(processedSet)
   state.lastMPCheck = now.toISOString()
-
-  if (state.matchLog.length > 500) state.matchLog = state.matchLog.slice(-500)
-  if (state.processedPayments.length > 2000) state.processedPayments = state.processedPayments.slice(-2000)
 
   await saveState(state)
 
