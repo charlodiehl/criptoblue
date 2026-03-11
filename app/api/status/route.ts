@@ -6,27 +6,37 @@ export async function GET() {
     const state = await loadState()
 
     const now = new Date()
-    const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000)
+    const currentMonth = now.getMonth()
+    const currentYear = now.getFullYear()
 
-    const recentLogs = state.matchLog.filter(
-      e => new Date(e.timestamp) >= oneDayAgo
+    const isThisMonth = (ts: string) => {
+      const d = new Date(ts)
+      return d.getMonth() === currentMonth && d.getFullYear() === currentYear
+    }
+
+    const paidLogs = state.matchLog.filter(e =>
+      (e.action === 'manual_paid' || e.action === 'auto_paid') && isThisMonth(e.timestamp)
     )
 
-    const manualPaid = recentLogs.filter(
-      e => e.action === 'manual_paid' || e.action === 'auto_paid'
+    // Órdenes marcadas como pagadas este mes (auto + manual) — se resetea el 1ro de cada mes
+    const paidThisMonth = paidLogs.length
+
+    // Volumen total de pagos identificados este mes
+    const paidVolumeThisMonth = paidLogs.reduce((sum, e) => sum + (e.amount || 0), 0)
+
+    // Órdenes pendientes de confirmar (en cola de revisión/match)
+    const pendingOrders = state.pendingMatches.length
+
+    // Pagos sin identificar ingresados este mes
+    const pendingPayments = state.unmatchedPayments.filter(p =>
+      isThisMonth(p.timestamp)
     ).length
 
-    const totalAmount = recentLogs
-      .filter(e => e.action === 'manual_paid' || e.action === 'auto_paid')
-      .reduce((sum, e) => sum + (e.amount || 0), 0)
-
     return NextResponse.json({
-      pendingMatch: state.pendingMatches.length,
-      manualPaid,
-      noMatch: state.unmatchedPayments.length,
-      totalAmount,
-      processedPayments: state.processedPayments.length,
-      lastMPCheck: state.lastMPCheck,
+      paidThisMonth,
+      paidVolumeThisMonth,
+      pendingOrders,
+      pendingPayments,
     })
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 })

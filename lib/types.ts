@@ -68,11 +68,10 @@ export interface UnmatchedPayment {
 }
 
 export interface Stats {
-  pendingMatch: number
-  manualPaid: number
-  noMatch: number
-  totalAmount: number
-  processedPayments: number
+  paidThisMonth: number
+  paidVolumeThisMonth: number
+  pendingOrders: number
+  pendingPayments: number
 }
 
 export interface AppState {

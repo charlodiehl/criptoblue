@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getStores, saveStores } from '@/lib/storage'
+import { getStores, saveStores, loadState, saveState } from '@/lib/storage'
 
 export async function GET() {
   try {
@@ -20,6 +20,12 @@ export async function DELETE(req: NextRequest) {
 
     delete stores[storeId]
     await saveStores(stores)
+
+    // Clean up all state records associated with this store
+    const state = await loadState()
+    state.pendingMatches = state.pendingMatches.filter(m => m.order?.storeId !== storeId)
+    state.unmatchedPayments = state.unmatchedPayments.filter(p => (p as any).storeId !== storeId)
+    await saveState(state)
 
     return NextResponse.json({ success: true })
   } catch (err) {

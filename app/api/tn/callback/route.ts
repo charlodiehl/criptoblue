@@ -7,12 +7,12 @@ export async function GET(req: NextRequest) {
   const code = searchParams.get('code')
 
   if (!code) {
-    return NextResponse.redirect(new URL('/tiendas?error=no_code', req.nextUrl.origin))
+    return NextResponse.redirect(new URL('/tn-success?tn_error=no_code', req.nextUrl.origin))
   }
 
   const clientSecret = CONFIG.tiendanube.clientSecret
   if (!clientSecret) {
-    return NextResponse.redirect(new URL('/tiendas?error=no_secret', req.nextUrl.origin))
+    return NextResponse.redirect(new URL('/tn-success?tn_error=no_secret', req.nextUrl.origin))
   }
 
   // Intercambiar code por access_token
@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
     if (!tokenRes.ok) {
       const err = await tokenRes.text()
       console.error('TN token error:', err)
-      return NextResponse.redirect(new URL('/tiendas?error=token_failed', req.nextUrl.origin))
+      return NextResponse.redirect(new URL('/tn-success?tn_error=token_failed', req.nextUrl.origin))
     }
 
     const tokenData = await tokenRes.json()
@@ -41,7 +41,7 @@ export async function GET(req: NextRequest) {
     storeId = String(tokenData.user_id)
   } catch (err) {
     console.error('TN token fetch error:', err)
-    return NextResponse.redirect(new URL('/tiendas?error=token_error', req.nextUrl.origin))
+    return NextResponse.redirect(new URL('/tn-success?tn_error=token_error', req.nextUrl.origin))
   }
 
   // Obtener nombre de la tienda
@@ -69,5 +69,5 @@ export async function GET(req: NextRequest) {
     connectedAt: new Date().toISOString(),
   })
 
-  return NextResponse.redirect(new URL('/tiendas?success=1', req.nextUrl.origin))
+  return NextResponse.redirect(new URL('/tn-success', req.nextUrl.origin))
 }
