@@ -1,19 +1,12 @@
 import { CONFIG } from './config'
 import type { Order } from './types'
 
-const OFFLINE_GATEWAYS = ['offline', 'convenir', 'transferencia', 'wire', 'bank', 'deposito', 'depósito', 'efectivo']
-
 function tnHeaders(accessToken: string) {
   return {
     Authentication: `bearer ${accessToken}`,
     'User-Agent': CONFIG.tiendanube.userAgent,
     'Content-Type': 'application/json',
   }
-}
-
-function isOfflineGateway(gateway: string): boolean {
-  const lower = gateway.toLowerCase()
-  return OFFLINE_GATEWAYS.some(g => lower.includes(g))
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -33,21 +26,30 @@ function normalizeOrder(order: any, storeId: string, storeName: string): Order {
 }
 
 export async function getPendingOrders(storeId: string, accessToken: string, storeName: string): Promise<Order[]> {
-  const url = `${CONFIG.tiendanube.apiBase}/${storeId}/orders?payment_status=pending&per_page=200`
-  const res = await fetch(url, { headers: tnHeaders(accessToken) })
+  const allOrders: Order[] = []
+  let page = 1
 
-  if (!res.ok) {
-    const text = await res.text()
-    throw new Error(`TN API error ${res.status} for store ${storeId}: ${text}`)
+  while (true) {
+    const url = `${CONFIG.tiendanube.apiBase}/${storeId}/orders?payment_status=pending&per_page=200&page=${page}`
+    const res = await fetch(url, { headers: tnHeaders(accessToken) })
+
+    if (!res.ok) {
+      const text = await res.text()
+      throw new Error(`TN API error ${res.status} for store ${storeId}: ${text}`)
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const orders: any[] = await res.json()
+    if (!orders.length) break
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    allOrders.push(...orders.map((o: any) => normalizeOrder(o, storeId, storeName)))
+
+    if (orders.length < 200) break
+    page++
   }
 
-  const orders = await res.json()
-
-  return orders
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    .filter((o: any) => isOfflineGateway(o.gateway_name || o.gateway || ''))
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    .map((o: any) => normalizeOrder(o, storeId, storeName))
+  return allOrders
 }
 
 export async function markOrderAsPaid(

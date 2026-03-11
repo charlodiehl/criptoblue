@@ -55,6 +55,10 @@ export async function processMPPayments(): Promise<CycleResult> {
     return []
   })
 
+  // Purge pendingMatches whose order is no longer pending in TiendaNube (already paid or cancelled)
+  const pendingOrderIds = new Set(allOrders.map(o => o.orderId))
+  state.pendingMatches = state.pendingMatches.filter(m => pendingOrderIds.has(m.order.orderId))
+
   for (const payment of newPayments) {
     processedSet.add(payment.mpPaymentId)
 
