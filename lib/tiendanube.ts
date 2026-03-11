@@ -70,6 +70,8 @@ export async function markOrderAsPaid(
     }
 
     if (res.status === 403 || res.status === 422) {
+      const errBody = await res.text()
+      console.error(`[tiendanube] markOrderAsPaid got ${res.status} for order ${orderId}:`, errBody)
       const note = paymentData
         ? `PAGO CONFIRMADO - MP ID: ${paymentData.mpPaymentId || 'N/A'} | Monto: $${paymentData.amount || 'N/A'}`
         : 'PAGO CONFIRMADO por CriptoBlue'

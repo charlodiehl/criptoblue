@@ -36,8 +36,15 @@ export async function POST(req: NextRequest) {
       amount: payment.monto,
     })
 
+    console.log('[manual-match] TN result:', JSON.stringify(tnResult))
+
     if (!tnResult.success) {
       return NextResponse.json({ error: tnResult.error }, { status: 500 })
+    }
+
+    // Warn if only a note was added (payment_status NOT actually changed in TN)
+    if (tnResult.method === 'note') {
+      console.warn('[manual-match] WARNING: TN returned 403/422 for payment_status change. Only a note was added. Order may NOT be marked paid in TiendaNube.')
     }
 
     state.unmatchedPayments.splice(unmatchedIndex, 1)
