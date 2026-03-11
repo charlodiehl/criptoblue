@@ -15,6 +15,7 @@ interface Stats {
   paidVolumeThisMonth: number
   pendingOrders: number
   pendingPayments: number
+  lastMPCheck: string | null
 }
 
 interface Toast {
@@ -182,7 +183,11 @@ export default function Dashboard() {
       })
       const data = await res.json()
       if (data.success) {
-        addToast('Match manual confirmado', 'success')
+        if (data.method === 'note') {
+          addToast('Pago registrado — TiendaNube no permite cambiar el estado vía API, se agregó una nota a la orden. Marcalo manualmente en TN.', 'error')
+        } else {
+          addToast('Orden marcada como pagada en TiendaNube', 'success')
+        }
         await Promise.all([fetchUnmatched(), fetchOrders(), fetchStatus()])
       } else {
         addToast(`Error: ${data.error}`, 'error')
@@ -208,6 +213,24 @@ export default function Dashboard() {
         await fetchUnmatched()
       } else {
         addToast(`Error: ${data.error}`, 'error')
+      }
+    } catch (err) {
+      addToast(`Error: ${err}`, 'error')
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  const handleReevaluar = async () => {
+    setActionLoading(true)
+    try {
+      const res = await fetch('/api/reevaluar', { method: 'POST' })
+      const data = await res.json()
+      if (data.success) {
+        addToast(`Reevaluado: ${data.processed} pagos procesados, ${data.noMatch} sin match`, 'success')
+        await Promise.all([fetchUnmatched(), fetchOrders(), fetchStatus()])
+      } else {
+        addToast(`Error al reevaluar: ${data.error}`, 'error')
       }
     } catch (err) {
       addToast(`Error: ${err}`, 'error')
@@ -463,7 +486,7 @@ export default function Dashboard() {
 
         {/* Tab content */}
         <div>
-          {tab === 'manual' && <ManualMatchTab unmatchedPayments={unmatchedPayments} orders={orders} onManualMatch={handleManualMatch} onDismissPayment={handleDismissPayment} onMarkOrderPaid={handleMarkOrderPaid} onRefresh={() => { fetchOrders(); fetchUnmatched() }} loading={actionLoading} />}
+          {tab === 'manual' && <ManualMatchTab unmatchedPayments={unmatchedPayments} orders={orders} onManualMatch={handleManualMatch} onDismissPayment={handleDismissPayment} onMarkOrderPaid={handleMarkOrderPaid} onRefresh={handleReevaluar} loading={actionLoading} lastMPCheck={stats?.lastMPCheck ?? null} />}
           {tab === 'ordenes' && <OrdersListTab orders={orders} />}
           {tab === 'pagos' && <PaymentsListTab payments={unmatchedPayments} />}
         </div>

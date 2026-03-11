@@ -143,6 +143,7 @@ interface Props {
   onMarkOrderPaid: (storeId: string, orderId: string) => Promise<void>
   onRefresh: () => void
   loading: boolean
+  lastMPCheck: string | null
 }
 
 export default function ManualMatchTab({
@@ -152,11 +153,13 @@ export default function ManualMatchTab({
   onDismissPayment,
   onRefresh,
   loading,
+  lastMPCheck,
 }: Props) {
   const [dismissedMap, setDismissedMap] = useState<Record<string, number>>({})
 
   const pairs: Pair[] = useMemo(() => {
-    return unmatchedPayments.map(u => {
+    // Build all scores
+    const allPairs = unmatchedPayments.map(u => {
       const id = u.mpPaymentId || ''
       const skipCount = dismissedMap[id] ?? 0
       const ranked: RankedOrder[] = orders
@@ -166,9 +169,36 @@ export default function ManualMatchTab({
           signals: computeSignals(u.payment, o),
         }))
         .sort((a, b) => b.score - a.score)
-      const current = ranked[skipCount] ?? null
-      return { payment: u, id, ranked, current, skipCount }
-    }).sort((a, b) => (b.current?.score ?? -1) - (a.current?.score ?? -1))
+      return { payment: u, id, ranked, skipCount }
+    })
+
+    // Greedy unique assignment: each order assigned to at most one payment
+    const usedOrderIds = new Set<string>()
+    const result: Pair[] = []
+
+    // Sort payments by their best available score descending so best matches get priority
+    const sorted = [...allPairs].sort((a, b) => {
+      const aScore = a.ranked[a.skipCount]?.score ?? -1
+      const bScore = b.ranked[b.skipCount]?.score ?? -1
+      return bScore - aScore
+    })
+
+    for (const p of sorted) {
+      // Find first non-used, non-skipped order
+      let current: RankedOrder | null = null
+      let assignedIdx = p.skipCount
+      for (let i = p.skipCount; i < p.ranked.length; i++) {
+        if (!usedOrderIds.has(p.ranked[i].order.orderId)) {
+          current = p.ranked[i]
+          assignedIdx = i
+          break
+        }
+      }
+      if (current) usedOrderIds.add(current.order.orderId)
+      result.push({ payment: p.payment, id: p.id, ranked: p.ranked, current, skipCount: assignedIdx })
+    }
+
+    return result.sort((a, b) => (b.current?.score ?? -1) - (a.current?.score ?? -1))
   }, [unmatchedPayments, orders, dismissedMap])
 
   const handleDismissPair = (paymentId: string) => {
@@ -183,9 +213,18 @@ export default function ManualMatchTab({
     <div className="space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <span style={{ fontSize: '13px', color: 'rgba(148,163,184,0.4)' }}>
-          {pairs.length} pago{pairs.length !== 1 ? 's' : ''} · {orders.length} orden{orders.length !== 1 ? 'es' : ''}
-        </span>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+          <span style={{ fontSize: '13px', color: 'rgba(148,163,184,0.4)' }}>
+            {pairs.length} pago{pairs.length !== 1 ? 's' : ''} · {orders.length} orden{orders.length !== 1 ? 'es' : ''}
+          </span>
+          {lastMPCheck ? (
+            <span style={{ fontSize: '11px', color: 'rgba(148,163,184,0.3)' }}>
+              Último sync: {new Date(lastMPCheck).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+            </span>
+          ) : (
+            <span style={{ fontSize: '11px', color: 'rgba(239,68,68,0.5)' }}>Sin sync — hacé clic en Reevaluar</span>
+          )}
+        </div>
         <button
           onClick={onRefresh}
           style={{
@@ -236,7 +275,7 @@ export default function ManualMatchTab({
         ))}
       </div>
 
-      {/* One pair at a time */}
+      {/* All pairs */}
       {pairs.length === 0 ? (
         <div
           className="flex items-center justify-center rounded-2xl py-16"
@@ -245,14 +284,18 @@ export default function ManualMatchTab({
           <p style={{ fontSize: '13px', color: 'rgba(148,163,184,0.35)' }}>No hay pagos pendientes</p>
         </div>
       ) : (
-        <PairRow
-          key={pairs[0].id}
-          pair={pairs[0]}
-          onConfirm={handleConfirm}
-          onDismissPair={handleDismissPair}
-          onDismissPayment={onDismissPayment}
-          loading={loading}
-        />
+        <div className="space-y-3">
+          {pairs.map(pair => (
+            <PairRow
+              key={pair.id}
+              pair={pair}
+              onConfirm={handleConfirm}
+              onDismissPair={handleDismissPair}
+              onDismissPayment={onDismissPayment}
+              loading={loading}
+            />
+          ))}
+        </div>
       )}
     </div>
   )

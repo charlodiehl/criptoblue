@@ -66,6 +66,26 @@ export async function markOrderAsPaid(
     })
 
     if (res.ok) {
+      const body = await res.json().catch(() => null)
+      const actualStatus = body?.payment_status
+      const gateway = body?.gateway_name || body?.gateway
+      console.log('[tiendanube] markOrderAsPaid PUT 200 → payment_status:', actualStatus, '| gateway:', gateway, '| order:', orderId)
+
+      if (actualStatus && actualStatus !== 'paid') {
+        // TN returned 200 but silently ignored the payment_status field — add a note as fallback
+        console.warn('[tiendanube] TN ignored payment_status change (still:', actualStatus, ') for gateway:', gateway, '— falling back to note')
+        const note = paymentData
+          ? `PAGO CONFIRMADO - MP ID: ${paymentData.mpPaymentId || 'N/A'} | Monto: $${paymentData.amount || 'N/A'} | Marcado manualmente via CriptoBlue`
+          : 'PAGO CONFIRMADO por CriptoBlue'
+        const noteRes = await fetch(url, {
+          method: 'PUT',
+          headers: tnHeaders(accessToken),
+          body: JSON.stringify({ owner_note: note }),
+        })
+        if (noteRes.ok) {
+          return { success: true, method: 'note' }
+        }
+      }
       return { success: true, method: 'status' }
     }
 
@@ -73,7 +93,7 @@ export async function markOrderAsPaid(
       const errBody = await res.text()
       console.error(`[tiendanube] markOrderAsPaid got ${res.status} for order ${orderId}:`, errBody)
       const note = paymentData
-        ? `PAGO CONFIRMADO - MP ID: ${paymentData.mpPaymentId || 'N/A'} | Monto: $${paymentData.amount || 'N/A'}`
+        ? `PAGO CONFIRMADO - MP ID: ${paymentData.mpPaymentId || 'N/A'} | Monto: $${paymentData.amount || 'N/A'} | Marcado manualmente via CriptoBlue`
         : 'PAGO CONFIRMADO por CriptoBlue'
 
       const fallbackRes = await fetch(url, {

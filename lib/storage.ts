@@ -1,5 +1,11 @@
 import { createClient } from '@supabase/supabase-js'
-import type { AppState, Store } from './types'
+import type { AppState, Store, Payment } from './types'
+
+function stripRawData(payment: Payment): Payment {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { rawData: _, ...rest } = payment
+  return rest as Payment
+}
 
 // Supabase schema required:
 // CREATE TABLE kv_store (
@@ -76,10 +82,31 @@ export async function saveState(state: AppState): Promise<void> {
   if (state.matchLog.length > 500) {
     state.matchLog = state.matchLog.slice(-500)
   }
-  if (state.processedPayments.length > 2000) {
-    state.processedPayments = state.processedPayments.slice(-2000)
+  if (state.processedPayments.length > 5000) {
+    state.processedPayments = state.processedPayments.slice(-5000)
   }
-  await kvSet(STATE_KEY, state)
+  if (state.unmatchedPayments.length > 1000) {
+    // Keep the most recent 1000 unmatched payments
+    state.unmatchedPayments = state.unmatchedPayments.slice(-1000)
+  }
+  // Strip rawData from all Payment objects to prevent state bloat
+  // (raw MP payment JSON is ~5-10KB per payment; with thousands of payments this would exceed Supabase limits)
+  const clean: AppState = {
+    ...state,
+    unmatchedPayments: state.unmatchedPayments.map(u => ({
+      ...u,
+      payment: stripRawData(u.payment),
+    })),
+    pendingMatches: state.pendingMatches.map(m => ({
+      ...m,
+      payment: stripRawData(m.payment),
+    })),
+    matchLog: state.matchLog.map(e => ({
+      ...e,
+      payment: e.payment ? stripRawData(e.payment) : undefined,
+    })),
+  }
+  await kvSet(STATE_KEY, clean)
 }
 
 export function getMatchId(entry: { mpPaymentId?: string }): string {

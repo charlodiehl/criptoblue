@@ -20,10 +20,18 @@ export async function processMPPayments(): Promise<CycleResult> {
   const [state, stores] = await Promise.all([loadState(), getStores()])
 
   const now = new Date()
-  const maxLookback = new Date(now.getTime() - 48 * 60 * 60 * 1000)
+  const cutoff48h = new Date(now.getTime() - 48 * 60 * 60 * 1000)
+
+  // Purge unmatched payments older than 48h
+  state.unmatchedPayments = state.unmatchedPayments.filter(u => {
+    const date = u.payment.fechaPago ? new Date(u.payment.fechaPago) : new Date(u.timestamp)
+    return date >= cutoff48h
+  })
+
+  // Always fetch last 48 hours
   const sinceDate = state.lastMPCheck
-    ? new Date(Math.max(new Date(state.lastMPCheck).getTime(), maxLookback.getTime()))
-    : maxLookback
+    ? new Date(Math.max(new Date(state.lastMPCheck).getTime(), cutoff48h.getTime()))
+    : cutoff48h
 
   let payments
   try {
@@ -177,9 +185,6 @@ export async function processMPPayments(): Promise<CycleResult> {
 
   state.processedPayments = Array.from(processedSet)
   state.lastMPCheck = now.toISOString()
-
-  if (state.matchLog.length > 500) state.matchLog = state.matchLog.slice(-500)
-  if (state.processedPayments.length > 2000) state.processedPayments = state.processedPayments.slice(-2000)
 
   await saveState(state)
 

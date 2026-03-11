@@ -37,6 +37,7 @@ export async function GET() {
       paidVolumeThisMonth,
       pendingOrders,
       pendingPayments,
+      lastMPCheck: state.lastMPCheck || null,
     })
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 })
