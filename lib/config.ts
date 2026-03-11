@@ -15,8 +15,5 @@ export const CONFIG = {
     amountTolerancePct: 1,
     timingWindowHours: 48,
   },
-  openrouter: {
-    apiKey: process.env.OPENROUTER_API_KEY || '',
-    model: process.env.OPENROUTER_MODEL || 'moonshotai/kimi-k2.5',
-  },
+
 }
