@@ -227,7 +227,7 @@ export default function Dashboard() {
       const res = await fetch('/api/reevaluar', { method: 'POST' })
       const data = await res.json()
       if (data.success) {
-        addToast(`Reevaluado: ${data.processed} pagos procesados, ${data.noMatch} sin match`, 'success')
+        addToast(`Actualizado: ${data.processed} pagos procesados, ${data.noMatch} sin match`, 'success')
         await Promise.all([fetchUnmatched(), fetchOrders(), fetchStatus()])
       } else {
         addToast(`Error al reevaluar: ${data.error}`, 'error')
@@ -335,8 +335,20 @@ export default function Dashboard() {
             </span>
           </div>
 
-          {/* RIGHT: Tiendas dropdown */}
-          <div className="flex items-center justify-end">
+          {/* RIGHT: Actualizar + Tiendas dropdown */}
+          <div className="flex items-center justify-end gap-2">
+            <button
+              onClick={handleReevaluar}
+              disabled={actionLoading}
+              className="flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-medium transition-all disabled:opacity-50"
+              style={{
+                background: 'rgba(0,212,255,0.08)',
+                border: '1px solid rgba(0,212,255,0.25)',
+                color: '#00d4ff',
+              }}
+            >
+              {actionLoading ? '...' : '↻ Actualizar'}
+            </button>
             <div ref={storesMenuRef} className="relative">
               <button
                 onClick={() => { setStoresOpen(v => !v); if (!storesOpen) fetchStores() }}
@@ -486,7 +498,7 @@ export default function Dashboard() {
 
         {/* Tab content */}
         <div>
-          {tab === 'manual' && <ManualMatchTab unmatchedPayments={unmatchedPayments} orders={orders} onManualMatch={handleManualMatch} onDismissPayment={handleDismissPayment} onMarkOrderPaid={handleMarkOrderPaid} onRefresh={handleReevaluar} loading={actionLoading} lastMPCheck={stats?.lastMPCheck ?? null} />}
+          {tab === 'manual' && <ManualMatchTab unmatchedPayments={unmatchedPayments} orders={orders} onManualMatch={handleManualMatch} onDismissPayment={handleDismissPayment} onMarkOrderPaid={handleMarkOrderPaid} loading={actionLoading} lastMPCheck={stats?.lastMPCheck ?? null} />}
           {tab === 'ordenes' && <OrdersListTab orders={orders} />}
           {tab === 'pagos' && <PaymentsListTab payments={unmatchedPayments} />}
         </div>

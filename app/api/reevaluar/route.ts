@@ -1,10 +1,20 @@
 import { NextResponse } from 'next/server'
 import { processMPPayments } from '@/lib/cycle'
+import { loadState, saveState } from '@/lib/storage'
 
 export const maxDuration = 60
 
 export async function POST() {
   try {
+    // Reset all paid/pending data, then re-sync last 48h fresh
+    const state = await loadState()
+    state.matchLog = state.matchLog.filter(e => e.action !== 'auto_paid' && e.action !== 'manual_paid')
+    state.pendingMatches = []
+    state.unmatchedPayments = []
+    state.processedPayments = []
+    state.lastMPCheck = ''
+    await saveState(state)
+
     const result = await processMPPayments()
     return NextResponse.json({ success: true, ...result })
   } catch (err) {

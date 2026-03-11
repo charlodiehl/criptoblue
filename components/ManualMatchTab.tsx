@@ -73,20 +73,55 @@ interface Signal {
   match: boolean
   partial: boolean
   unavailable: boolean
+  timeMinutes?: number
+}
+
+function extractDniDigits(s: string): string {
+  const d = s.replace(/\D/g, '')
+  return d.length === 11 ? d.slice(2, 10) : d
+}
+
+function cuitMatch(a: string, b: string): boolean {
+  const da = a.replace(/\D/g, '')
+  const db = b.replace(/\D/g, '')
+  if (!da || !db) return false
+  if (da === db) return true
+  if (da.length === 11 && extractDniDigits(da) === db) return true
+  if (db.length === 11 && extractDniDigits(db) === da) return true
+  const [shorter, longer] = da.length <= db.length ? [da, db] : [db, da]
+  return shorter.length >= 6 && longer.includes(shorter)
+}
+
+function emailLocalTokens(email: string): string[] {
+  return (email.split('@')[0] || '').toLowerCase().replace(/[^a-z]/g, ' ').split(' ').filter(t => t.length >= 3)
+}
+
+function emailMatchesName(email: string, name: string): boolean {
+  const et = emailLocalTokens(email)
+  if (!et.length) return false
+  const nt = name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z]/g, ' ').split(' ').filter(t => t.length >= 3)
+  return et.some(e => nt.some(n => e === n || (e.length > 3 && n.length > 3 && e.slice(0, 4) === n.slice(0, 4))))
 }
 
 function computeSignals(payment: Payment, order: Order): Signal[] {
   const diff = Math.abs(payment.monto - order.total)
   const ns = nameSim(payment.nombrePagador, order.customerName)
   const hasCuit = !!(payment.cuitPagador && order.customerCuit)
-  const cuitOk = hasCuit &&
-    payment.cuitPagador.replace(/[-\s]/g, '') === order.customerCuit.replace(/[-\s]/g, '')
+  const cuitOk = hasCuit && cuitMatch(payment.cuitPagador, order.customerCuit)
   const hasEmail = !!(payment.emailPagador && order.customerEmail)
-  const emailOk = hasEmail &&
-    payment.emailPagador.toLowerCase() === order.customerEmail.toLowerCase()
+  const emailExact = hasEmail && payment.emailPagador.toLowerCase() === order.customerEmail.toLowerCase()
+  const emailCross = !emailExact && (
+    (payment.emailPagador ? emailMatchesName(payment.emailPagador, order.customerName) : false) ||
+    (order.customerEmail ? emailMatchesName(order.customerEmail, payment.nombrePagador) : false)
+  )
+
   const payTime = payment.fechaPago ? new Date(payment.fechaPago).getTime() : 0
   const ordTime = order.createdAt ? new Date(order.createdAt).getTime() : 0
-  const hourDiff = payTime && ordTime ? Math.abs(payTime - ordTime) / 3600000 : 999
+  const minDiff = payTime && ordTime ? Math.round(Math.abs(payTime - ordTime) / 60000) : -1
+
+  const timeValue = minDiff < 0 ? 'No disponible'
+    : minDiff < 60 ? `${minDiff} min`
+    : `${Math.round(minDiff / 60)}h ${minDiff % 60}min`
 
   return [
     {
@@ -108,15 +143,16 @@ function computeSignals(payment: Payment, order: Order): Signal[] {
     },
     {
       label: 'Fecha / Hora',
-      value: !payTime || !ordTime
-        ? 'No disponible'
-        : hourDiff <= 2 ? 'Cercano' : hourDiff <= 24 ? `~${Math.round(hourDiff)}h de dif.` : 'Lejano',
-      match: hourDiff <= 2, partial: hourDiff <= 24, unavailable: !payTime || !ordTime,
+      value: timeValue,
+      match: minDiff >= 0 && minDiff <= 15,
+      partial: minDiff > 15 && minDiff <= 180,
+      unavailable: minDiff < 0,
+      timeMinutes: minDiff,
     },
     {
       label: 'Email',
-      value: !hasEmail ? 'No disponible' : emailOk ? 'Coincide' : 'No coincide',
-      match: emailOk, partial: false, unavailable: !hasEmail,
+      value: !hasEmail ? 'No disponible' : emailExact ? 'Coincide' : emailCross ? 'Nombre en email' : 'No coincide',
+      match: emailExact, partial: emailCross, unavailable: !hasEmail,
     },
   ]
 }
@@ -141,7 +177,6 @@ interface Props {
   onManualMatch: (mpPaymentId: string, orderId: string, storeId: string) => Promise<void>
   onDismissPayment: (mpPaymentId: string) => Promise<void>
   onMarkOrderPaid: (storeId: string, orderId: string) => Promise<void>
-  onRefresh: () => void
   loading: boolean
   lastMPCheck: string | null
 }
@@ -151,7 +186,6 @@ export default function ManualMatchTab({
   orders,
   onManualMatch,
   onDismissPayment,
-  onRefresh,
   loading,
   lastMPCheck,
 }: Props) {
@@ -222,38 +256,9 @@ export default function ManualMatchTab({
               Último sync: {new Date(lastMPCheck).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
             </span>
           ) : (
-            <span style={{ fontSize: '11px', color: 'rgba(239,68,68,0.5)' }}>Sin sync — hacé clic en Reevaluar</span>
+            <span style={{ fontSize: '11px', color: 'rgba(239,68,68,0.5)' }}>Sin sync — usá Actualizar en el menú</span>
           )}
         </div>
-        <button
-          onClick={onRefresh}
-          style={{
-            fontSize: '13px',
-            fontWeight: 600,
-            padding: '7px 18px',
-            borderRadius: '9px',
-            border: '1px solid rgba(0,212,255,0.2)',
-            background: 'rgba(0,212,255,0.05)',
-            color: 'rgba(0,212,255,0.65)',
-            cursor: 'pointer',
-            transition: 'all 0.15s',
-            letterSpacing: '0.04em',
-          }}
-          onMouseEnter={e => {
-            const el = e.currentTarget as HTMLElement
-            el.style.background = 'rgba(0,212,255,0.1)'
-            el.style.color = '#00d4ff'
-            el.style.borderColor = 'rgba(0,212,255,0.35)'
-          }}
-          onMouseLeave={e => {
-            const el = e.currentTarget as HTMLElement
-            el.style.background = 'rgba(0,212,255,0.05)'
-            el.style.color = 'rgba(0,212,255,0.65)'
-            el.style.borderColor = 'rgba(0,212,255,0.2)'
-          }}
-        >
-          ↻ Reevaluar
-        </button>
       </div>
 
       {/* Column labels */}
