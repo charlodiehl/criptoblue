@@ -25,7 +25,9 @@ interface Props {
 
 export default function OrdersListTab({ orders }: Props) {
   const now = Date.now()
-  const recent = orders.filter(o => o.createdAt && (now - new Date(o.createdAt).getTime()) <= HOURS_48)
+  const recent = orders
+    .filter(o => o.createdAt && (now - new Date(o.createdAt).getTime()) <= HOURS_48)
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
 
   if (recent.length === 0) {
     return (

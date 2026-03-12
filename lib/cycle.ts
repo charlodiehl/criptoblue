@@ -26,10 +26,16 @@ export async function processMPPayments(): Promise<CycleResult> {
     return date >= cutoff48h
   })
 
-  // Always fetch last 48 hours
-  const sinceDate = state.lastMPCheck
-    ? new Date(Math.max(new Date(state.lastMPCheck).getTime(), cutoff48h.getTime()))
-    : cutoff48h
+  // Purge pendingMatches older than 48h (por matchedAt o por createdAt de la orden)
+  state.pendingMatches = state.pendingMatches.filter(m => {
+    const matchDate = m.matchedAt ? new Date(m.matchedAt) : null
+    const orderDate = m.order?.createdAt ? new Date(m.order.createdAt) : null
+    const ref = matchDate || orderDate
+    return ref ? ref >= cutoff48h : true
+  })
+
+  // Siempre traer las últimas 48h desde MP
+  const sinceDate = cutoff48h
 
   let payments
   try {
@@ -45,8 +51,9 @@ export async function processMPPayments(): Promise<CycleResult> {
   result.processed = newPayments.length
 
   const storeEntries = Object.values(stores)
+  // Traer solo órdenes con payment_status=pending de las últimas 48h
   const allOrdersPerStore = await Promise.allSettled(
-    storeEntries.map(s => getPendingOrders(s.storeId, s.accessToken, s.storeName))
+    storeEntries.map(s => getPendingOrders(s.storeId, s.accessToken, s.storeName, 48))
   )
 
   const allOrders = allOrdersPerStore.flatMap((r, i) => {
@@ -55,7 +62,7 @@ export async function processMPPayments(): Promise<CycleResult> {
     return []
   })
 
-  // Purge pendingMatches whose order is no longer pending in TiendaNube (already paid or cancelled)
+  // Purge pendingMatches cuya orden ya no está en estado pending en TiendaNube (canceladas o pagadas)
   const pendingOrderIds = new Set(allOrders.map(o => o.orderId))
   state.pendingMatches = state.pendingMatches.filter(m => pendingOrderIds.has(m.order.orderId))
 

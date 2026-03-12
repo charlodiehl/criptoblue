@@ -8,7 +8,7 @@ export async function GET() {
     const storeList = Object.values(stores)
 
     const results = await Promise.allSettled(
-      storeList.map(s => getPendingOrders(s.storeId, s.accessToken, s.storeName))
+      storeList.map(s => getPendingOrders(s.storeId, s.accessToken, s.storeName, 48))
     )
 
     const orders = results.flatMap((r, i) => {
