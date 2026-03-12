@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import type { LogEntry } from '@/lib/types'
 
 function fmtDate(iso: string) {
@@ -37,22 +37,81 @@ function nombrePagador(entry: LogEntry): string {
   return entry.payment?.nombrePagador || entry.order?.customerName || entry.customerName || ''
 }
 
+type SortKey = 'fecha' | 'monto' | 'cuit' | 'nombre' | 'tienda' | 'orden' | 'billetera'
+type SortDir = 'asc' | 'desc'
+
+const PAGE_SIZE = 25
+
 interface Props {
   entries: LogEntry[]
 }
 
-const HEADERS = ['Fecha y hora', 'Monto', 'CUIT/CUIL/DNI', 'Nombre y apellido', 'Tienda', 'Número de orden', 'Billetera']
+const COLUMNS: { label: string; key: SortKey }[] = [
+  { label: 'Fecha y hora',      key: 'fecha'     },
+  { label: 'Monto',             key: 'monto'     },
+  { label: 'CUIT/CUIL/DNI',     key: 'cuit'      },
+  { label: 'Nombre y apellido', key: 'nombre'    },
+  { label: 'Tienda',            key: 'tienda'    },
+  { label: 'Número de orden',   key: 'orden'     },
+  { label: 'Billetera',         key: 'billetera' },
+]
+
+const HEADERS = COLUMNS.map(c => c.label)
+
+function getSortValue(e: LogEntry, key: SortKey): string | number {
+  switch (key) {
+    case 'fecha':     return new Date(e.payment?.fechaPago || e.timestamp).getTime()
+    case 'monto':     return e.payment?.monto ?? e.amount ?? 0
+    case 'cuit':      return Number(fmtCuit(e.payment?.cuitPagador || '')) || 0
+    case 'nombre':    return nombrePagador(e).toLowerCase()
+    case 'tienda':    return (e.storeName || e.order?.storeName || '').toLowerCase()
+    case 'orden':     return Number((e.orderNumber || e.order?.orderNumber || '').replace(/\D/g, '')) || 0
+    case 'billetera': return billetera(e).toLowerCase()
+  }
+}
+
+// Default first-click direction per column
+const DEFAULT_DIR: Record<SortKey, SortDir> = {
+  fecha:     'desc',
+  monto:     'desc',
+  cuit:      'desc',
+  nombre:    'asc',
+  tienda:    'asc',
+  orden:     'desc',
+  billetera: 'asc',
+}
 
 export default function RegistroTab({ entries }: Props) {
   const [copied, setCopied] = useState(false)
+  const [sortKey, setSortKey] = useState<SortKey>('fecha')
+  const [sortDir, setSortDir] = useState<SortDir>('desc')
+  const [page, setPage] = useState(1)
 
-  const paid = entries
-    .filter(e => e.action === 'manual_paid' || e.action === 'auto_paid')
-    .sort((a, b) => {
-      const da = a.payment?.fechaPago || a.timestamp
-      const db = b.payment?.fechaPago || b.timestamp
-      return new Date(db).getTime() - new Date(da).getTime()
+  const paid = useMemo(() => {
+    const filtered = entries.filter(e => e.action === 'manual_paid' || e.action === 'auto_paid')
+    return filtered.sort((a, b) => {
+      const va = getSortValue(a, sortKey)
+      const vb = getSortValue(b, sortKey)
+      let cmp = 0
+      if (typeof va === 'number' && typeof vb === 'number') cmp = va - vb
+      else cmp = String(va).localeCompare(String(vb), 'es-AR')
+      return sortDir === 'asc' ? cmp : -cmp
     })
+  }, [entries, sortKey, sortDir])
+
+  const totalPages = Math.max(1, Math.ceil(paid.length / PAGE_SIZE))
+  const safePage = Math.min(page, totalPages)
+  const pageRows = paid.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
+
+  const handleSort = (key: SortKey) => {
+    if (key === sortKey) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortKey(key)
+      setSortDir(DEFAULT_DIR[key])
+    }
+    setPage(1)
+  }
 
   const handleCopy = () => {
     const rows = paid.map(e => [
@@ -118,28 +177,35 @@ export default function RegistroTab({ entries }: Props) {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
             <thead>
               <tr>
-                {HEADERS.map(h => (
-                  <th
-                    key={h}
-                    style={{
-                      textAlign: 'left',
-                      padding: '10px 14px',
-                      fontSize: '10px',
-                      fontWeight: 700,
-                      letterSpacing: '0.15em',
-                      textTransform: 'uppercase',
-                      color: 'rgba(0,212,255,0.5)',
-                      borderBottom: '1px solid rgba(255,255,255,0.06)',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {h}
-                  </th>
-                ))}
+                {COLUMNS.map(col => {
+                  const active = sortKey === col.key
+                  const arrow = active ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ''
+                  return (
+                    <th
+                      key={col.key}
+                      onClick={() => handleSort(col.key)}
+                      style={{
+                        textAlign: 'left',
+                        padding: '10px 14px',
+                        fontSize: '10px',
+                        fontWeight: 700,
+                        letterSpacing: '0.15em',
+                        textTransform: 'uppercase',
+                        color: active ? 'rgba(0,212,255,0.9)' : 'rgba(0,212,255,0.5)',
+                        borderBottom: '1px solid rgba(255,255,255,0.06)',
+                        whiteSpace: 'nowrap',
+                        cursor: 'pointer',
+                        userSelect: 'none',
+                      }}
+                    >
+                      {col.label}{arrow}
+                    </th>
+                  )
+                })}
               </tr>
             </thead>
             <tbody>
-              {paid.map((e, i) => {
+              {pageRows.map((e, i) => {
                 const fecha = fmtDate(e.payment?.fechaPago || e.timestamp)
                 const monto = fmtMontoDisplay(e.payment?.monto ?? e.amount ?? 0)
                 const cuit = fmtCuit(e.payment?.cuitPagador || '')
@@ -168,6 +234,72 @@ export default function RegistroTab({ entries }: Props) {
               })}
             </tbody>
           </table>
+
+          {/* Paginador */}
+          {totalPages > 1 && (
+            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '6px', padding: '20px 0 4px' }}>
+              {/* Anterior */}
+              <button
+                onClick={() => setPage(p => Math.max(1, p - 1))}
+                disabled={safePage === 1}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: '8px',
+                  border: '1px solid rgba(255,255,255,0.08)',
+                  background: 'transparent',
+                  color: safePage === 1 ? 'rgba(148,163,184,0.2)' : 'rgba(148,163,184,0.5)',
+                  fontSize: '13px',
+                  cursor: safePage === 1 ? 'default' : 'pointer',
+                  transition: 'all 0.15s',
+                }}
+              >
+                ‹
+              </button>
+
+              {/* Números de página */}
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map(n => {
+                const isActive = n === safePage
+                return (
+                  <button
+                    key={n}
+                    onClick={() => setPage(n)}
+                    style={{
+                      minWidth: '34px',
+                      padding: '6px 4px',
+                      borderRadius: '8px',
+                      border: isActive ? '1px solid rgba(0,212,255,0.4)' : '1px solid rgba(255,255,255,0.06)',
+                      background: isActive ? 'rgba(0,212,255,0.1)' : 'transparent',
+                      color: isActive ? '#00d4ff' : 'rgba(148,163,184,0.45)',
+                      fontSize: '13px',
+                      fontWeight: isActive ? 700 : 400,
+                      cursor: 'pointer',
+                      transition: 'all 0.15s',
+                    }}
+                  >
+                    {n}
+                  </button>
+                )
+              })}
+
+              {/* Siguiente */}
+              <button
+                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                disabled={safePage === totalPages}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: '8px',
+                  border: '1px solid rgba(255,255,255,0.08)',
+                  background: 'transparent',
+                  color: safePage === totalPages ? 'rgba(148,163,184,0.2)' : 'rgba(148,163,184,0.5)',
+                  fontSize: '13px',
+                  cursor: safePage === totalPages ? 'default' : 'pointer',
+                  transition: 'all 0.15s',
+                }}
+              >
+                ›
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

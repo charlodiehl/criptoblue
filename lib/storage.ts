@@ -98,9 +98,8 @@ export async function loadState(): Promise<AppState> {
 }
 
 export async function saveState(state: AppState): Promise<void> {
-  if (state.matchLog.length > 500) {
-    state.matchLog = state.matchLog.slice(-500)
-  }
+  const cutoff48h = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString()
+  state.matchLog = state.matchLog.filter(e => e.timestamp >= cutoff48h)
   if (state.processedPayments.length > 5000) {
     state.processedPayments = state.processedPayments.slice(-5000)
   }
