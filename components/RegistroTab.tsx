@@ -20,9 +20,9 @@ function fmtMontoDisplay(n: number) {
   return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 0 }).format(n)
 }
 
-// Para el TSV: miles con punto, sin decimales, sin símbolo
+// Para el TSV: punto como decimal, sin separador de miles → Google Sheets lo interpreta correctamente
 function fmtMontoTSV(n: number) {
-  return Math.round(n).toLocaleString('es-AR', { useGrouping: true })
+  return n.toFixed(2).replace(/\.?0+$/, '')
 }
 
 function fmtCuit(s: string) {
