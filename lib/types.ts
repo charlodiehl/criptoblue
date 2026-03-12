@@ -79,6 +79,7 @@ export interface AppState {
   matchLog: LogEntry[]
   pendingMatches: PendingMatch[]
   unmatchedPayments: UnmatchedPayment[]
+  dismissedOrders: string[]
   lastMPCheck: string
   settings: Record<string, unknown>
 }

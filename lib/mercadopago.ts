@@ -40,30 +40,23 @@ export async function searchPayments({ hours = 48, limit = 50, status = 'approve
   return data as { results: unknown[]; paging: { total: number; limit: number; offset: number } }
 }
 
-// Devuelve null si el pago es un egreso o auto-transferencia (payer === collector).
-// Esto filtra recargas de cuenta propia ("account_fund") y envíos de dinero.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function normalizePayment(raw: any): Payment | null {
-  // Si payer.id === collector_id el dueño de la cuenta se transfiere a sí mismo → no es un cobro
-  if (raw.payer?.id && raw.collector_id && String(raw.payer.id) === String(raw.collector_id)) {
-    return null
-  }
-
   const firstName = raw.payer?.first_name || ''
   const lastName = raw.payer?.last_name || ''
   const fullName = [firstName, lastName].filter(Boolean).join(' ').trim()
 
-  // Si el email del payer coincide con el del collector, es un pago propio → dejar vacío
   const collectorEmail = raw.collector?.email || ''
   const payerEmail = raw.payer?.email || ''
-  const emailPagador = (payerEmail && payerEmail !== collectorEmail) ? payerEmail : ''
+  const OWNER_EMAIL = 'compubairestore@gmail.com'
+  const emailPagador = (payerEmail && payerEmail !== collectorEmail && payerEmail !== OWNER_EMAIL) ? payerEmail : ''
 
   return {
     mpPaymentId: String(raw.id),
     monto: raw.transaction_amount,
     nombrePagador: fullName,
     emailPagador,
-    cuitPagador: raw.payer?.identification?.number || '',
+    cuitPagador: (raw.payer?.identification?.number && raw.payer.identification.number !== '20190997252') ? raw.payer.identification.number : '',
     referencia: raw.external_reference || '',
     operationId: raw.order?.id ? String(raw.order.id) : '',
     metodoPago: `${raw.payment_method_id || ''} / ${raw.payment_type_id || ''}`,
@@ -81,9 +74,9 @@ export async function fetchAllPaymentsSince(sinceDate: Date): Promise<Payment[]>
   while (true) {
     const endDate = new Date()
     const url = new URL(`${CONFIG.mercadopago.apiBase}/v1/payments/search`)
-    url.searchParams.set('sort', 'date_created')
+    url.searchParams.set('sort', 'date_approved')
     url.searchParams.set('criteria', 'desc')
-    url.searchParams.set('range', 'date_created')
+    url.searchParams.set('range', 'date_approved')
     url.searchParams.set('begin_date', sinceDate.toISOString())
     url.searchParams.set('end_date', endDate.toISOString())
     url.searchParams.set('limit', String(limit))
@@ -105,7 +98,7 @@ export async function fetchAllPaymentsSince(sinceDate: Date): Promise<Payment[]>
     if (results.length === 0) break
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const normalized = results.map((r: any) => normalizePayment(r)).filter((p): p is Payment => p !== null)
+    const normalized = (results as any[]).map((r) => normalizePayment(r)).filter((p): p is Payment => p !== null)
     payments.push(...normalized)
     offset += results.length
 

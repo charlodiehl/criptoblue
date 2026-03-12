@@ -77,7 +77,7 @@ function StatCard({ label, sublabel, value, format, color, glow, borderColor, ic
   )
 }
 
-export default function StatsBar({ stats }: { stats: Stats | null }) {
+export default function StatsBar({ stats, pendingPairs, ordersCount }: { stats: Stats | null; pendingPairs: number; ordersCount: number }) {
   const s = stats || { paidThisMonth: 0, paidVolumeThisMonth: 0, pendingOrders: 0, pendingPayments: 0 }
 
   const now = new Date()
@@ -100,9 +100,9 @@ export default function StatsBar({ stats }: { stats: Stats | null }) {
         delay={0}
       />
       <StatCard
-        label="Pagos en cola"
-        sublabel="Pendientes de confirmar manualmente"
-        value={s.pendingOrders}
+        label="Emparejamientos pendientes"
+        sublabel="Pagos con ≥2 señales coincidentes con una orden"
+        value={pendingPairs}
         color="#f59e0b"
         glow="0 0 20px rgba(245,158,11,0.08)"
         borderColor="rgba(245,158,11,0.2)"
@@ -114,9 +114,9 @@ export default function StatsBar({ stats }: { stats: Stats | null }) {
         delay={0.06}
       />
       <StatCard
-        label="Pagos pendientes"
-        sublabel={`Sin identificar este mes (${monthName})`}
-        value={s.pendingPayments}
+        label="Órdenes sin identificar"
+        sublabel="Pendientes de pago · últimas 48hs"
+        value={ordersCount}
         color="#f87171"
         glow="0 0 20px rgba(248,113,113,0.08)"
         borderColor="rgba(248,113,113,0.2)"

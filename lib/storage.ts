@@ -46,13 +46,31 @@ const DEFAULT_STATE: AppState = {
   matchLog: [],
   pendingMatches: [],
   unmatchedPayments: [],
+  dismissedOrders: [],
   lastMPCheck: '',
   settings: {},
 }
 
+// Nombres manuales para tiendas que la API de TN no devuelve bien
+const STORE_NAME_OVERRIDES: Record<string, string> = {
+  '5512981': 'Perla',
+}
+
 export async function getStores(): Promise<Record<string, Store>> {
   const stores = await kvGet<Record<string, Store>>(STORES_KEY)
-  return stores || {}
+  if (!stores) return {}
+
+  let modified = false
+  for (const [id, store] of Object.entries(stores)) {
+    const override = STORE_NAME_OVERRIDES[id]
+    if (override && store.storeName !== override) {
+      stores[id] = { ...store, storeName: override }
+      modified = true
+    }
+  }
+  if (modified) await kvSet(STORES_KEY, stores)
+
+  return stores
 }
 
 export async function saveStore(store: Store): Promise<void> {
@@ -75,6 +93,7 @@ export async function loadState(): Promise<AppState> {
     matchLog: state.matchLog || [],
     pendingMatches: state.pendingMatches || [],
     unmatchedPayments: state.unmatchedPayments || [],
+    dismissedOrders: state.dismissedOrders || [],
   }
 }
 

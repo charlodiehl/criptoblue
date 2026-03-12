@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import type { UnmatchedPayment, Order } from '@/lib/types'
 
 const ARS = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 0 })
@@ -33,36 +33,60 @@ function nameSim(a: string, b: string): number {
 
 type Payment = UnmatchedPayment['payment']
 
-function computeScore(payment: Payment, order: Order): number {
+function computeScore(payment: Payment, order: Order, sameMontoCount = -1): number {
   let score = 0
+
+  // Monto
   const diff = Math.abs(payment.monto - order.total)
-  if (diff === 0) score += 40
-  else if (diff <= 10) score += 38
-  else if (diff <= 100) score += 30
-  else if (diff <= 500) score += 20
-  else if (diff <= 1000) score += 10
+  if (diff === 0) score += 20
+  else if (diff <= 10) score += 19
+  else if (diff <= 1000) score += 17
+  else score += 15
 
+  // CUIT / CUIL / DNI
   if (payment.cuitPagador && order.customerCuit) {
-    const a = payment.cuitPagador.replace(/[-\s]/g, '')
-    const b = order.customerCuit.replace(/[-\s]/g, '')
-    if (a === b) score += 30
+    if (cuitMatch(payment.cuitPagador, order.customerCuit)) score += 100
   }
 
-  const ns = nameSim(payment.nombrePagador, order.customerName)
-  score += Math.round(ns * 0.15)
-
+  // Email exacto
   if (payment.emailPagador && order.customerEmail) {
-    if (payment.emailPagador.toLowerCase() === order.customerEmail.toLowerCase()) score += 10
+    if (payment.emailPagador.toLowerCase() === order.customerEmail.toLowerCase()) score += 90
   }
 
-  if (payment.fechaPago && order.createdAt) {
-    const hourDiff = Math.abs(
-      new Date(payment.fechaPago).getTime() - new Date(order.createdAt).getTime()
-    ) / 3600000
-    if (hourDiff <= 2) score += 5
-    else if (hourDiff <= 24) score += 3
-    else if (hourDiff <= 48) score += 1
+  // Reconoce nombre en email (pago sin nombre, email coincide con nombre de orden)
+  if (!payment.nombrePagador && payment.emailPagador && order.customerName) {
+    if (emailMatchesName(payment.emailPagador, order.customerName)) score += 80
   }
+
+  // Nombre (solo cuando el pago tiene nombre)
+  if (payment.nombrePagador && order.customerName) {
+    const ns = nameSim(payment.nombrePagador, order.customerName)
+    if (ns >= 70) score += 50        // nombre exacto / muy similar
+    else if (ns >= 40) score += 10   // nombre parcial
+    // < 40 → +0
+  }
+
+  // Encuentra nombre en email (cuando el pago SÍ tiene nombre, email da cruce adicional)
+  if (payment.nombrePagador) {
+    const emailCross =
+      (payment.emailPagador ? emailMatchesName(payment.emailPagador, order.customerName) : false) ||
+      (order.customerEmail ? emailMatchesName(order.customerEmail, payment.nombrePagador) : false)
+    if (emailCross) score += 10
+  }
+
+  // Fecha / Hora: +20 exacto, -0.01 por minuto, 0 si > 12h o pago antes de la orden
+  if (payment.fechaPago && order.createdAt) {
+    const payTime = new Date(payment.fechaPago).getTime()
+    const ordTime = new Date(order.createdAt).getTime()
+    const diffMin = (payTime - ordTime) / 60000 // positivo = pago después de la orden
+    if (diffMin >= 0 && diffMin <= 720) {
+      score += Math.max(0, 20 - 0.01 * diffMin)
+    }
+    // diffMin < 0 (pago antes) o > 720 → +0
+  }
+
+  // Unicidad de monto: única orden con este monto → +1
+  if (sameMontoCount === 0) score += 1
 
   return score
 }
@@ -123,6 +147,10 @@ function computeSignals(payment: Payment, order: Order): Signal[] {
     : minDiff < 60 ? `${minDiff} min`
     : `${Math.round(minDiff / 60)}h ${minDiff % 60}min`
 
+  const nameViaEmail = !payment.nombrePagador && !!payment.emailPagador && !!order.customerName
+    ? emailMatchesName(payment.emailPagador, order.customerName)
+    : false
+
   return [
     {
       label: 'Monto',
@@ -136,10 +164,14 @@ function computeSignals(payment: Payment, order: Order): Signal[] {
     },
     {
       label: 'Nombre',
-      value: (!payment.nombrePagador || !order.customerName)
-        ? 'No disponible'
-        : ns >= 70 ? 'Coincide' : ns >= 40 ? `Similar (${ns}%)` : 'No coincide',
-      match: ns >= 70, partial: ns >= 40 && ns < 70, unavailable: !payment.nombrePagador || !order.customerName,
+      value: nameViaEmail
+        ? 'coincide con email'
+        : (!payment.nombrePagador || !order.customerName)
+          ? 'No disponible'
+          : ns >= 70 ? 'Coincide' : ns >= 40 ? `Similar (${ns}%)` : 'No coincide',
+      match: ns >= 70,
+      partial: (ns >= 40 && ns < 70) || nameViaEmail,
+      unavailable: !nameViaEmail && (!payment.nombrePagador || !order.customerName),
     },
     {
       label: 'Fecha / Hora',
@@ -177,8 +209,10 @@ interface Props {
   onManualMatch: (mpPaymentId: string, orderId: string, storeId: string) => Promise<void>
   onDismissPayment: (mpPaymentId: string) => Promise<void>
   onMarkOrderPaid: (storeId: string, orderId: string) => Promise<void>
+  onCancelDuplicate: (storeId: string, orderId: string) => Promise<void>
   loading: boolean
   lastMPCheck: string | null
+  refreshKey: number
 }
 
 export default function ManualMatchTab({
@@ -186,22 +220,50 @@ export default function ManualMatchTab({
   orders,
   onManualMatch,
   onDismissPayment,
+  onCancelDuplicate,
   loading,
   lastMPCheck,
+  refreshKey,
 }: Props) {
   const [dismissedMap, setDismissedMap] = useState<Record<string, number>>({})
+
+  useEffect(() => {
+    setDismissedMap({})
+  }, [refreshKey])
 
   const pairs: Pair[] = useMemo(() => {
     // Build all scores
     const allPairs = unmatchedPayments.map(u => {
       const id = u.mpPaymentId || ''
       const skipCount = dismissedMap[id] ?? 0
+      // Precomputar cantidad de órdenes con mismo monto (una sola vez por pago)
+      const totalSameMonto = orders.filter(x => x.total === u.payment.monto).length
+
       const ranked: RankedOrder[] = orders
-        .map(o => ({
-          order: o,
-          score: computeScore(u.payment, o),
-          signals: computeSignals(u.payment, o),
-        }))
+        .filter(o => {
+          if (!u.payment.fechaPago || !o.createdAt) return true
+          const payTime = new Date(u.payment.fechaPago).getTime()
+          const ordTime = new Date(o.createdAt).getTime()
+          // Nunca emparejar un pago con una orden que no existía cuando llegó el pago
+          return payTime >= ordTime
+        })
+        .map(o => {
+          const signals = computeSignals(u.payment, o)
+          const sameMontoCount = totalSameMonto - (o.total === u.payment.monto ? 1 : 0)
+          // Mostrar señal solo cuando monto es el ÚNICO factor verde
+          const montoGreen = signals[0].match
+          const anyOtherGreen = signals.slice(1).some(s => s.match)
+          if (montoGreen && !anyOtherGreen) {
+            signals.push({
+              label: 'Otras órdenes mismo monto',
+              value: sameMontoCount === 0 ? 'Única' : `${sameMontoCount} orden${sameMontoCount !== 1 ? 'es' : ''}`,
+              match: sameMontoCount === 0,
+              partial: sameMontoCount >= 1 && sameMontoCount <= 2,
+              unavailable: false,
+            })
+          }
+          return { order: o, score: computeScore(u.payment, o, sameMontoCount), signals }
+        })
         .sort((a, b) => b.score - a.score)
       return { payment: u, id, ranked, skipCount }
     })
@@ -245,22 +307,6 @@ export default function ManualMatchTab({
 
   return (
     <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-          <span style={{ fontSize: '13px', color: 'rgba(148,163,184,0.4)' }}>
-            {pairs.length} pago{pairs.length !== 1 ? 's' : ''} · {orders.length} orden{orders.length !== 1 ? 'es' : ''}
-          </span>
-          {lastMPCheck ? (
-            <span style={{ fontSize: '11px', color: 'rgba(148,163,184,0.3)' }}>
-              Último sync: {new Date(lastMPCheck).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
-            </span>
-          ) : (
-            <span style={{ fontSize: '11px', color: 'rgba(239,68,68,0.5)' }}>Sin sync — usá Actualizar en el menú</span>
-          )}
-        </div>
-      </div>
-
       {/* Column labels */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px 1fr', gap: '8px', padding: '0 20px' }}>
         {[
@@ -297,6 +343,7 @@ export default function ManualMatchTab({
               onConfirm={handleConfirm}
               onDismissPair={handleDismissPair}
               onDismissPayment={onDismissPayment}
+              onCancelDuplicate={onCancelDuplicate}
               loading={loading}
             />
           ))}
@@ -311,14 +358,17 @@ function PairRow({
   onConfirm,
   onDismissPair,
   onDismissPayment,
+  onCancelDuplicate,
   loading,
 }: {
   pair: Pair
   onConfirm: (paymentId: string, orderId: string, storeId: string) => void
   onDismissPair: (paymentId: string) => void
   onDismissPayment: (paymentId: string) => void
+  onCancelDuplicate: (storeId: string, orderId: string) => void
   loading: boolean
 }) {
+  const [confirmCancel, setConfirmCancel] = useState(false)
   const { payment, id, current } = pair
   const p = payment.payment
 
@@ -480,6 +530,62 @@ function PairRow({
                 <span style={{ fontSize: '14px', color: 'rgba(148,163,184,0.4)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {current.order.storeName}
                 </span>
+              )}
+            </div>
+            <div style={{ marginTop: '12px' }}>
+              {!confirmCancel ? (
+                <button
+                  onClick={() => setConfirmCancel(true)}
+                  disabled={loading}
+                  style={{
+                    fontSize: '11px',
+                    padding: '5px 10px',
+                    borderRadius: '7px',
+                    border: '1px solid rgba(248,113,113,0.18)',
+                    background: 'transparent',
+                    color: 'rgba(248,113,113,0.45)',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s',
+                  }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = 'rgba(248,113,113,0.75)'; (e.currentTarget as HTMLElement).style.borderColor = 'rgba(248,113,113,0.4)' }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'rgba(248,113,113,0.45)'; (e.currentTarget as HTMLElement).style.borderColor = 'rgba(248,113,113,0.18)' }}
+                >
+                  orden duplicada
+                </button>
+              ) : (
+                <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                  <span style={{ fontSize: '11px', color: 'rgba(248,113,113,0.7)' }}>¿Cancelar en TN?</span>
+                  <button
+                    onClick={() => { onCancelDuplicate(current.order.storeId, current.order.orderId); setConfirmCancel(false) }}
+                    disabled={loading}
+                    style={{
+                      fontSize: '11px',
+                      padding: '4px 10px',
+                      borderRadius: '6px',
+                      border: '1px solid rgba(248,113,113,0.5)',
+                      background: 'rgba(248,113,113,0.1)',
+                      color: '#f87171',
+                      cursor: 'pointer',
+                      fontWeight: 700,
+                    }}
+                  >
+                    Sí, cancelar
+                  </button>
+                  <button
+                    onClick={() => setConfirmCancel(false)}
+                    style={{
+                      fontSize: '11px',
+                      padding: '4px 8px',
+                      borderRadius: '6px',
+                      border: '1px solid rgba(255,255,255,0.08)',
+                      background: 'transparent',
+                      color: 'rgba(148,163,184,0.4)',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    No
+                  </button>
+                </div>
               )}
             </div>
           </>

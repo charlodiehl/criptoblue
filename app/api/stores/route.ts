@@ -10,15 +10,23 @@ async function fetchStoreName(storeId: string, accessToken: string): Promise<str
         'User-Agent': CONFIG.tiendanube.userAgent,
       },
     })
-    if (!res.ok) return null
-    const data = await res.json()
-    const name = data.name
-    if (typeof name === 'string') return name
-    if (name && typeof name === 'object') {
-      return name.es || name.pt || Object.values(name).find((v): v is string => typeof v === 'string') || null
+    if (!res.ok) {
+      console.error(`[stores] fetchStoreName ${storeId} → HTTP ${res.status}`)
+      return null
     }
+    const data = await res.json()
+    // TN puede devolver el nombre como string, objeto multilingual, o en business_name
+    const name = data.name
+    if (typeof name === 'string' && name) return name
+    if (name && typeof name === 'object') {
+      const fromName = name.es || name.pt || Object.values(name).find((v): v is string => typeof v === 'string') || null
+      if (fromName) return fromName
+    }
+    if (typeof data.business_name === 'string' && data.business_name) return data.business_name
+    console.error(`[stores] fetchStoreName ${storeId} → no name field found, data keys:`, Object.keys(data))
     return null
-  } catch {
+  } catch (err) {
+    console.error(`[stores] fetchStoreName ${storeId} → exception:`, err)
     return null
   }
 }
@@ -26,19 +34,23 @@ async function fetchStoreName(storeId: string, accessToken: string): Promise<str
 export async function GET() {
   try {
     const stores = await getStores()
-    // Refresh names for stores that have fallback names (e.g. "Tienda 5512981")
-    let updated = false
-    for (const store of Object.values(stores)) {
-      if (store.storeName.startsWith('Tienda ') && store.accessToken) {
-        const name = await fetchStoreName(store.storeId, store.accessToken)
-        if (name) {
-          store.storeName = name
-          updated = true
-        }
-      }
-    }
-    if (updated) await saveStores(stores)
     return NextResponse.json(Object.values(stores))
+  } catch (err) {
+    return NextResponse.json({ error: String(err) }, { status: 500 })
+  }
+}
+
+export async function PATCH(req: NextRequest) {
+  try {
+    const { storeId, storeName } = await req.json()
+    if (!storeId || !storeName) return NextResponse.json({ error: 'storeId and storeName required' }, { status: 400 })
+
+    const stores = await getStores()
+    if (!stores[storeId]) return NextResponse.json({ error: 'Store not found' }, { status: 404 })
+
+    stores[storeId].storeName = storeName
+    await saveStores(stores)
+    return NextResponse.json({ success: true })
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 })
   }

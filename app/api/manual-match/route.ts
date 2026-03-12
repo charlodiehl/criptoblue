@@ -31,10 +31,7 @@ export async function POST(req: NextRequest) {
       // order not found in pending, continue anyway
     }
 
-    const tnResult = await markOrderAsPaid(storeId, store.accessToken, orderId, {
-      mpPaymentId: payment.mpPaymentId,
-      amount: payment.monto,
-    })
+    const tnResult = await markOrderAsPaid(storeId, store.accessToken, orderId)
 
     console.log('[manual-match] TN result:', JSON.stringify(tnResult))
 

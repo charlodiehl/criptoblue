@@ -59,7 +59,6 @@ export async function markOrderAsPaid(
   storeId: string,
   accessToken: string,
   orderId: string,
-  paymentData?: { mpPaymentId?: string; amount?: number }
 ): Promise<{ success: boolean; method: 'status' | 'note'; error?: string }> {
   const url = `${CONFIG.tiendanube.apiBase}/${storeId}/orders/${orderId}`
 
@@ -67,67 +66,78 @@ export async function markOrderAsPaid(
     const res = await fetch(url, {
       method: 'PUT',
       headers: tnHeaders(accessToken),
-      body: JSON.stringify({ payment_status: 'paid' }),
+      body: JSON.stringify({ status: 'paid' }),
     })
 
     if (res.ok) {
       const body = await res.json().catch(() => null)
-      const actualStatus = body?.payment_status
+      const actualStatus = body?.status
       const gateway = body?.gateway_name || body?.gateway
-      console.log('[tiendanube] markOrderAsPaid PUT 200 → payment_status:', actualStatus, '| gateway:', gateway, '| order:', orderId)
-
-      if (actualStatus && actualStatus !== 'paid') {
-        // TN returned 200 but silently ignored the payment_status field — add a note as fallback
-        console.warn('[tiendanube] TN ignored payment_status change (still:', actualStatus, ') for gateway:', gateway, '— falling back to note')
-        const note = paymentData
-          ? `PAGO CONFIRMADO - MP ID: ${paymentData.mpPaymentId || 'N/A'} | Monto: $${paymentData.amount || 'N/A'} | Marcado manualmente via CriptoBlue`
-          : 'PAGO CONFIRMADO por CriptoBlue'
-        const noteRes = await fetch(url, {
-          method: 'PUT',
-          headers: tnHeaders(accessToken),
-          body: JSON.stringify({ owner_note: note }),
-        })
-        if (noteRes.ok) {
-          return { success: true, method: 'note' }
-        }
-      }
+      console.log('[tiendanube] markOrderAsPaid PUT 200 → status:', actualStatus, '| gateway:', gateway, '| order:', orderId)
       return { success: true, method: 'status' }
     }
 
-    if (res.status === 403 || res.status === 422) {
-      const errBody = await res.text()
-      console.error(`[tiendanube] markOrderAsPaid got ${res.status} for order ${orderId}:`, errBody)
-      const note = paymentData
-        ? `PAGO CONFIRMADO - MP ID: ${paymentData.mpPaymentId || 'N/A'} | Monto: $${paymentData.amount || 'N/A'} | Marcado manualmente via CriptoBlue`
-        : 'PAGO CONFIRMADO por CriptoBlue'
-
-      const fallbackRes = await fetch(url, {
-        method: 'PUT',
-        headers: tnHeaders(accessToken),
-        body: JSON.stringify({ owner_note: note }),
-      })
-
-      if (fallbackRes.ok) {
-        return { success: true, method: 'note' }
-      }
-
-      const errText = await fallbackRes.text()
-      return { success: false, method: 'note', error: `Fallback failed: ${errText}` }
-    }
-
     const errText = await res.text()
+    console.error(`[tiendanube] markOrderAsPaid got ${res.status} for order ${orderId}:`, errText)
     return { success: false, method: 'status', error: `Status ${res.status}: ${errText}` }
   } catch (err) {
     return { success: false, method: 'status', error: String(err) }
   }
 }
 
-export async function cancelOrder(storeId: string, accessToken: string, orderId: string): Promise<boolean> {
+export async function cancelOrder(storeId: string, accessToken: string, orderId: string, note?: string): Promise<boolean> {
   const url = `${CONFIG.tiendanube.apiBase}/${storeId}/orders/${orderId}`
   const res = await fetch(url, {
     method: 'PUT',
     headers: tnHeaders(accessToken),
     body: JSON.stringify({ status: 'cancelled' }),
   })
-  return res.ok
+  if (!res.ok) return false
+
+  if (note) {
+    await fetch(url, {
+      method: 'PUT',
+      headers: tnHeaders(accessToken),
+      body: JSON.stringify({ owner_note: note }),
+    })
+  }
+
+  return true
+}
+
+/**
+ * Cancela en TiendaNube todas las órdenes con payment_status=pending
+ * que tengan más de 48h (consideradas abandonadas).
+ * Busca hasta 15 días atrás para no traer historial excesivo.
+ */
+export async function cancelAbandonedOrders(
+  storeId: string,
+  accessToken: string,
+): Promise<{ cancelled: number; errors: number }> {
+  const result = { cancelled: 0, errors: 0 }
+  const now = Date.now()
+  const cutoff48h = new Date(now - 48 * 60 * 60 * 1000).toISOString()
+  const cutoff72h = new Date(now - 72 * 60 * 60 * 1000).toISOString()
+
+  let page = 1
+  while (true) {
+    const url = `${CONFIG.tiendanube.apiBase}/${storeId}/orders?payment_status=pending&per_page=200&page=${page}&created_at_min=${cutoff72h}&created_at_max=${cutoff48h}`
+    const res = await fetch(url, { headers: tnHeaders(accessToken) })
+    if (!res.ok) break
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const orders: any[] = await res.json()
+    if (!orders.length) break
+
+    for (const order of orders) {
+      const ok = await cancelOrder(storeId, accessToken, String(order.id), 'Orden cancelada automáticamente por proceso de Criptoblue')
+      if (ok) result.cancelled++
+      else result.errors++
+    }
+
+    if (orders.length < 200) break
+    page++
+  }
+
+  return result
 }

@@ -1,14 +1,15 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import StatsBar from '@/components/StatsBar'
 import ManualMatchTab from '@/components/ManualMatchTab'
 import OrdersListTab from '@/components/OrdersListTab'
 import PaymentsListTab from '@/components/PaymentsListTab'
-import type { Order, UnmatchedPayment, Store } from '@/lib/types'
+import RegistroTab from '@/components/RegistroTab'
+import type { Order, UnmatchedPayment, Store, LogEntry } from '@/lib/types'
 
-type Tab = 'manual' | 'ordenes' | 'pagos'
+type Tab = 'manual' | 'ordenes' | 'pagos' | 'registro'
 
 interface Stats {
   paidThisMonth: number
@@ -32,6 +33,8 @@ export default function Dashboard() {
   const [unmatchedPayments, setUnmatchedPayments] = useState<UnmatchedPayment[]>([])
   const [toasts, setToasts] = useState<Toast[]>([])
   const [actionLoading, setActionLoading] = useState(false)
+  const [logEntries, setLogEntries] = useState<LogEntry[]>([])
+  const [matchRefreshKey, setMatchRefreshKey] = useState(0)
   const toastIdRef = useRef(0)
 
   // User menu
@@ -91,6 +94,13 @@ export default function Dashboard() {
     } catch { /* ignore */ }
   }, [])
 
+  const fetchLog = useCallback(async () => {
+    try {
+      const res = await fetch('/api/log')
+      if (res.ok) setLogEntries(await res.json())
+    } catch { /* ignore */ }
+  }, [])
+
   const fetchStores = useCallback(async () => {
     setStoresLoading(true)
     try {
@@ -108,14 +118,13 @@ export default function Dashboard() {
     fetchStores()
   }, [fetchStatus, fetchUnmatched, fetchStores])
 
-  // Poll every 5 seconds
+  // Poll status every 5 seconds (no fetchStores — el dropdown no debe actualizarse solo)
   useEffect(() => {
     const interval = setInterval(() => {
       fetchStatus()
-      fetchStores()
     }, 5000)
     return () => clearInterval(interval)
-  }, [fetchStatus, fetchStores])
+  }, [fetchStatus])
 
   // Load orders/payments when tab is shown
   useEffect(() => {
@@ -125,7 +134,10 @@ export default function Dashboard() {
     if (tab === 'manual' || tab === 'pagos') {
       fetchUnmatched()
     }
-  }, [tab, fetchOrders, fetchUnmatched])
+    if (tab === 'registro') {
+      fetchLog()
+    }
+  }, [tab, fetchOrders, fetchUnmatched, fetchLog])
 
   const handleDeleteStore = async (storeId: string, storeName: string) => {
     if (!confirm(`¿Eliminar "${storeName}"? Se borrarán todas sus órdenes del registro.`)) return
@@ -199,6 +211,28 @@ export default function Dashboard() {
     }
   }
 
+  const handleCancelDuplicate = async (storeId: string, orderId: string) => {
+    setActionLoading(true)
+    try {
+      const res = await fetch('/api/cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        addToast('Orden duplicada descartada de la app', 'success')
+        await fetchOrders()
+      } else {
+        addToast(`Error: ${data.error}`, 'error')
+      }
+    } catch (err) {
+      addToast(`Error: ${err}`, 'error')
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
   const handleDismissPayment = async (mpPaymentId: string) => {
     setActionLoading(true)
     try {
@@ -222,12 +256,15 @@ export default function Dashboard() {
   }
 
   const handleReevaluar = async () => {
+    setMatchRefreshKey(k => k + 1)
     setActionLoading(true)
     try {
       const res = await fetch('/api/reevaluar', { method: 'POST' })
       const data = await res.json()
       if (data.success) {
-        addToast(`Actualizado: ${data.processed} pagos procesados, ${data.noMatch} sin match`, 'success')
+        const parts = [`${data.processed} pagos nuevos`]
+        if (data.cancelled > 0) parts.push(`${data.cancelled} órdenes abandonadas canceladas`)
+        addToast(`Actualizado: ${parts.join(' · ')}`, 'success')
         await Promise.all([fetchUnmatched(), fetchOrders(), fetchStatus()])
       } else {
         addToast(`Error al reevaluar: ${data.error}`, 'error')
@@ -239,10 +276,36 @@ export default function Dashboard() {
     }
   }
 
+  // Cuenta pares potenciales: pagos con ≥2 señales coincidentes con alguna orden
+  const pendingPairsCount = useMemo(() => {
+    return unmatchedPayments.filter(u => {
+      return orders.some(o => {
+        const payTime = u.payment.fechaPago ? new Date(u.payment.fechaPago).getTime() : null
+        const ordTime = o.createdAt ? new Date(o.createdAt).getTime() : null
+        if (payTime && ordTime && payTime < ordTime) return false
+        let matches = 0
+        if (Math.abs(u.payment.monto - o.total) / Math.max(o.total, 1) < 0.02) matches++
+        if (payTime && ordTime) {
+          const diffMin = (payTime - ordTime) / 60000
+          if (diffMin >= 0 && diffMin <= 1440) matches++
+        }
+        if (u.payment.nombrePagador && o.customerName) {
+          const a = u.payment.nombrePagador.toLowerCase().split(/\s+/)
+          const b = o.customerName.toLowerCase().split(/\s+/)
+          if (a.some(t => t.length > 2 && b.includes(t))) matches++
+        }
+        if (u.payment.emailPagador && o.customerEmail &&
+            u.payment.emailPagador.toLowerCase() === o.customerEmail.toLowerCase()) matches++
+        return matches >= 2
+      })
+    }).length
+  }, [unmatchedPayments, orders])
+
   const tabs: { id: Tab; label: string; primary?: boolean }[] = [
-    { id: 'manual', label: 'Marcar Pagado Manualmente', primary: true },
-    { id: 'ordenes', label: 'Órdenes' },
-    { id: 'pagos', label: 'Pagos' },
+    { id: 'manual', label: 'Emparejamiento', primary: true },
+    { id: 'ordenes', label: `Órdenes (${orders.length})` },
+    { id: 'pagos', label: `Pagos (${unmatchedPayments.length})` },
+    { id: 'registro', label: 'Registro' },
   ]
 
   return (
@@ -335,8 +398,17 @@ export default function Dashboard() {
             </span>
           </div>
 
-          {/* RIGHT: Actualizar + Tiendas dropdown */}
+          {/* RIGHT: Sync info + Actualizar + Tiendas dropdown */}
           <div className="flex items-center justify-end gap-2">
+            {actionLoading ? (
+              <span style={{ fontSize: '11px', color: '#00d4ff', whiteSpace: 'nowrap', opacity: 0.7 }}>
+                ⟳ Sincronizando...
+              </span>
+            ) : stats?.lastMPCheck ? (
+              <span style={{ fontSize: '11px', color: 'rgba(148,163,184,0.4)', whiteSpace: 'nowrap' }}>
+                Sync: {new Date(stats.lastMPCheck).toLocaleString('es-AR', { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' })}
+              </span>
+            ) : null}
             <button
               onClick={handleReevaluar}
               disabled={actionLoading}
@@ -444,7 +516,7 @@ export default function Dashboard() {
       </header>
 
       <main className="relative mx-auto max-w-[1400px] px-6 py-6 space-y-6">
-        <StatsBar stats={stats} />
+        <StatsBar stats={stats} pendingPairs={pendingPairsCount} ordersCount={orders.length} />
 
         {/* Tabs */}
         <div className="flex gap-4 overflow-x-auto pb-1">
@@ -498,9 +570,10 @@ export default function Dashboard() {
 
         {/* Tab content */}
         <div>
-          {tab === 'manual' && <ManualMatchTab unmatchedPayments={unmatchedPayments} orders={orders} onManualMatch={handleManualMatch} onDismissPayment={handleDismissPayment} onMarkOrderPaid={handleMarkOrderPaid} loading={actionLoading} lastMPCheck={stats?.lastMPCheck ?? null} />}
+          {tab === 'manual' && <ManualMatchTab unmatchedPayments={unmatchedPayments} orders={orders} onManualMatch={handleManualMatch} onDismissPayment={handleDismissPayment} onMarkOrderPaid={handleMarkOrderPaid} onCancelDuplicate={handleCancelDuplicate} loading={actionLoading} lastMPCheck={stats?.lastMPCheck ?? null} refreshKey={matchRefreshKey} />}
           {tab === 'ordenes' && <OrdersListTab orders={orders} />}
           {tab === 'pagos' && <PaymentsListTab payments={unmatchedPayments} />}
+          {tab === 'registro' && <RegistroTab entries={logEntries} />}
         </div>
       </main>
     </div>
