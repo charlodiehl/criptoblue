@@ -24,8 +24,8 @@ export async function GET() {
     // Volumen total de pagos identificados este mes
     const paidVolumeThisMonth = paidLogs.reduce((sum, e) => sum + (e.amount || 0), 0)
 
-    // Órdenes pendientes de confirmar (en cola de revisión/match)
-    const pendingOrders = state.pendingMatches.length
+    // Total de pagos en cola de revisión manual (todos los sin confirmar)
+    const pendingOrders = state.unmatchedPayments.length
 
     // Pagos sin identificar ingresados este mes
     const pendingPayments = state.unmatchedPayments.filter(p =>

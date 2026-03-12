@@ -100,8 +100,8 @@ export default function StatsBar({ stats }: { stats: Stats | null }) {
         delay={0}
       />
       <StatCard
-        label="Órdenes pendientes"
-        sublabel="En cola de revisión y confirmación"
+        label="Pagos en cola"
+        sublabel="Pendientes de confirmar manualmente"
         value={s.pendingOrders}
         color="#f59e0b"
         glow="0 0 20px rgba(245,158,11,0.08)"

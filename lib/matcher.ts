@@ -229,7 +229,12 @@ export function scoreMatch(payment: Payment, order: Order): {
   if (dniScore >= 100) {
     // DNI/CUIL coincide exactamente → señal más fuerte disponible
     matchType = 'dni_match'
-    finalScore = amountScore * 0.40 + dniScore * 0.35 + emailScore * 0.10 + timingScore * 0.15
+    if (emailScore === 0) {
+      // MP no siempre devuelve email en transferencias: redistribuir ese peso a amount y timing
+      finalScore = amountScore * 0.45 + dniScore * 0.40 + timingScore * 0.15
+    } else {
+      finalScore = amountScore * 0.40 + dniScore * 0.35 + emailScore * 0.10 + timingScore * 0.15
+    }
   } else if (emailScore >= 80) {
     matchType = 'email_match'
     finalScore = amountScore * 0.35 + emailScore * 0.30 + nameScore * 0.10 + refScore * 0.10 + timingScore * 0.15
