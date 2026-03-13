@@ -124,7 +124,29 @@ function emailMatchesName(email: string, name: string): boolean {
   const et = emailLocalTokens(email)
   if (!et.length) return false
   const nt = name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z]/g, ' ').split(' ').filter(t => t.length >= 3)
-  return et.some(e => nt.some(n => e === n || (e.length > 3 && n.length > 3 && e.slice(0, 4) === n.slice(0, 4))))
+  if (!nt.length) return false
+
+  // Full match: email token contains the entire name token as substring (e.g. "fgreco" contains "greco")
+  for (const e of et) {
+    for (const n of nt) {
+      if (e.includes(n)) return true
+    }
+  }
+
+  // Partial match: need ≥2 distinct name tokens each with a 3-char prefix present in any email token
+  // Each unique prefix can only match one name token (prevents "car" matching both "carrasco" and "caracci")
+  const partialMatched = new Set<string>()
+  const usedPrefixes = new Set<string>()
+  for (const e of et) {
+    for (const n of nt) {
+      const prefix = n.slice(0, 3)
+      if (!usedPrefixes.has(prefix) && e.includes(prefix)) {
+        partialMatched.add(n)
+        usedPrefixes.add(prefix)
+      }
+    }
+  }
+  return partialMatched.size >= 2
 }
 
 function computeSignals(payment: Payment, order: Order): Signal[] {
@@ -250,10 +272,15 @@ export default function ManualMatchTab({
         .map(o => {
           const signals = computeSignals(u.payment, o)
           const sameMontoCount = totalSameMonto - (o.total === u.payment.monto ? 1 : 0)
-          // Mostrar señal solo cuando monto es el ÚNICO factor verde
+          // Mostrar señal cuando:
+          // Caso 1: monto es el único verde (sin importar parciales)
+          // Caso 2: monto + fecha son verdes pero CUIT/Nombre/Email no tienen verde ni parcial
           const montoGreen = signals[0].match
           const anyOtherGreen = signals.slice(1).some(s => s.match)
-          if (montoGreen && !anyOtherGreen) {
+          const fechaGreen = signals[3].match
+          const nonMontoNonFecha = [signals[1], signals[2], signals[4]] // CUIT, Nombre, Email
+          const anyOtherGreenOrPartial = nonMontoNonFecha.some(s => s.match || s.partial)
+          if (montoGreen && (!anyOtherGreen || (fechaGreen && !anyOtherGreenOrPartial))) {
             signals.push({
               label: 'Otras órdenes mismo monto',
               value: sameMontoCount === 0 ? 'Única' : `${sameMontoCount} orden${sameMontoCount !== 1 ? 'es' : ''}`,
@@ -272,11 +299,14 @@ export default function ManualMatchTab({
     const usedOrderIds = new Set<string>()
     const result: Pair[] = []
 
-    // Sort payments by their best available score descending so best matches get priority
+    // Sort payments by green count first, then score as tiebreaker
     const sorted = [...allPairs].sort((a, b) => {
-      const aScore = a.ranked[a.skipCount]?.score ?? -1
-      const bScore = b.ranked[b.skipCount]?.score ?? -1
-      return bScore - aScore
+      const aRanked = a.ranked[a.skipCount]
+      const bRanked = b.ranked[b.skipCount]
+      const aGreen = aRanked ? aRanked.signals.filter(s => s.match).length : -1
+      const bGreen = bRanked ? bRanked.signals.filter(s => s.match).length : -1
+      if (bGreen !== aGreen) return bGreen - aGreen
+      return (aRanked?.score ?? -1) < (bRanked?.score ?? -1) ? 1 : -1
     })
 
     for (const p of sorted) {
@@ -294,7 +324,12 @@ export default function ManualMatchTab({
       result.push({ payment: p.payment, id: p.id, ranked: p.ranked, current, skipCount: assignedIdx })
     }
 
-    return result.sort((a, b) => (b.current?.score ?? -1) - (a.current?.score ?? -1))
+    return result.sort((a, b) => {
+      const aGreen = a.current ? a.current.signals.filter(s => s.match).length : -1
+      const bGreen = b.current ? b.current.signals.filter(s => s.match).length : -1
+      if (bGreen !== aGreen) return bGreen - aGreen
+      return (b.current?.score ?? -1) - (a.current?.score ?? -1)
+    })
   }, [unmatchedPayments, orders, dismissedMap])
 
   const handleDismissPair = (paymentId: string) => {
