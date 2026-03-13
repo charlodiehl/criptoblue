@@ -1,36 +1,37 @@
 import { fetchAllPaymentsSince } from './mercadopago'
-import { getPendingOrders, markOrderAsPaid } from './tiendanube'
-import { loadState, saveState, getStores, getMatchId } from './storage'
-import { findBestMatch } from './matcher'
-import { aiValidateMatch } from './ai-matcher'
-import { CONFIG } from './config'
-import type { PendingMatch, UnmatchedPayment, LogEntry } from './types'
+import { getPendingOrders, cancelAbandonedOrders } from './tiendanube'
+import { loadState, saveState, getStores } from './storage'
+import type { UnmatchedPayment } from './types'
 
 interface CycleResult {
   processed: number
-  autoPaid: number
-  needsReview: number
-  noMatch: number
+  cancelled: number
   errors: string[]
 }
 
 export async function processMPPayments(): Promise<CycleResult> {
-  const result: CycleResult = { processed: 0, autoPaid: 0, needsReview: 0, noMatch: 0, errors: [] }
+  const result: CycleResult = { processed: 0, cancelled: 0, errors: [] }
 
   const [state, stores] = await Promise.all([loadState(), getStores()])
 
   const now = new Date()
-  const maxLookback = new Date(now.getTime() - 48 * 60 * 60 * 1000)
-  const sinceDate = state.lastMPCheck
-    ? new Date(Math.max(new Date(state.lastMPCheck).getTime(), maxLookback.getTime()))
-    : maxLookback
+  const cutoff24h = new Date(now.getTime() - 24 * 60 * 60 * 1000)
 
+  // Purge pagos con más de 24h (un pago no usado en 24h no va a matchear)
+  state.unmatchedPayments = state.unmatchedPayments.filter(u => {
+    const date = u.payment.fechaPago ? new Date(u.payment.fechaPago) : new Date(u.timestamp)
+    return date >= cutoff24h
+  })
+
+  // Limpiar pendingMatches (ya no se usa en el flujo manual)
+  state.pendingMatches = []
+
+  // Traer pagos aprobados de las últimas 24h desde MP
   let payments
   try {
-    payments = await fetchAllPaymentsSince(sinceDate)
+    payments = await fetchAllPaymentsSince(cutoff24h)
   } catch (err) {
-    const msg = String(err)
-    result.errors.push(`MP fetch error: ${msg}`)
+    result.errors.push(`MP fetch error: ${String(err)}`)
     return result
   }
 
@@ -38,148 +39,55 @@ export async function processMPPayments(): Promise<CycleResult> {
   const newPayments = payments.filter(p => !processedSet.has(p.mpPaymentId))
   result.processed = newPayments.length
 
-  const storeEntries = Object.values(stores)
-  const allOrdersPerStore = await Promise.allSettled(
-    storeEntries.map(s => getPendingOrders(s.storeId, s.accessToken, s.storeName))
+  // IDs de pagos ya confirmados (no deben reaparecer en la cola)
+  const confirmedIds = new Set(
+    state.matchLog
+      .filter(e => e.action === 'manual_paid' || e.action === 'auto_paid')
+      .map(e => e.mpPaymentId)
+      .filter((id): id is string => !!id)
   )
 
-  const allOrders = allOrdersPerStore.flatMap((r, i) => {
-    if (r.status === 'fulfilled') return r.value
-    result.errors.push(`TN fetch error store ${storeEntries[i].storeId}: ${r.reason}`)
-    return []
-  })
-
-  for (const payment of newPayments) {
-    processedSet.add(payment.mpPaymentId)
-
-    let match = findBestMatch(payment, allOrders)
-
-    // Si el match requiere revisión manual, intentar mejorar con IA
-    if (match && match.decision === 'needs_review') {
-      const aiResult = await aiValidateMatch(payment, match.order)
-      if (aiResult) {
-        if (aiResult.confirmed && aiResult.confidence >= 85) {
-          match = {
-            ...match,
-            decision: 'auto_paid',
-            score: Math.max(match.score, CONFIG.matching.autoThreshold),
-            matchType: `${match.matchType}_ai_confirmed`,
-          }
-        } else if (!aiResult.confirmed && aiResult.confidence >= 70) {
-          match = null
-        }
-      }
-    }
-
-    if (!match) {
-      result.noMatch++
-      const unmatched: UnmatchedPayment = {
-        payment,
-        timestamp: new Date().toISOString(),
-        mpPaymentId: payment.mpPaymentId,
-      }
-      state.unmatchedPayments.push(unmatched)
-
-      const logEntry: LogEntry = {
-        timestamp: new Date().toISOString(),
-        action: 'no_match',
-        payment,
-        mpPaymentId: payment.mpPaymentId,
-        amount: payment.monto,
-      }
-      state.matchLog.push(logEntry)
-      continue
-    }
-
-    const store = stores[match.order.storeId]
-    const pendingMatch: PendingMatch = {
-      payment,
-      order: match.order,
-      score: match.score,
-      scores: match.scores,
-      matchType: match.matchType,
-      thirdParty: match.thirdParty,
-      matchedAt: new Date().toISOString(),
-      mpPaymentId: payment.mpPaymentId,
-      storeName: match.order.storeName,
-    }
-
-    if (match.decision === 'auto_paid' && store) {
-      try {
-        const tnResult = await markOrderAsPaid(
-          match.order.storeId,
-          store.accessToken,
-          match.order.orderId,
-          { mpPaymentId: payment.mpPaymentId, amount: payment.monto }
-        )
-
-        if (tnResult.success) {
-          result.autoPaid++
-          const logEntry: LogEntry = {
-            timestamp: new Date().toISOString(),
-            action: 'auto_paid',
-            payment,
-            order: match.order,
-            score: match.score,
-            mpPaymentId: payment.mpPaymentId,
-            amount: payment.monto,
-            orderNumber: match.order.orderNumber,
-            orderId: match.order.orderId,
-            storeId: match.order.storeId,
-            storeName: match.order.storeName,
-            customerName: match.order.customerName,
-          }
-          state.matchLog.push(logEntry)
-        } else {
-          result.needsReview++
-          const matchWithId = { ...pendingMatch, mpPaymentId: payment.mpPaymentId }
-          const existing = state.pendingMatches.findIndex(m => getMatchId(m) === getMatchId(matchWithId))
-          if (existing >= 0) {
-            state.pendingMatches[existing] = matchWithId
-          } else {
-            state.pendingMatches.push(matchWithId)
-          }
-        }
-      } catch (err) {
-        result.needsReview++
-        const matchWithId = { ...pendingMatch, mpPaymentId: payment.mpPaymentId }
-        const existing = state.pendingMatches.findIndex(m => getMatchId(m) === getMatchId(matchWithId))
-        if (existing < 0) state.pendingMatches.push(matchWithId)
-        result.errors.push(`markOrderAsPaid error: ${err}`)
+  // Cancelar órdenes abandonadas (payment_status=pending con más de 48h)
+  const storeEntries = Object.values(stores)
+  const cancelResults = await Promise.allSettled(
+    storeEntries.map(s => cancelAbandonedOrders(s.storeId, s.accessToken))
+  )
+  cancelResults.forEach((r, i) => {
+    if (r.status === 'fulfilled') {
+      result.cancelled += r.value.cancelled
+      if (r.value.errors > 0) {
+        result.errors.push(`Cancel errors in store ${storeEntries[i].storeId}: ${r.value.errors}`)
       }
     } else {
-      result.needsReview++
-      const matchWithId = { ...pendingMatch, mpPaymentId: payment.mpPaymentId }
-      const existing = state.pendingMatches.findIndex(m => getMatchId(m) === getMatchId(matchWithId))
-      if (existing >= 0) {
-        state.pendingMatches[existing] = matchWithId
-      } else {
-        state.pendingMatches.push(matchWithId)
-      }
-
-      const logEntry: LogEntry = {
-        timestamp: new Date().toISOString(),
-        action: 'needs_review',
-        payment,
-        order: match.order,
-        score: match.score,
-        mpPaymentId: payment.mpPaymentId,
-        amount: payment.monto,
-        orderNumber: match.order.orderNumber,
-        orderId: match.order.orderId,
-        storeId: match.order.storeId,
-        storeName: match.order.storeName,
-        customerName: match.order.customerName,
-      }
-      state.matchLog.push(logEntry)
+      result.errors.push(`Cancel fetch error store ${storeEntries[i].storeId}: ${r.reason}`)
     }
+  })
+
+  // Verificar órdenes pendientes recientes (solo para loggear errores de fetch)
+  const allOrdersPerStore = await Promise.allSettled(
+    storeEntries.map(s => getPendingOrders(s.storeId, s.accessToken, s.storeName, 48))
+  )
+  allOrdersPerStore.forEach((r, i) => {
+    if (r.status === 'rejected') {
+      result.errors.push(`TN fetch error store ${storeEntries[i].storeId}: ${r.reason}`)
+    }
+  })
+
+  // Todos los pagos nuevos van a la cola de revisión manual (excepto los ya confirmados)
+  for (const payment of newPayments) {
+    processedSet.add(payment.mpPaymentId)
+    if (confirmedIds.has(payment.mpPaymentId)) continue
+
+    const unmatched: UnmatchedPayment = {
+      payment,
+      timestamp: new Date().toISOString(),
+      mpPaymentId: payment.mpPaymentId,
+    }
+    state.unmatchedPayments.push(unmatched)
   }
 
   state.processedPayments = Array.from(processedSet)
   state.lastMPCheck = now.toISOString()
-
-  if (state.matchLog.length > 500) state.matchLog = state.matchLog.slice(-500)
-  if (state.processedPayments.length > 2000) state.processedPayments = state.processedPayments.slice(-2000)
 
   await saveState(state)
 

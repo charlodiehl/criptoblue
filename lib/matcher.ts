@@ -80,6 +80,40 @@ function emailSimilarity(payerEmail: string, customerEmail: string): number {
   return 0
 }
 
+/** Extract tokens from email local part (e.g. "juan.perez123" → ["juan","perez"]) */
+function emailLocalTokens(email: string): string[] {
+  if (!email) return []
+  const local = email.split('@')[0] || ''
+  return local
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z]/g, ' ')
+    .split(' ')
+    .filter(t => t.length >= 3)
+}
+
+/** Compare email username against a name (and vice-versa) */
+function emailNameSimilarity(email: string, name: string): number {
+  const emailTokens = emailLocalTokens(email)
+  if (!emailTokens.length) return 0
+  const nameNorm = normalize(name)
+  const nameTokens = nameNorm.split(' ').filter(t => t.length >= 3)
+  if (!nameTokens.length) return 0
+
+  let matched = 0
+  for (const et of emailTokens) {
+    for (const nt of nameTokens) {
+      if (et === nt || (et.length > 3 && nt.length > 3 && levenshtein(et, nt) <= 1)) {
+        matched++
+        break
+      }
+    }
+  }
+  if (matched === 0) return 0
+  const ratio = matched / Math.max(emailTokens.length, nameTokens.length)
+  return Math.round(ratio * 80)
+}
+
 function isServiceName(name: string): boolean {
   return SERVICE_NAMES.has(normalize(name))
 }
@@ -128,20 +162,22 @@ function scoreDni(payment: Payment, order: Order): number {
   const orderDni = order.customerCuit?.replace(/\D/g, '')
   if (!payerCuil || !orderDni) return 0
 
-  // Exact match (ambos tienen el mismo número)
+  // Exact match
   if (payerCuil === orderDni) return 100
 
-  // CUIL del pagador vs DNI del pedido
+  // CUIT/CUIL (11 digits) vs DNI (8 digits): extract middle 8 digits
   if (payerCuil.length === 11) {
-    const dniFromCuil = extractDni(payerCuil)
-    if (dniFromCuil === orderDni) return 100
+    if (extractDni(payerCuil) === orderDni) return 100
+  }
+  if (orderDni.length === 11) {
+    if (extractDni(orderDni) === payerCuil) return 100
   }
 
-  // DNI del pedido embebido en CUIL del pedido
-  if (orderDni.length === 11) {
-    const dniFromOrder = extractDni(orderDni)
-    if (dniFromOrder === payerCuil) return 100
-  }
+  // Substring partial match: if the shorter appears anywhere in the longer
+  const [shorter, longer] = payerCuil.length <= orderDni.length
+    ? [payerCuil, orderDni]
+    : [orderDni, payerCuil]
+  if (shorter.length >= 6 && longer.includes(shorter)) return 100
 
   return 0
 }
@@ -171,7 +207,17 @@ export function scoreMatch(payment: Payment, order: Order): {
   if (timingScore === 'disqualified') return null
 
   const nameScore = hasName(payment) ? nameSimilarity(payment.nombrePagador, order.customerName) : 0
-  const emailScore = emailSimilarity(payment.emailPagador, order.customerEmail)
+
+  // Cross-match: payer email username vs order customer name, and payer name vs order email
+  const emailNameScore = Math.max(
+    emailNameSimilarity(payment.emailPagador, order.customerName),
+    emailNameSimilarity(order.customerEmail, payment.nombrePagador)
+  )
+
+  const emailScore = Math.max(
+    emailSimilarity(payment.emailPagador, order.customerEmail),
+    emailNameScore
+  )
   const refScore = scoreReference(payment, order)
   const dniScore = scoreDni(payment, order)
 
@@ -183,7 +229,12 @@ export function scoreMatch(payment: Payment, order: Order): {
   if (dniScore >= 100) {
     // DNI/CUIL coincide exactamente → señal más fuerte disponible
     matchType = 'dni_match'
-    finalScore = amountScore * 0.40 + dniScore * 0.35 + emailScore * 0.10 + timingScore * 0.15
+    if (emailScore === 0) {
+      // MP no siempre devuelve email en transferencias: redistribuir ese peso a amount y timing
+      finalScore = amountScore * 0.45 + dniScore * 0.40 + timingScore * 0.15
+    } else {
+      finalScore = amountScore * 0.40 + dniScore * 0.35 + emailScore * 0.10 + timingScore * 0.15
+    }
   } else if (emailScore >= 80) {
     matchType = 'email_match'
     finalScore = amountScore * 0.35 + emailScore * 0.30 + nameScore * 0.10 + refScore * 0.10 + timingScore * 0.15

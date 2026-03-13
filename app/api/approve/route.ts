@@ -21,7 +21,6 @@ export async function POST(req: NextRequest) {
       match.order.storeId,
       store.accessToken,
       match.order.orderId,
-      { mpPaymentId: match.payment.mpPaymentId, amount: match.payment.monto }
     )
 
     if (!tnResult.success) {

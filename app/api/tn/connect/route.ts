@@ -4,9 +4,8 @@ export async function GET() {
   const clientId = '27051'
   const scope = 'write_orders read_orders'
 
-  const url = new URL('https://www.tiendanube.com/apps/authorize')
-  url.searchParams.set('client_id', clientId)
-  url.searchParams.set('response_type', 'code')
+  // TiendaNube OAuth: el app_id va en la ruta, no como query param
+  const url = new URL(`https://www.tiendanube.com/apps/${clientId}/authorize`)
   url.searchParams.set('scope', scope)
 
   return NextResponse.redirect(url.toString())

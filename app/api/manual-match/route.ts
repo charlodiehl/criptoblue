@@ -31,13 +31,17 @@ export async function POST(req: NextRequest) {
       // order not found in pending, continue anyway
     }
 
-    const tnResult = await markOrderAsPaid(storeId, store.accessToken, orderId, {
-      mpPaymentId: payment.mpPaymentId,
-      amount: payment.monto,
-    })
+    const tnResult = await markOrderAsPaid(storeId, store.accessToken, orderId)
+
+    console.log('[manual-match] TN result:', JSON.stringify(tnResult))
 
     if (!tnResult.success) {
       return NextResponse.json({ error: tnResult.error }, { status: 500 })
+    }
+
+    // Warn if only a note was added (payment_status NOT actually changed in TN)
+    if (tnResult.method === 'note') {
+      console.warn('[manual-match] WARNING: TN returned 403/422 for payment_status change. Only a note was added. Order may NOT be marked paid in TiendaNube.')
     }
 
     state.unmatchedPayments.splice(unmatchedIndex, 1)
