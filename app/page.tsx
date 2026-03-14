@@ -308,9 +308,12 @@ export default function Dashboard() {
       const data = await res.json()
       if (data.success) {
         addToast('Pago marcado como recibido', 'success')
-        // No eliminar del estado local — fetchStatus trae externallyMarkedPayments
-        // y matchedPaymentIds lo pondrá en verde en la tarjeta
-        await fetchStatus()
+        // Actualización optimista: verde inmediato sin esperar fetchStatus
+        setStats(prev => prev ? {
+          ...prev,
+          externallyMarkedPayments: [...(prev.externallyMarkedPayments ?? []), mpPaymentId],
+        } : prev)
+        fetchStatus() // background sync, sin await
       } else {
         addToast(`Error: ${data.error}`, 'error')
       }
@@ -329,7 +332,13 @@ export default function Dashboard() {
       const data = await res.json()
       if (data.success) {
         addToast('Orden marcada como gestionada externamente', 'success')
-        await fetchStatus()
+        // Actualización optimista: verde inmediato sin esperar fetchStatus
+        const key = `${storeId}-${orderId}`
+        setStats(prev => prev ? {
+          ...prev,
+          externallyMarkedOrders: [...(prev.externallyMarkedOrders ?? []), key],
+        } : prev)
+        fetchStatus() // background sync, sin await
       } else {
         addToast(`Error: ${data.error}`, 'error')
       }
