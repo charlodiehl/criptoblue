@@ -42,13 +42,20 @@ export async function searchPayments({ hours = 48, limit = 50, status = 'approve
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function normalizePayment(raw: any): Payment | null {
+  const OWNER_EMAIL = 'compubairestore@gmail.com'
+  const OWNER_CUIT = '20190997252'
+
+  const payerEmail = raw.payer?.email || ''
+  const payerCuit = raw.payer?.identification?.number || ''
+
+  // Filtrar egresos: si el dueño de la cuenta es el pagador, es un pago saliente
+  if (payerEmail === OWNER_EMAIL || payerCuit === OWNER_CUIT) return null
+
   const firstName = raw.payer?.first_name || ''
   const lastName = raw.payer?.last_name || ''
   const fullName = [firstName, lastName].filter(Boolean).join(' ').trim()
 
   const collectorEmail = raw.collector?.email || ''
-  const payerEmail = raw.payer?.email || ''
-  const OWNER_EMAIL = 'compubairestore@gmail.com'
   const emailPagador = (payerEmail && payerEmail !== collectorEmail && payerEmail !== OWNER_EMAIL) ? payerEmail : ''
 
   return {
@@ -56,7 +63,7 @@ export function normalizePayment(raw: any): Payment | null {
     monto: raw.transaction_amount,
     nombrePagador: fullName,
     emailPagador,
-    cuitPagador: (raw.payer?.identification?.number && raw.payer.identification.number !== '20190997252') ? raw.payer.identification.number : '',
+    cuitPagador: (payerCuit && payerCuit !== OWNER_CUIT) ? payerCuit : '',
     referencia: raw.external_reference || '',
     operationId: raw.order?.id ? String(raw.order.id) : '',
     metodoPago: `${raw.payment_method_id || ''} / ${raw.payment_type_id || ''}`,
