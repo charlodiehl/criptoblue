@@ -8,21 +8,22 @@ export async function GET() {
     const now = new Date()
     const currentMonth = now.getMonth()
     const currentYear = now.getFullYear()
+    const monthKey = now.toISOString().slice(0, 7) // "YYYY-MM"
 
     const isThisMonth = (ts: string) => {
       const d = new Date(ts)
       return d.getMonth() === currentMonth && d.getFullYear() === currentYear
     }
 
+    // Acumulador mensual persistente (no se borra con el registro)
+    const monthly = (state.monthlyStats || {})[monthKey] || { count: 0, volume: 0 }
+
+    // Fallback: si monthlyStats no tiene datos aún, reconstruir desde matchLog
     const paidLogs = state.matchLog.filter(e =>
       (e.action === 'manual_paid' || e.action === 'auto_paid') && isThisMonth(e.timestamp)
     )
-
-    // Órdenes marcadas como pagadas este mes (auto + manual) — se resetea el 1ro de cada mes
-    const paidThisMonth = paidLogs.length
-
-    // Volumen total de pagos identificados este mes
-    const paidVolumeThisMonth = paidLogs.reduce((sum, e) => sum + (e.amount || 0), 0)
+    const paidThisMonth = monthly.count > 0 ? monthly.count : paidLogs.length
+    const paidVolumeThisMonth = monthly.volume > 0 ? monthly.volume : paidLogs.reduce((sum, e) => sum + (e.amount || 0), 0)
 
     // Total de pagos en cola de revisión manual (todos los sin confirmar)
     const pendingOrders = state.unmatchedPayments.length

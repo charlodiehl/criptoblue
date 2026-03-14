@@ -83,6 +83,11 @@ export interface RecentMatch {
   payment?: Payment
 }
 
+export interface MonthlyStats {
+  count: number
+  volume: number
+}
+
 export interface AppState {
   processedPayments: string[]
   matchLog: LogEntry[]
@@ -92,6 +97,8 @@ export interface AppState {
   dismissedOrders: string[]
   lastMPCheck: string
   settings: Record<string, unknown>
+  // Acumulador mensual: clave "YYYY-MM", persiste aunque se borre el registro
+  monthlyStats: Record<string, MonthlyStats>
 }
 
 export interface MatchResult {

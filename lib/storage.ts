@@ -50,6 +50,7 @@ const DEFAULT_STATE: AppState = {
   dismissedOrders: [],
   lastMPCheck: '',
   settings: {},
+  monthlyStats: {},
 }
 
 // Nombres manuales para tiendas que la API de TN no devuelve bien
@@ -96,6 +97,7 @@ export async function loadState(): Promise<AppState> {
     pendingMatches: state.pendingMatches || [],
     unmatchedPayments: state.unmatchedPayments || [],
     dismissedOrders: state.dismissedOrders || [],
+    monthlyStats: state.monthlyStats || {},
   }
 }
 
@@ -136,4 +138,10 @@ export async function saveState(state: AppState): Promise<void> {
 
 export function getMatchId(entry: { mpPaymentId?: string }): string {
   return entry.mpPaymentId || ''
+}
+
+export function incrementMonthlyStats(state: AppState, amount: number): void {
+  const key = new Date().toISOString().slice(0, 7) // "YYYY-MM"
+  const prev = state.monthlyStats[key] || { count: 0, volume: 0 }
+  state.monthlyStats[key] = { count: prev.count + 1, volume: prev.volume + amount }
 }

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { loadState, saveState, getStores, getMatchId } from '@/lib/storage'
+import { loadState, saveState, getStores, getMatchId, incrementMonthlyStats } from '@/lib/storage'
 import { markOrderAsPaid } from '@/lib/tiendanube'
 import type { LogEntry } from '@/lib/types'
 
@@ -28,6 +28,9 @@ export async function POST(req: NextRequest) {
     }
 
     state.pendingMatches.splice(matchIndex, 1)
+
+    // Acumulador mensual: persiste aunque se borre el registro
+    incrementMonthlyStats(state, match.payment.monto)
 
     // recentMatches: para resaltado verde en pestañas (auto-limpia a las 24h, independiente del Registro)
     state.recentMatches = state.recentMatches || []
