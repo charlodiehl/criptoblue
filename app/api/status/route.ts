@@ -39,6 +39,8 @@ export async function GET() {
       pendingOrders,
       pendingPayments,
       lastMPCheck: state.lastMPCheck || null,
+      externallyMarkedOrders: state.externallyMarkedOrders || [],
+      externallyMarkedPayments: state.externallyMarkedPayments || [],
     })
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 })

@@ -48,6 +48,8 @@ const DEFAULT_STATE: AppState = {
   pendingMatches: [],
   unmatchedPayments: [],
   dismissedOrders: [],
+  externallyMarkedOrders: [],
+  externallyMarkedPayments: [],
   lastMPCheck: '',
   settings: {},
   monthlyStats: {},
@@ -97,6 +99,8 @@ export async function loadState(): Promise<AppState> {
     pendingMatches: state.pendingMatches || [],
     unmatchedPayments: state.unmatchedPayments || [],
     dismissedOrders: state.dismissedOrders || [],
+    externallyMarkedOrders: state.externallyMarkedOrders || [],
+    externallyMarkedPayments: state.externallyMarkedPayments || [],
     monthlyStats: state.monthlyStats || {},
   }
 }

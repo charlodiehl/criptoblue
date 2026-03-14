@@ -23,10 +23,24 @@ const PAGE_SIZE = 100
 interface Props {
   orders: Order[]
   matchedIds?: Set<string>
+  onMarkExternal?: (orderId: string, storeId: string) => Promise<void>
+  loading?: boolean
 }
 
-export default function OrdersListTab({ orders, matchedIds }: Props) {
+export default function OrdersListTab({ orders, matchedIds, onMarkExternal, loading }: Props) {
   const [page, setPage] = useState(1)
+  const [marking, setMarking] = useState<string | null>(null)
+
+  const handleMarkExternal = async (orderId: string, storeId: string) => {
+    if (!onMarkExternal || marking) return
+    const key = `${storeId}-${orderId}`
+    setMarking(key)
+    try {
+      await onMarkExternal(orderId, storeId)
+    } finally {
+      setMarking(null)
+    }
+  }
 
   // orders ya vienen filtradas y ordenadas desde page.tsx
   const sorted = [...orders].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
@@ -64,10 +78,12 @@ export default function OrdersListTab({ orders, matchedIds }: Props) {
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '10px' }}>
         {pageItems.map(o => {
-          const matched = matchedIds?.has(`${o.storeId}-${o.orderId}`)
+          const key = `${o.storeId}-${o.orderId}`
+          const matched = matchedIds?.has(key)
+          const isMarking = marking === key
           return (
             <div
-              key={`${o.storeId}-${o.orderId}`}
+              key={key}
               style={{
                 background: matched
                   ? 'linear-gradient(160deg, #0a1a10 0%, #0d1f14 100%)'
@@ -85,7 +101,7 @@ export default function OrdersListTab({ orders, matchedIds }: Props) {
                 </p>
                 {matched && (
                   <span style={{ fontSize: '10px', fontWeight: 700, color: '#00ff88', letterSpacing: '0.05em', textShadow: '0 0 8px rgba(0,255,136,0.4)' }}>
-                    ✓ PAGADO
+                    ✓ MARCADO
                   </span>
                 )}
               </div>
@@ -105,7 +121,7 @@ export default function OrdersListTab({ orders, matchedIds }: Props) {
                 {fmtDate(o.createdAt)}
               </p>
               {o.customerEmail && (
-                <p style={{ fontSize: '11px', color: 'rgba(148,163,184,0.4)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: '6px' }}>
+                <p style={{ fontSize: '11px', color: 'rgba(148,163,184,0.4)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: '3px' }}>
                   {o.customerEmail}
                 </p>
               )}
@@ -119,6 +135,30 @@ export default function OrdersListTab({ orders, matchedIds }: Props) {
                   </span>
                 )}
               </div>
+              {/* Botón "Orden marcada" — solo en órdenes no marcadas */}
+              {!matched && onMarkExternal && (
+                <div style={{ paddingTop: '8px', marginTop: '4px', borderTop: '1px solid rgba(255,255,255,0.04)' }}>
+                  <button
+                    onClick={() => handleMarkExternal(o.orderId, o.storeId)}
+                    disabled={!!loading || !!marking}
+                    style={{
+                      fontSize: '11px',
+                      padding: '5px 10px',
+                      borderRadius: '7px',
+                      border: '1px solid rgba(0,255,136,0.2)',
+                      background: 'transparent',
+                      color: isMarking ? 'rgba(0,255,136,0.4)' : 'rgba(0,255,136,0.55)',
+                      cursor: (loading || marking) ? 'not-allowed' : 'pointer',
+                      transition: 'all 0.15s',
+                      opacity: (loading || (marking && !isMarking)) ? 0.4 : 1,
+                    }}
+                    onMouseEnter={e => { if (!loading && !marking) { (e.currentTarget as HTMLElement).style.color = '#00ff88'; (e.currentTarget as HTMLElement).style.borderColor = 'rgba(0,255,136,0.4)' } }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'rgba(0,255,136,0.55)'; (e.currentTarget as HTMLElement).style.borderColor = 'rgba(0,255,136,0.2)' }}
+                  >
+                    {isMarking ? '...' : '✓ Orden marcada'}
+                  </button>
+                </div>
+              )}
             </div>
           )
         })}

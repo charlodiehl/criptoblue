@@ -25,10 +25,13 @@ interface Props {
   matchedIds?: Set<string>
   title?: string
   emptyText?: string
+  onMarkReceived?: (mpPaymentId: string) => Promise<void>
+  loading?: boolean
 }
 
-export default function PaymentsListTab({ payments, matchedIds, title = 'Pagos · últimas 24hs', emptyText = 'No hay pagos en las últimas 24 horas' }: Props) {
+export default function PaymentsListTab({ payments, matchedIds, title = 'Pagos · últimas 24hs', emptyText = 'No hay pagos en las últimas 24 horas', onMarkReceived, loading }: Props) {
   const [page, setPage] = useState(1)
+  const [marking, setMarking] = useState<string | null>(null)
 
   const sorted = [...payments].sort((a, b) => {
     const ta = a.fechaPago ? new Date(a.fechaPago).getTime() : 0
@@ -39,6 +42,16 @@ export default function PaymentsListTab({ payments, matchedIds, title = 'Pagos �
   const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE))
   const currentPage = Math.min(page, totalPages)
   const pageItems = sorted.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
+
+  const handleMarkReceived = async (mpPaymentId: string) => {
+    if (!onMarkReceived || marking) return
+    setMarking(mpPaymentId)
+    try {
+      await onMarkReceived(mpPaymentId)
+    } finally {
+      setMarking(null)
+    }
+  }
 
   if (sorted.length === 0) {
     return (
@@ -71,6 +84,7 @@ export default function PaymentsListTab({ payments, matchedIds, title = 'Pagos �
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '10px' }}>
         {pageItems.map(p => {
           const matched = matchedIds?.has(p.mpPaymentId)
+          const isMarking = marking === p.mpPaymentId
           return (
             <div
               key={p.mpPaymentId}
@@ -91,7 +105,7 @@ export default function PaymentsListTab({ payments, matchedIds, title = 'Pagos �
                 </p>
                 {matched && (
                   <span style={{ fontSize: '10px', fontWeight: 700, color: '#00ff88', letterSpacing: '0.05em', textShadow: '0 0 8px rgba(0,255,136,0.4)' }}>
-                    ✓ PAGADO
+                    ✓ RECIBIDO
                   </span>
                 )}
               </div>
@@ -111,9 +125,33 @@ export default function PaymentsListTab({ payments, matchedIds, title = 'Pagos �
                 {fmtDate(p.fechaPago)}
               </p>
               {p.emailPagador && (
-                <p style={{ fontSize: '11px', color: 'rgba(148,163,184,0.4)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <p style={{ fontSize: '11px', color: 'rgba(148,163,184,0.4)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: '6px' }}>
                   {p.emailPagador}
                 </p>
+              )}
+              {/* Botón "Pago recibido" — solo en pagos no marcados */}
+              {!matched && onMarkReceived && (
+                <div style={{ paddingTop: '8px', marginTop: '4px', borderTop: '1px solid rgba(255,255,255,0.04)' }}>
+                  <button
+                    onClick={() => handleMarkReceived(p.mpPaymentId)}
+                    disabled={!!loading || !!marking}
+                    style={{
+                      fontSize: '11px',
+                      padding: '5px 10px',
+                      borderRadius: '7px',
+                      border: '1px solid rgba(0,255,136,0.2)',
+                      background: 'transparent',
+                      color: isMarking ? 'rgba(0,255,136,0.4)' : 'rgba(0,255,136,0.55)',
+                      cursor: (loading || marking) ? 'not-allowed' : 'pointer',
+                      transition: 'all 0.15s',
+                      opacity: (loading || (marking && !isMarking)) ? 0.4 : 1,
+                    }}
+                    onMouseEnter={e => { if (!loading && !marking) { (e.currentTarget as HTMLElement).style.color = '#00ff88'; (e.currentTarget as HTMLElement).style.borderColor = 'rgba(0,255,136,0.4)' } }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'rgba(0,255,136,0.55)'; (e.currentTarget as HTMLElement).style.borderColor = 'rgba(0,255,136,0.2)' }}
+                  >
+                    {isMarking ? '...' : '✓ Pago recibido'}
+                  </button>
+                </div>
               )}
             </div>
           )

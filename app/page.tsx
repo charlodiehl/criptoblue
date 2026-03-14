@@ -17,6 +17,8 @@ interface Stats {
   pendingOrders: number
   pendingPayments: number
   lastMPCheck: string | null
+  externallyMarkedOrders: string[]
+  externallyMarkedPayments: string[]
 }
 
 interface Toast {
@@ -296,6 +298,45 @@ export default function Dashboard() {
     }
   }
 
+  const handleMarkPaymentReceived = async (mpPaymentId: string) => {
+    try {
+      const res = await fetch('/api/mark-payment-received', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mpPaymentId }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        addToast('Pago marcado como recibido', 'success')
+        setUnmatchedPayments(prev => prev.filter(u => (u.mpPaymentId || u.payment.mpPaymentId) !== mpPaymentId))
+        await fetchStatus()
+      } else {
+        addToast(`Error: ${data.error}`, 'error')
+      }
+    } catch (err) {
+      addToast(`Error: ${err}`, 'error')
+    }
+  }
+
+  const handleMarkOrderExternal = async (orderId: string, storeId: string) => {
+    try {
+      const res = await fetch('/api/mark-order-external', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId, storeId }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        addToast('Orden marcada como gestionada externamente', 'success')
+        await fetchStatus()
+      } else {
+        addToast(`Error: ${data.error}`, 'error')
+      }
+    } catch (err) {
+      addToast(`Error: ${err}`, 'error')
+    }
+  }
+
   const handleClearLog = async () => {
     try {
       const res = await fetch('/api/log', { method: 'DELETE' })
@@ -385,13 +426,15 @@ export default function Dashboard() {
 
   // IDs de pagos y órdenes ya macheados (para resaltar en verde en las pestañas)
   // Usan recentMatches (auto-limpia a 24h) para ser independientes del borrado manual del Registro
-  const matchedPaymentIds = useMemo(() => new Set(
-    recentMatches.map(m => m.mpPaymentId).filter(Boolean)
-  ), [recentMatches])
+  const matchedPaymentIds = useMemo(() => new Set([
+    ...recentMatches.map(m => m.mpPaymentId).filter(Boolean) as string[],
+    ...(stats?.externallyMarkedPayments ?? []),
+  ]), [recentMatches, stats?.externallyMarkedPayments])
 
-  const matchedOrderIds = useMemo(() => new Set(
-    recentMatches.filter(m => m.orderId && m.storeId).map(m => `${m.storeId}-${m.orderId}`)
-  ), [recentMatches])
+  const matchedOrderIds = useMemo(() => new Set([
+    ...recentMatches.filter(m => m.orderId && m.storeId).map(m => `${m.storeId}-${m.orderId}`),
+    ...(stats?.externallyMarkedOrders ?? []),
+  ]), [recentMatches, stats?.externallyMarkedOrders])
 
   // Pagos de las últimas 24hs sin coincidencia con ninguna orden
   const paymentsWithoutMatch = useMemo((): Payment[] => {
@@ -697,10 +740,10 @@ export default function Dashboard() {
 
         {/* Tab content */}
         <div>
-          {tab === 'manual' && <ManualMatchTab unmatchedPayments={unmatchedPayments} orders={orders} onManualMatch={handleManualMatch} onDismissPayment={handleDismissPayment} onMarkOrderPaid={handleMarkOrderPaid} onCancelDuplicate={handleCancelDuplicate} loading={actionLoading} lastMPCheck={stats?.lastMPCheck ?? null} refreshKey={matchRefreshKey} />}
-          {tab === 'ordenes' && <OrdersListTab orders={allRecentOrders} matchedIds={matchedOrderIds} />}
-          {tab === 'pagos' && <PaymentsListTab payments={allRecentPayments} matchedIds={matchedPaymentIds} title="Pagos · últimas 24hs" emptyText="No hay pagos en las últimas 24 horas" />}
-          {tab === 'sin-coincidencia' && <PaymentsListTab payments={paymentsWithoutMatch} title="Pagos sin coincidencia · últimas 24hs" emptyText="Todos los pagos de las últimas 24hs tienen una orden asignada" />}
+          {tab === 'manual' && <ManualMatchTab unmatchedPayments={unmatchedPayments} orders={orders.filter(o => !matchedOrderIds.has(`${o.storeId}-${o.orderId}`))} onManualMatch={handleManualMatch} onDismissPayment={handleDismissPayment} onMarkOrderPaid={handleMarkOrderPaid} onCancelDuplicate={handleCancelDuplicate} loading={actionLoading} lastMPCheck={stats?.lastMPCheck ?? null} refreshKey={matchRefreshKey} />}
+          {tab === 'ordenes' && <OrdersListTab orders={allRecentOrders} matchedIds={matchedOrderIds} onMarkExternal={handleMarkOrderExternal} loading={actionLoading} />}
+          {tab === 'pagos' && <PaymentsListTab payments={allRecentPayments} matchedIds={matchedPaymentIds} title="Pagos · últimas 24hs" emptyText="No hay pagos en las últimas 24 horas" onMarkReceived={handleMarkPaymentReceived} loading={actionLoading} />}
+          {tab === 'sin-coincidencia' && <PaymentsListTab payments={paymentsWithoutMatch} title="Pagos sin coincidencia · últimas 24hs" emptyText="Todos los pagos de las últimas 24hs tienen una orden asignada" onMarkReceived={handleMarkPaymentReceived} loading={actionLoading} />}
           {tab === 'registro' && <RegistroTab entries={logEntries} onClearLog={handleClearLog} />}
         </div>
       </main>

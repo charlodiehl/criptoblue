@@ -95,6 +95,9 @@ export interface AppState {
   pendingMatches: PendingMatch[]
   unmatchedPayments: UnmatchedPayment[]
   dismissedOrders: string[]
+  // Órdenes y pagos marcados manualmente como gestionados por fuera de la app
+  externallyMarkedOrders: string[]   // claves "storeId-orderId"
+  externallyMarkedPayments: string[] // mpPaymentId
   lastMPCheck: string
   settings: Record<string, unknown>
   // Acumulador mensual: clave "YYYY-MM", persiste aunque se borre el registro
