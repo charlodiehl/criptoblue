@@ -7,7 +7,7 @@ import ManualMatchTab from '@/components/ManualMatchTab'
 import OrdersListTab from '@/components/OrdersListTab'
 import PaymentsListTab from '@/components/PaymentsListTab'
 import RegistroTab from '@/components/RegistroTab'
-import type { Order, UnmatchedPayment, Store, LogEntry, Payment } from '@/lib/types'
+import type { Order, UnmatchedPayment, Store, LogEntry, Payment, RecentMatch } from '@/lib/types'
 
 type Tab = 'manual' | 'ordenes' | 'pagos' | 'sin-coincidencia' | 'registro'
 
@@ -34,6 +34,7 @@ export default function Dashboard() {
   const [toasts, setToasts] = useState<Toast[]>([])
   const [actionLoading, setActionLoading] = useState(false)
   const [logEntries, setLogEntries] = useState<LogEntry[]>([])
+  const [recentMatches, setRecentMatches] = useState<RecentMatch[]>([])
   const [matchRefreshKey, setMatchRefreshKey] = useState(0)
   const toastIdRef = useRef(0)
 
@@ -97,7 +98,16 @@ export default function Dashboard() {
   const fetchLog = useCallback(async () => {
     try {
       const res = await fetch('/api/log')
-      if (res.ok) setLogEntries(await res.json())
+      if (res.ok) {
+        const data = await res.json()
+        // Soporte nuevo formato { entries, recentMatches }
+        if (Array.isArray(data)) {
+          setLogEntries(data)
+        } else {
+          setLogEntries(data.entries || [])
+          setRecentMatches(data.recentMatches || [])
+        }
+      }
     } catch { /* ignore */ }
   }, [])
 
@@ -276,6 +286,16 @@ export default function Dashboard() {
     }
   }
 
+  const handleClearLog = async () => {
+    try {
+      const res = await fetch('/api/log', { method: 'DELETE' })
+      if (res.ok) {
+        setLogEntries([])
+        addToast('Registro borrado', 'success')
+      }
+    } catch { /* ignore */ }
+  }
+
   const HOURS_24 = 24 * 60 * 60 * 1000
   const HOURS_48 = 48 * 60 * 60 * 1000
 
@@ -323,34 +343,24 @@ export default function Dashboard() {
     return [...matched, ...unmatched]
   }, [unmatchedPayments, logEntries, HOURS_24])
 
+  // IDs de pagos y órdenes ya macheados (para resaltar en verde en las pestañas)
+  // Usan recentMatches (auto-limpia a 24h) para ser independientes del borrado manual del Registro
+  const matchedPaymentIds = useMemo(() => new Set(
+    recentMatches.map(m => m.mpPaymentId).filter(Boolean)
+  ), [recentMatches])
+
+  const matchedOrderIds = useMemo(() => new Set(
+    recentMatches.filter(m => m.orderId && m.storeId).map(m => `${m.storeId}-${m.orderId}`)
+  ), [recentMatches])
+
   // Pagos de las últimas 24hs sin coincidencia con ninguna orden
   const paymentsWithoutMatch = useMemo((): Payment[] => {
     const now = Date.now()
-    const matchedIds = new Set(
-      logEntries
-        .filter(e => e.action === 'auto_paid' || e.action === 'manual_paid')
-        .map(e => e.mpPaymentId)
-        .filter(Boolean) as string[]
-    )
     return unmatchedPayments
       .filter(u => (now - new Date(u.payment.fechaPago).getTime()) <= HOURS_24)
       .map(u => u.payment)
-      .filter(p => !matchedIds.has(p.mpPaymentId))
-  }, [unmatchedPayments, logEntries, HOURS_24])
-
-  // IDs de pagos y órdenes ya macheados (para resaltar en las pestañas)
-  const matchedPaymentIds = useMemo(() => new Set(
-    logEntries
-      .filter(e => e.action === 'auto_paid' || e.action === 'manual_paid')
-      .map(e => e.mpPaymentId)
-      .filter(Boolean) as string[]
-  ), [logEntries])
-
-  const matchedOrderIds = useMemo(() => new Set(
-    logEntries
-      .filter(e => (e.action === 'auto_paid' || e.action === 'manual_paid') && e.orderId && e.storeId)
-      .map(e => `${e.storeId}-${e.orderId}`)
-  ), [logEntries])
+      .filter(p => !matchedPaymentIds.has(p.mpPaymentId))
+  }, [unmatchedPayments, matchedPaymentIds, HOURS_24])
 
   // Cuenta pares potenciales: pagos con ≥2 señales coincidentes con alguna orden
   const pendingPairsCount = useMemo(() => {
@@ -651,7 +661,7 @@ export default function Dashboard() {
           {tab === 'ordenes' && <OrdersListTab orders={allRecentOrders} matchedIds={matchedOrderIds} />}
           {tab === 'pagos' && <PaymentsListTab payments={allRecentPayments} matchedIds={matchedPaymentIds} title="Pagos · últimas 24hs" emptyText="No hay pagos en las últimas 24 horas" />}
           {tab === 'sin-coincidencia' && <PaymentsListTab payments={paymentsWithoutMatch} title="Pagos sin coincidencia · últimas 24hs" emptyText="Todos los pagos de las últimas 24hs tienen una orden asignada" />}
-          {tab === 'registro' && <RegistroTab entries={logEntries} />}
+          {tab === 'registro' && <RegistroTab entries={logEntries} onClearLog={handleClearLog} />}
         </div>
       </main>
     </div>

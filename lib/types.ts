@@ -74,9 +74,17 @@ export interface Stats {
   pendingPayments: number
 }
 
+export interface RecentMatch {
+  mpPaymentId: string
+  matchedAt: string
+  orderId?: string
+  storeId?: string
+}
+
 export interface AppState {
   processedPayments: string[]
   matchLog: LogEntry[]
+  recentMatches: RecentMatch[]
   pendingMatches: PendingMatch[]
   unmatchedPayments: UnmatchedPayment[]
   dismissedOrders: string[]

@@ -45,6 +45,7 @@ const PAGE_SIZE = 25
 
 interface Props {
   entries: LogEntry[]
+  onClearLog?: () => void
 }
 
 const COLUMNS: { label: string; key: SortKey }[] = [
@@ -82,8 +83,19 @@ const DEFAULT_DIR: Record<SortKey, SortDir> = {
   billetera: 'asc',
 }
 
-export default function RegistroTab({ entries }: Props) {
+export default function RegistroTab({ entries, onClearLog }: Props) {
   const [copied, setCopied] = useState(false)
+  const [clearing, setClearing] = useState(false)
+
+  const handleClear = async () => {
+    if (!confirm('¿Borrar todo el registro? Esta acción no se puede deshacer.')) return
+    setClearing(true)
+    try {
+      await onClearLog?.()
+    } finally {
+      setClearing(false)
+    }
+  }
   const [sortKey, setSortKey] = useState<SortKey>('fecha')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
   const [page, setPage] = useState(1)
@@ -139,27 +151,38 @@ export default function RegistroTab({ entries }: Props) {
         <span style={{ fontSize: '13px', color: 'rgba(148,163,184,0.4)' }}>
           {paid.length} emparejamiento{paid.length !== 1 ? 's' : ''}
         </span>
-        <button
-          onClick={handleCopy}
-          disabled={paid.length === 0}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '7px',
-            fontSize: '13px',
-            fontWeight: 600,
-            padding: '9px 18px',
-            borderRadius: '10px',
-            border: copied ? '1px solid rgba(0,255,136,0.4)' : '1px solid rgba(0,212,255,0.25)',
-            background: copied ? 'rgba(0,255,136,0.08)' : 'rgba(0,212,255,0.06)',
-            color: copied ? '#00ff88' : '#00d4ff',
-            cursor: paid.length === 0 ? 'not-allowed' : 'pointer',
-            opacity: paid.length === 0 ? 0.4 : 1,
-            transition: 'all 0.2s',
-          }}
-        >
-          {copied ? '✓ Copiado' : '⧉ Copiar para Google Sheets'}
-        </button>
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+          <button
+            onClick={handleCopy}
+            disabled={paid.length === 0}
+            style={{
+              display: 'flex', alignItems: 'center', gap: '7px',
+              fontSize: '13px', fontWeight: 600, padding: '9px 18px', borderRadius: '10px',
+              border: copied ? '1px solid rgba(0,255,136,0.4)' : '1px solid rgba(0,212,255,0.25)',
+              background: copied ? 'rgba(0,255,136,0.08)' : 'rgba(0,212,255,0.06)',
+              color: copied ? '#00ff88' : '#00d4ff',
+              cursor: paid.length === 0 ? 'not-allowed' : 'pointer',
+              opacity: paid.length === 0 ? 0.4 : 1, transition: 'all 0.2s',
+            }}
+          >
+            {copied ? '✓ Copiado' : '⧉ Copiar para Google Sheets'}
+          </button>
+          <button
+            onClick={handleClear}
+            disabled={paid.length === 0 || clearing}
+            style={{
+              display: 'flex', alignItems: 'center', gap: '6px',
+              fontSize: '13px', fontWeight: 600, padding: '9px 18px', borderRadius: '10px',
+              border: '1px solid rgba(255,70,70,0.3)',
+              background: 'rgba(255,70,70,0.06)',
+              color: 'rgba(255,100,100,0.8)',
+              cursor: paid.length === 0 || clearing ? 'not-allowed' : 'pointer',
+              opacity: paid.length === 0 || clearing ? 0.4 : 1, transition: 'all 0.2s',
+            }}
+          >
+            {clearing ? 'Borrando...' : '🗑 Borrar registro'}
+          </button>
+        </div>
       </div>
 
       {paid.length === 0 ? (

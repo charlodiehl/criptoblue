@@ -44,6 +44,7 @@ async function kvSet(key: string, value: unknown): Promise<void> {
 const DEFAULT_STATE: AppState = {
   processedPayments: [],
   matchLog: [],
+  recentMatches: [],
   pendingMatches: [],
   unmatchedPayments: [],
   dismissedOrders: [],
@@ -91,6 +92,7 @@ export async function loadState(): Promise<AppState> {
     ...state,
     processedPayments: state.processedPayments || [],
     matchLog: state.matchLog || [],
+    recentMatches: state.recentMatches || [],
     pendingMatches: state.pendingMatches || [],
     unmatchedPayments: state.unmatchedPayments || [],
     dismissedOrders: state.dismissedOrders || [],
@@ -98,14 +100,19 @@ export async function loadState(): Promise<AppState> {
 }
 
 export async function saveState(state: AppState): Promise<void> {
-  const cutoff48h = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString()
-  state.matchLog = state.matchLog.filter(e => e.timestamp >= cutoff48h)
+  const cutoff24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+
+  // matchLog: sin límite de tiempo — se limpia solo manualmente desde el Registro
+  // recentMatches: auto-cleanup a las 24h (solo se usa para resaltado verde en pestañas)
+  state.recentMatches = (state.recentMatches || []).filter(m => m.matchedAt >= cutoff24h)
+
+  // unmatchedPayments: eliminar los de más de 24h (ya no se pueden mostrar en pagos)
+  state.unmatchedPayments = state.unmatchedPayments.filter(
+    u => !u.payment.fechaPago || u.payment.fechaPago >= cutoff24h
+  )
+
   if (state.processedPayments.length > 5000) {
     state.processedPayments = state.processedPayments.slice(-5000)
-  }
-  if (state.unmatchedPayments.length > 1000) {
-    // Keep the most recent 1000 unmatched payments
-    state.unmatchedPayments = state.unmatchedPayments.slice(-1000)
   }
   // Strip rawData from all Payment objects to prevent state bloat
   // (raw MP payment JSON is ~5-10KB per payment; with thousands of payments this would exceed Supabase limits)

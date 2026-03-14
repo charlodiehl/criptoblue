@@ -48,6 +48,10 @@ export async function POST(req: NextRequest) {
 
     state.unmatchedPayments.splice(unmatchedIndex, 1)
 
+    // recentMatches: para resaltado verde en pestañas (auto-limpia a las 24h, independiente del Registro)
+    state.recentMatches = state.recentMatches || []
+    state.recentMatches.push({ mpPaymentId: payment.mpPaymentId, matchedAt: new Date().toISOString(), orderId, storeId })
+
     const logEntry: LogEntry = {
       timestamp: new Date().toISOString(),
       action: 'manual_paid',
