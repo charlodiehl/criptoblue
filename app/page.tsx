@@ -308,7 +308,8 @@ export default function Dashboard() {
       const data = await res.json()
       if (data.success) {
         addToast('Pago marcado como recibido', 'success')
-        setUnmatchedPayments(prev => prev.filter(u => (u.mpPaymentId || u.payment.mpPaymentId) !== mpPaymentId))
+        // No eliminar del estado local — fetchStatus trae externallyMarkedPayments
+        // y matchedPaymentIds lo pondrá en verde en la tarjeta
         await fetchStatus()
       } else {
         addToast(`Error: ${data.error}`, 'error')
