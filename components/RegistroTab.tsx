@@ -140,7 +140,7 @@ export default function RegistroTab({ entries, onClearLog }: Props) {
       billetera(e),
     ])
 
-    const tsv = [HEADERS, ...rows].map(r => r.join('\t')).join('\n')
+    const tsv = rows.map(r => r.join('\t')).join('\n')
     navigator.clipboard.writeText(tsv).then(() => {
       setCopied(true)
       setTimeout(() => setCopied(false), 2500)
