@@ -107,20 +107,22 @@ export async function loadState(): Promise<AppState> {
 }
 
 export async function saveState(state: AppState): Promise<void> {
-  const cutoff24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
-  // Efectivo: el más reciente entre rolling 24h y el hard cutoff
-  const effectiveCutoff = cutoff24h > HARD_CUTOFF.toISOString() ? cutoff24h : HARD_CUTOFF.toISOString()
+  const cutoff24hMs = Date.now() - 24 * 60 * 60 * 1000
+  // Efectivo: el más reciente entre rolling 24h y el hard cutoff (comparación numérica, evita bugs de timezone en strings)
+  const effectiveCutoffMs = Math.max(cutoff24hMs, HARD_CUTOFF.getTime())
 
   // matchLog: sin límite de tiempo — se limpia solo manualmente desde el Registro
   // Pero sí filtramos entradas anteriores al hard cutoff (datos de antes de la app)
-  state.matchLog = (state.matchLog || []).filter(e => e.timestamp >= HARD_CUTOFF.toISOString())
+  const hardCutoffMs = HARD_CUTOFF.getTime()
+  state.matchLog = (state.matchLog || []).filter(e => new Date(e.timestamp).getTime() >= hardCutoffMs)
 
   // recentMatches: auto-cleanup al cutoff efectivo (solo se usa para resaltado verde en pestañas)
-  state.recentMatches = (state.recentMatches || []).filter(m => m.matchedAt >= effectiveCutoff)
+  state.recentMatches = (state.recentMatches || []).filter(m => new Date(m.matchedAt).getTime() >= effectiveCutoffMs)
 
   // unmatchedPayments: eliminar los anteriores al cutoff efectivo
+  // IMPORTANTE: usar getTime() para comparar correctamente fechas con distintos offsets de timezone
   state.unmatchedPayments = state.unmatchedPayments.filter(
-    u => !u.payment.fechaPago || u.payment.fechaPago >= effectiveCutoff
+    u => !u.payment.fechaPago || new Date(u.payment.fechaPago).getTime() >= effectiveCutoffMs
   )
 
   if (state.processedPayments.length > 5000) {
