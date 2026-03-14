@@ -35,6 +35,7 @@ export default function Dashboard() {
   const [unmatchedPayments, setUnmatchedPayments] = useState<UnmatchedPayment[]>([])
   const [toasts, setToasts] = useState<Toast[]>([])
   const [actionLoading, setActionLoading] = useState(false)
+  const [isRefreshing, setIsRefreshing] = useState(false)
   const [logEntries, setLogEntries] = useState<LogEntry[]>([])
   const [recentMatches, setRecentMatches] = useState<RecentMatch[]>([])
   const [matchRefreshKey, setMatchRefreshKey] = useState(0)
@@ -277,9 +278,33 @@ export default function Dashboard() {
     }
   }
 
+  // Refresh silencioso: no bloquea la UI, solo muestra el indicador en el header
+  const silentRefresh = useCallback(async () => {
+    if (isRefreshing) return // evitar solapamiento
+    setIsRefreshing(true)
+    try {
+      await fetch('/api/reevaluar', { method: 'POST' })
+      await Promise.all([fetchUnmatched(), fetchOrders(), fetchStatus()])
+      setMatchRefreshKey(k => k + 1)
+    } catch {
+      // silencioso: no mostrar toast en auto-refresh
+    } finally {
+      setIsRefreshing(false)
+    }
+  }, [isRefreshing, fetchUnmatched, fetchOrders, fetchStatus])
+
+  // Auto-refresh cada 2 minutos (solo cuando la pestaña está activa)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (!document.hidden) silentRefresh()
+    }, 2 * 60 * 1000)
+    return () => clearInterval(interval)
+  }, [silentRefresh])
+
   const handleReevaluar = async () => {
     setMatchRefreshKey(k => k + 1)
     setActionLoading(true)
+    setIsRefreshing(true)
     try {
       const res = await fetch('/api/reevaluar', { method: 'POST' })
       const data = await res.json()
@@ -295,6 +320,7 @@ export default function Dashboard() {
       addToast(`Error: ${err}`, 'error')
     } finally {
       setActionLoading(false)
+      setIsRefreshing(false)
     }
   }
 
@@ -636,13 +662,13 @@ export default function Dashboard() {
 
           {/* RIGHT: Sync info + Actualizar + Tiendas dropdown */}
           <div className="flex items-center justify-end gap-2">
-            {actionLoading ? (
-              <span style={{ fontSize: '11px', color: '#00d4ff', whiteSpace: 'nowrap', opacity: 0.7 }}>
-                ⟳ Sincronizando...
+            {isRefreshing ? (
+              <span style={{ fontSize: '11px', color: '#00d4ff', whiteSpace: 'nowrap', opacity: 0.85 }}>
+                ⟳ Actualizando información...
               </span>
             ) : stats?.lastMPCheck ? (
               <span style={{ fontSize: '11px', color: 'rgba(148,163,184,0.4)', whiteSpace: 'nowrap' }}>
-                Sync: {new Date(stats.lastMPCheck).toLocaleString('es-AR', { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                Última actualización: {new Date(stats.lastMPCheck).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
               </span>
             ) : null}
             <button
