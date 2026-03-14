@@ -9,6 +9,9 @@ interface CycleResult {
   errors: string[]
 }
 
+// Nunca traer datos anteriores a esta fecha (13/03/2026 20:00 ART)
+const HARD_CUTOFF = new Date('2026-03-13T23:00:00.000Z')
+
 export async function processMPPayments(): Promise<CycleResult> {
   const result: CycleResult = { processed: 0, cancelled: 0, errors: [] }
 
@@ -16,20 +19,22 @@ export async function processMPPayments(): Promise<CycleResult> {
 
   const now = new Date()
   const cutoff24h = new Date(now.getTime() - 24 * 60 * 60 * 1000)
+  // Usar el más reciente entre el rolling 24h y el hard cutoff
+  const since = cutoff24h > HARD_CUTOFF ? cutoff24h : HARD_CUTOFF
 
-  // Purge pagos con más de 24h (un pago no usado en 24h no va a matchear)
+  // Purge pagos anteriores al cutoff efectivo
   state.unmatchedPayments = state.unmatchedPayments.filter(u => {
     const date = u.payment.fechaPago ? new Date(u.payment.fechaPago) : new Date(u.timestamp)
-    return date >= cutoff24h
+    return date >= since
   })
 
   // Limpiar pendingMatches (ya no se usa en el flujo manual)
   state.pendingMatches = []
 
-  // Traer pagos aprobados de las últimas 24h desde MP
+  // Traer pagos aprobados desde el cutoff efectivo
   let payments
   try {
-    payments = await fetchAllPaymentsSince(cutoff24h)
+    payments = await fetchAllPaymentsSince(since)
   } catch (err) {
     result.errors.push(`MP fetch error: ${String(err)}`)
     return result
@@ -47,21 +52,26 @@ export async function processMPPayments(): Promise<CycleResult> {
       .filter((id): id is string => !!id)
   )
 
-  // Cancelar órdenes abandonadas (payment_status=pending con más de 48h)
   const storeEntries = Object.values(stores)
-  const cancelResults = await Promise.allSettled(
-    storeEntries.map(s => cancelAbandonedOrders(s.storeId, s.accessToken))
-  )
-  cancelResults.forEach((r, i) => {
-    if (r.status === 'fulfilled') {
-      result.cancelled += r.value.cancelled
-      if (r.value.errors > 0) {
-        result.errors.push(`Cancel errors in store ${storeEntries[i].storeId}: ${r.value.errors}`)
+
+  // Cancelación automática de órdenes abandonadas — PAUSADA
+  // Para reactivar: cambiar AUTO_CANCEL_ENABLED a true
+  const AUTO_CANCEL_ENABLED = false
+  if (AUTO_CANCEL_ENABLED) {
+    const cancelResults = await Promise.allSettled(
+      storeEntries.map(s => cancelAbandonedOrders(s.storeId, s.accessToken))
+    )
+    cancelResults.forEach((r, i) => {
+      if (r.status === 'fulfilled') {
+        result.cancelled += r.value.cancelled
+        if (r.value.errors > 0) {
+          result.errors.push(`Cancel errors in store ${storeEntries[i].storeId}: ${r.value.errors}`)
+        }
+      } else {
+        result.errors.push(`Cancel fetch error store ${storeEntries[i].storeId}: ${r.reason}`)
       }
-    } else {
-      result.errors.push(`Cancel fetch error store ${storeEntries[i].storeId}: ${r.reason}`)
-    }
-  })
+    })
+  }
 
   // Verificar órdenes pendientes recientes (solo para loggear errores de fetch)
   const allOrdersPerStore = await Promise.allSettled(
