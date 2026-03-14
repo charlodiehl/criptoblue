@@ -34,6 +34,7 @@ interface Props {
   payments: Payment[]
   orders?: Order[]
   matchedIds?: Set<string>
+  externallyMarkedIds?: Set<string>
   title?: string
   emptyText?: string
   onMarkReceived?: (mpPaymentId: string) => Promise<void>
@@ -42,7 +43,7 @@ interface Props {
 }
 
 export default function PaymentsListTab({
-  payments, orders = [], matchedIds, title = 'Pagos · últimas 24hs',
+  payments, orders = [], matchedIds, externallyMarkedIds, title = 'Pagos · últimas 24hs',
   emptyText = 'No hay pagos en las últimas 24 horas',
   onMarkReceived, onManualLog, loading,
 }: Props) {
@@ -132,6 +133,7 @@ export default function PaymentsListTab({
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '10px' }}>
         {pageItems.map(p => {
+          const isExternal = externallyMarkedIds?.has(p.mpPaymentId)
           const matched = matchedIds?.has(p.mpPaymentId)
           const isMarking = marking === p.mpPaymentId
           const isManualOpen = manualOpen === p.mpPaymentId
@@ -139,15 +141,20 @@ export default function PaymentsListTab({
 
           return (
             <div key={p.mpPaymentId} style={{
-              background: matched ? 'linear-gradient(160deg,#0a1a10 0%,#0d1f14 100%)' : 'linear-gradient(160deg,#0d1117 0%,#0f1824 100%)',
-              border: matched ? '1px solid rgba(0,255,136,0.25)' : '1px solid rgba(0,212,255,0.1)',
+              background: isExternal ? 'linear-gradient(160deg,#1a1700 0%,#1f1c00 100%)' : matched ? 'linear-gradient(160deg,#0a1a10 0%,#0d1f14 100%)' : 'linear-gradient(160deg,#0d1117 0%,#0f1824 100%)',
+              border: isExternal ? '1px solid rgba(255,220,0,0.25)' : matched ? '1px solid rgba(0,255,136,0.25)' : '1px solid rgba(0,212,255,0.1)',
               borderRadius: '14px', padding: '16px 18px',
             }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
                 <p style={{ fontSize: '20px', fontWeight: 800, color: 'white', letterSpacing: '-0.02em', margin: 0 }}>
                   {ARS.format(p.monto)}
                 </p>
-                {matched && (
+                {isExternal && (
+                  <span style={{ fontSize: '10px', fontWeight: 700, color: '#ffd700', letterSpacing: '0.05em', textShadow: '0 0 8px rgba(255,215,0,0.4)' }}>
+                    NO ES TIENDAS
+                  </span>
+                )}
+                {!isExternal && matched && (
                   <span style={{ fontSize: '10px', fontWeight: 700, color: '#00ff88', letterSpacing: '0.05em', textShadow: '0 0 8px rgba(0,255,136,0.4)' }}>
                     ✓ RECIBIDO
                   </span>
@@ -174,8 +181,8 @@ export default function PaymentsListTab({
                 <div style={{ paddingTop: '8px', marginTop: '4px', borderTop: '1px solid rgba(255,255,255,0.04)', display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                   {onMarkReceived && (
                     <button onClick={() => handleMarkReceived(p.mpPaymentId)} disabled={!!loading || !!marking}
-                      style={{ fontSize: '11px', padding: '5px 10px', borderRadius: '7px', border: '1px solid rgba(0,255,136,0.2)', background: 'transparent', color: isMarking ? 'rgba(0,255,136,0.4)' : 'rgba(0,255,136,0.55)', cursor: (loading || marking) ? 'not-allowed' : 'pointer', opacity: (loading || (marking && !isMarking)) ? 0.4 : 1 }}>
-                      {isMarking ? '...' : '✓ Pago recibido'}
+                      style={{ fontSize: '11px', padding: '5px 10px', borderRadius: '7px', border: '1px solid rgba(255,220,0,0.25)', background: 'transparent', color: isMarking ? 'rgba(255,215,0,0.4)' : 'rgba(255,215,0,0.7)', cursor: (loading || marking) ? 'not-allowed' : 'pointer', opacity: (loading || (marking && !isMarking)) ? 0.4 : 1 }}>
+                      {isMarking ? '...' : 'No es de tiendas'}
                     </button>
                   )}
                   {onManualLog && !isManualOpen && (
