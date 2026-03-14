@@ -45,17 +45,14 @@ export function normalizePayment(raw: any): Payment | null {
   const OWNER_EMAIL = 'compubairestore@gmail.com'
   const OWNER_CUIT = '20190997252'
 
-  const payerEmail = raw.payer?.email || ''
-  const payerCuit = raw.payer?.identification?.number || ''
-
-  // Filtrar egresos: si el dueño de la cuenta es el pagador, es un pago saliente
-  if (payerEmail === OWNER_EMAIL || payerCuit === OWNER_CUIT) return null
-
   const firstName = raw.payer?.first_name || ''
   const lastName = raw.payer?.last_name || ''
   const fullName = [firstName, lastName].filter(Boolean).join(' ').trim()
 
   const collectorEmail = raw.collector?.email || ''
+  const payerEmail = raw.payer?.email || ''
+  const payerCuit = raw.payer?.identification?.number || ''
+  // Si el pagador es el dueño de la cuenta, limpiar esos campos para no mostrar datos propios
   const emailPagador = (payerEmail && payerEmail !== collectorEmail && payerEmail !== OWNER_EMAIL) ? payerEmail : ''
 
   return {
