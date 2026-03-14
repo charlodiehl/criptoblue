@@ -185,13 +185,13 @@ export default function Dashboard() {
     }
   }
 
-  const handleManualMatch = async (mpPaymentId: string, orderId: string, storeId: string) => {
+  const handleManualMatch = async (mpPaymentId: string, orderId: string, storeId: string, order?: Order) => {
     setActionLoading(true)
     try {
       const res = await fetch('/api/manual-match', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mpPaymentId, orderId, storeId }),
+        body: JSON.stringify({ mpPaymentId, orderId, storeId, order }),
       })
       const data = await res.json()
       if (data.success) {
@@ -277,6 +277,34 @@ export default function Dashboard() {
   }
 
   const HOURS_24 = 24 * 60 * 60 * 1000
+  const HOURS_48 = 48 * 60 * 60 * 1000
+
+  // Todas las órdenes de las últimas 48hs (pendientes + ya pagadas reconstruidas desde el log)
+  const allRecentOrders = useMemo((): Order[] => {
+    const now = Date.now()
+    const pendingMap = new Map(orders.map(o => [`${o.storeId}-${o.orderId}`, o]))
+    const paidOrders: Order[] = logEntries
+      .filter(e =>
+        (e.action === 'auto_paid' || e.action === 'manual_paid') &&
+        e.orderId && e.storeId &&
+        (now - new Date(e.timestamp).getTime()) <= HOURS_48
+      )
+      .map(e => e.order ?? ({
+        orderId: e.orderId!,
+        orderNumber: e.orderNumber || '',
+        total: e.amount || 0,
+        customerName: e.customerName || '',
+        customerEmail: '',
+        customerCuit: '',
+        createdAt: e.timestamp,
+        gateway: '',
+        storeId: e.storeId!,
+        storeName: e.storeName || '',
+      } as Order))
+      .filter(o => !pendingMap.has(`${o.storeId}-${o.orderId}`))
+    return [...orders, ...paidOrders]
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+  }, [orders, logEntries, HOURS_48])
 
   // Todos los pagos de las últimas 24hs (macheados + no macheados)
   const allRecentPayments = useMemo((): Payment[] => {
@@ -351,7 +379,7 @@ export default function Dashboard() {
 
   const tabs: { id: Tab; label: string; primary?: boolean }[] = [
     { id: 'manual', label: 'Emparejamiento', primary: true },
-    { id: 'ordenes', label: `Órdenes (${orders.length})` },
+    { id: 'ordenes', label: `Órdenes (${allRecentOrders.length})` },
     { id: 'pagos', label: `Pagos (${allRecentPayments.length})` },
     { id: 'sin-coincidencia', label: `Sin coincidencia (${paymentsWithoutMatch.length})` },
     { id: 'registro', label: 'Registro' },
@@ -620,7 +648,7 @@ export default function Dashboard() {
         {/* Tab content */}
         <div>
           {tab === 'manual' && <ManualMatchTab unmatchedPayments={unmatchedPayments} orders={orders} onManualMatch={handleManualMatch} onDismissPayment={handleDismissPayment} onMarkOrderPaid={handleMarkOrderPaid} onCancelDuplicate={handleCancelDuplicate} loading={actionLoading} lastMPCheck={stats?.lastMPCheck ?? null} refreshKey={matchRefreshKey} />}
-          {tab === 'ordenes' && <OrdersListTab orders={orders} matchedIds={matchedOrderIds} />}
+          {tab === 'ordenes' && <OrdersListTab orders={allRecentOrders} matchedIds={matchedOrderIds} />}
           {tab === 'pagos' && <PaymentsListTab payments={allRecentPayments} matchedIds={matchedPaymentIds} title="Pagos · últimas 24hs" emptyText="No hay pagos en las últimas 24 horas" />}
           {tab === 'sin-coincidencia' && <PaymentsListTab payments={paymentsWithoutMatch} title="Pagos sin coincidencia · últimas 24hs" emptyText="Todos los pagos de las últimas 24hs tienen una orden asignada" />}
           {tab === 'registro' && <RegistroTab entries={logEntries} />}

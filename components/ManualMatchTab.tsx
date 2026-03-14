@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import type { UnmatchedPayment, Order } from '@/lib/types'
 
 const ARS = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 0 })
@@ -228,7 +228,7 @@ interface Pair {
 interface Props {
   unmatchedPayments: UnmatchedPayment[]
   orders: Order[]
-  onManualMatch: (mpPaymentId: string, orderId: string, storeId: string) => Promise<void>
+  onManualMatch: (mpPaymentId: string, orderId: string, storeId: string, order: Order) => Promise<void>
   onDismissPayment: (mpPaymentId: string) => Promise<void>
   onMarkOrderPaid: (storeId: string, orderId: string) => Promise<void>
   onCancelDuplicate: (storeId: string, orderId: string) => Promise<void>
@@ -248,10 +248,28 @@ export default function ManualMatchTab({
   refreshKey,
 }: Props) {
   const [dismissedMap, setDismissedMap] = useState<Record<string, number>>({})
+  const [visibleCount, setVisibleCount] = useState(20)
+  const loaderRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     setDismissedMap({})
+    setVisibleCount(20)
   }, [refreshKey])
+
+  // Infinite scroll: cuando el sentinel entra en viewport, carga más pares
+  const onIntersect = useCallback((entries: IntersectionObserverEntry[]) => {
+    if (entries[0].isIntersecting) {
+      setVisibleCount(prev => prev + 10)
+    }
+  }, [])
+
+  useEffect(() => {
+    const el = loaderRef.current
+    if (!el) return
+    const observer = new IntersectionObserver(onIntersect, { rootMargin: '200px' })
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [onIntersect])
 
   const pairs: Pair[] = useMemo(() => {
     // Build all scores
@@ -340,8 +358,8 @@ export default function ManualMatchTab({
     setDismissedMap(prev => ({ ...prev, [paymentId]: (prev[paymentId] ?? 0) + 1 }))
   }
 
-  const handleConfirm = async (paymentId: string, orderId: string, storeId: string) => {
-    await onManualMatch(paymentId, orderId, storeId)
+  const handleConfirm = async (paymentId: string, orderId: string, storeId: string, order: Order) => {
+    await onManualMatch(paymentId, orderId, storeId, order)
   }
 
   return (
@@ -375,7 +393,7 @@ export default function ManualMatchTab({
         </div>
       ) : (
         <div className="space-y-3">
-          {pairs.map(pair => (
+          {pairs.slice(0, visibleCount).map(pair => (
             <PairRow
               key={pair.id}
               pair={pair}
@@ -386,6 +404,13 @@ export default function ManualMatchTab({
               loading={loading}
             />
           ))}
+          {/* Sentinel para infinite scroll */}
+          <div ref={loaderRef} style={{ height: '1px' }} />
+          {visibleCount < pairs.length && (
+            <p style={{ textAlign: 'center', fontSize: '11px', color: 'rgba(148,163,184,0.3)', paddingBottom: '8px' }}>
+              Cargando más...
+            </p>
+          )}
         </div>
       )}
     </div>
@@ -401,7 +426,7 @@ function PairRow({
   loading,
 }: {
   pair: Pair
-  onConfirm: (paymentId: string, orderId: string, storeId: string) => void
+  onConfirm: (paymentId: string, orderId: string, storeId: string, order: Order) => void
   onDismissPair: (paymentId: string) => void
   onDismissPayment: (paymentId: string) => void
   onCancelDuplicate: (storeId: string, orderId: string) => void
@@ -474,7 +499,7 @@ function PairRow({
             })}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '12px' }}>
               <button
-                onClick={() => onConfirm(id, current.order.orderId, current.order.storeId)}
+                onClick={() => onConfirm(id, current.order.orderId, current.order.storeId, current.order)}
                 disabled={loading}
                 style={{
                   padding: '12px 0',
