@@ -210,7 +210,17 @@ export default function Dashboard() {
         } else {
           addToast('Orden marcada como pagada en TiendaNube', 'success')
         }
-        await Promise.all([fetchUnmatched(), fetchOrders(), fetchStatus()])
+        // Actualización local instantánea — sin recargar todo desde el servidor
+        setUnmatchedPayments(prev => prev.filter(u => (u.mpPaymentId || u.payment.mpPaymentId) !== mpPaymentId))
+        if (data.logEntry) setLogEntries(prev => [...prev, data.logEntry])
+        if (data.recentMatch) setRecentMatches(prev => [...prev, data.recentMatch])
+        setStats(prev => prev ? {
+          ...prev,
+          paidThisMonth: prev.paidThisMonth + 1,
+          paidVolumeThisMonth: prev.paidVolumeThisMonth + (data.logEntry?.amount ?? 0),
+          pendingOrders: Math.max(0, prev.pendingOrders - 1),
+        } : prev)
+        setMatchRefreshKey(k => k + 1)
       } else {
         addToast(`Error: ${data.error}`, 'error')
       }

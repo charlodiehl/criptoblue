@@ -69,7 +69,8 @@ export async function POST(req: NextRequest) {
 
     await saveState(state)
 
-    return NextResponse.json({ success: true, method: tnResult.method })
+    const recentMatch = { mpPaymentId: payment.mpPaymentId, matchedAt: logEntry.timestamp, orderId, storeId }
+    return NextResponse.json({ success: true, method: tnResult.method, logEntry, recentMatch })
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 })
   }
