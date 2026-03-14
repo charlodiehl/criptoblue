@@ -7,9 +7,9 @@ import ManualMatchTab from '@/components/ManualMatchTab'
 import OrdersListTab from '@/components/OrdersListTab'
 import PaymentsListTab from '@/components/PaymentsListTab'
 import RegistroTab from '@/components/RegistroTab'
-import type { Order, UnmatchedPayment, Store, LogEntry } from '@/lib/types'
+import type { Order, UnmatchedPayment, Store, LogEntry, Payment } from '@/lib/types'
 
-type Tab = 'manual' | 'ordenes' | 'pagos' | 'registro'
+type Tab = 'manual' | 'ordenes' | 'pagos' | 'sin-coincidencia' | 'registro'
 
 interface Stats {
   paidThisMonth: number
@@ -131,10 +131,10 @@ export default function Dashboard() {
     if (tab === 'manual' || tab === 'ordenes') {
       fetchOrders()
     }
-    if (tab === 'manual' || tab === 'pagos') {
+    if (tab === 'manual' || tab === 'pagos' || tab === 'sin-coincidencia') {
       fetchUnmatched()
     }
-    if (tab === 'registro') {
+    if (tab === 'registro' || tab === 'pagos' || tab === 'sin-coincidencia') {
       fetchLog()
     }
   }, [tab, fetchOrders, fetchUnmatched, fetchLog])
@@ -276,6 +276,54 @@ export default function Dashboard() {
     }
   }
 
+  const HOURS_24 = 24 * 60 * 60 * 1000
+
+  // Todos los pagos de las últimas 24hs (macheados + no macheados)
+  const allRecentPayments = useMemo((): Payment[] => {
+    const now = Date.now()
+    // Pagos macheados del registro (últimas 24hs)
+    const matched = logEntries
+      .filter(e => (e.action === 'auto_paid' || e.action === 'manual_paid') && e.payment)
+      .filter(e => (now - new Date(e.timestamp).getTime()) <= HOURS_24)
+      .map(e => e.payment!)
+    const matchedIds = new Set(matched.map(p => p.mpPaymentId))
+    // Pagos no macheados (últimas 24hs), deduplicando por si ya aparecen en el log
+    const unmatched = unmatchedPayments
+      .filter(u => (now - new Date(u.payment.fechaPago).getTime()) <= HOURS_24)
+      .map(u => u.payment)
+      .filter(p => !matchedIds.has(p.mpPaymentId))
+    return [...matched, ...unmatched]
+  }, [unmatchedPayments, logEntries, HOURS_24])
+
+  // Pagos de las últimas 24hs sin coincidencia con ninguna orden
+  const paymentsWithoutMatch = useMemo((): Payment[] => {
+    const now = Date.now()
+    const matchedIds = new Set(
+      logEntries
+        .filter(e => e.action === 'auto_paid' || e.action === 'manual_paid')
+        .map(e => e.mpPaymentId)
+        .filter(Boolean) as string[]
+    )
+    return unmatchedPayments
+      .filter(u => (now - new Date(u.payment.fechaPago).getTime()) <= HOURS_24)
+      .map(u => u.payment)
+      .filter(p => !matchedIds.has(p.mpPaymentId))
+  }, [unmatchedPayments, logEntries, HOURS_24])
+
+  // IDs de pagos y órdenes ya macheados (para resaltar en las pestañas)
+  const matchedPaymentIds = useMemo(() => new Set(
+    logEntries
+      .filter(e => e.action === 'auto_paid' || e.action === 'manual_paid')
+      .map(e => e.mpPaymentId)
+      .filter(Boolean) as string[]
+  ), [logEntries])
+
+  const matchedOrderIds = useMemo(() => new Set(
+    logEntries
+      .filter(e => (e.action === 'auto_paid' || e.action === 'manual_paid') && e.orderId && e.storeId)
+      .map(e => `${e.storeId}-${e.orderId}`)
+  ), [logEntries])
+
   // Cuenta pares potenciales: pagos con ≥2 señales coincidentes con alguna orden
   const pendingPairsCount = useMemo(() => {
     return unmatchedPayments.filter(u => {
@@ -304,7 +352,8 @@ export default function Dashboard() {
   const tabs: { id: Tab; label: string; primary?: boolean }[] = [
     { id: 'manual', label: 'Emparejamiento', primary: true },
     { id: 'ordenes', label: `Órdenes (${orders.length})` },
-    { id: 'pagos', label: `Pagos (${unmatchedPayments.length})` },
+    { id: 'pagos', label: `Pagos (${allRecentPayments.length})` },
+    { id: 'sin-coincidencia', label: `Sin coincidencia (${paymentsWithoutMatch.length})` },
     { id: 'registro', label: 'Registro' },
   ]
 
@@ -571,8 +620,9 @@ export default function Dashboard() {
         {/* Tab content */}
         <div>
           {tab === 'manual' && <ManualMatchTab unmatchedPayments={unmatchedPayments} orders={orders} onManualMatch={handleManualMatch} onDismissPayment={handleDismissPayment} onMarkOrderPaid={handleMarkOrderPaid} onCancelDuplicate={handleCancelDuplicate} loading={actionLoading} lastMPCheck={stats?.lastMPCheck ?? null} refreshKey={matchRefreshKey} />}
-          {tab === 'ordenes' && <OrdersListTab orders={orders} />}
-          {tab === 'pagos' && <PaymentsListTab payments={unmatchedPayments} />}
+          {tab === 'ordenes' && <OrdersListTab orders={orders} matchedIds={matchedOrderIds} />}
+          {tab === 'pagos' && <PaymentsListTab payments={allRecentPayments} matchedIds={matchedPaymentIds} title="Pagos · últimas 24hs" emptyText="No hay pagos en las últimas 24 horas" />}
+          {tab === 'sin-coincidencia' && <PaymentsListTab payments={paymentsWithoutMatch} title="Pagos sin coincidencia · últimas 24hs" emptyText="Todos los pagos de las últimas 24hs tienen una orden asignada" />}
           {tab === 'registro' && <RegistroTab entries={logEntries} />}
         </div>
       </main>

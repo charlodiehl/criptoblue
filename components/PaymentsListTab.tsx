@@ -1,6 +1,6 @@
 'use client'
 
-import type { UnmatchedPayment } from '@/lib/types'
+import type { Payment } from '@/lib/types'
 
 const ARS = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 0 })
 
@@ -18,13 +18,16 @@ function fmtDate(iso: string) {
 }
 
 interface Props {
-  payments: UnmatchedPayment[]
+  payments: Payment[]
+  matchedIds?: Set<string>
+  title?: string
+  emptyText?: string
 }
 
-export default function PaymentsListTab({ payments }: Props) {
+export default function PaymentsListTab({ payments, matchedIds, title = 'Pagos · últimas 24hs', emptyText = 'No hay pagos en las últimas 24 horas' }: Props) {
   const sorted = [...payments].sort((a, b) => {
-    const ta = a.payment.fechaPago ? new Date(a.payment.fechaPago).getTime() : 0
-    const tb = b.payment.fechaPago ? new Date(b.payment.fechaPago).getTime() : 0
+    const ta = a.fechaPago ? new Date(a.fechaPago).getTime() : 0
+    const tb = b.fechaPago ? new Date(b.fechaPago).getTime() : 0
     return tb - ta
   })
 
@@ -34,7 +37,7 @@ export default function PaymentsListTab({ payments }: Props) {
         className="flex flex-col items-center justify-center rounded-2xl py-20 text-center"
         style={{ background: 'linear-gradient(135deg, #0d1117, #111827)', border: '1px solid rgba(0,212,255,0.08)' }}
       >
-        <p style={{ fontSize: '13px', color: 'rgba(148,163,184,0.4)' }}>No hay pagos pendientes</p>
+        <p style={{ fontSize: '13px', color: 'rgba(148,163,184,0.4)' }}>{emptyText}</p>
       </div>
     )
   }
@@ -43,53 +46,64 @@ export default function PaymentsListTab({ payments }: Props) {
     <div>
       <div style={{ marginBottom: '12px', display: 'flex', alignItems: 'baseline', gap: '8px' }}>
         <span style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.15em', textTransform: 'uppercase', color: 'rgba(0,212,255,0.6)' }}>
-          Pagos pendientes
+          {title}
         </span>
         <span style={{ fontSize: '11px', color: 'rgba(148,163,184,0.35)' }}>{sorted.length} pago{sorted.length !== 1 ? 's' : ''}</span>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '10px' }}>
-        {sorted.map(u => {
-          const id = u.mpPaymentId || ''
+        {sorted.map(p => {
+          const matched = matchedIds?.has(p.mpPaymentId)
           return (
-            <div
-              key={id}
-              style={{
-                background: 'linear-gradient(160deg, #0d1117 0%, #0f1824 100%)',
-                border: '1px solid rgba(0,212,255,0.1)',
-                borderRadius: '14px',
-                padding: '16px 18px',
-              }}
-            >
-              {/* 1. Monto */}
-              <p style={{ fontSize: '20px', fontWeight: 800, color: 'white', marginBottom: '6px', letterSpacing: '-0.02em' }}>
-                {ARS.format(u.payment.monto)}
+          <div
+            key={p.mpPaymentId}
+            style={{
+              background: matched
+                ? 'linear-gradient(160deg, #0a1a10 0%, #0d1f14 100%)'
+                : 'linear-gradient(160deg, #0d1117 0%, #0f1824 100%)',
+              border: matched
+                ? '1px solid rgba(0,255,136,0.25)'
+                : '1px solid rgba(0,212,255,0.1)',
+              borderRadius: '14px',
+              padding: '16px 18px',
+            }}
+          >
+            {/* 1. Monto + badge */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+              <p style={{ fontSize: '20px', fontWeight: 800, color: 'white', letterSpacing: '-0.02em', margin: 0 }}>
+                {ARS.format(p.monto)}
               </p>
-              {/* 2. CUIT/CUIL/DNI */}
-              {u.payment.cuitPagador && (
-                <p style={{ fontSize: '11px', color: 'rgba(0,212,255,0.65)', fontWeight: 600, marginBottom: '3px' }}>
-                  CUIT/DNI: {u.payment.cuitPagador}
-                </p>
-              )}
-              {/* 3. Nombre */}
-              {u.payment.nombrePagador ? (
-                <p style={{ fontSize: '13px', color: 'rgba(226,232,240,0.85)', marginBottom: '3px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {u.payment.nombrePagador}
-                </p>
-              ) : (
-                <p style={{ fontSize: '12px', color: 'rgba(148,163,184,0.3)', fontStyle: 'italic', marginBottom: '3px' }}>Sin nombre</p>
-              )}
-              {/* 4. Fecha/hora */}
-              <p style={{ fontSize: '11px', color: 'rgba(148,163,184,0.45)', marginBottom: '3px' }}>
-                {fmtDate(u.payment.fechaPago)}
-              </p>
-              {/* 5. Email */}
-              {u.payment.emailPagador && (
-                <p style={{ fontSize: '11px', color: 'rgba(148,163,184,0.4)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {u.payment.emailPagador}
-                </p>
+              {matched && (
+                <span style={{ fontSize: '10px', fontWeight: 700, color: '#00ff88', letterSpacing: '0.05em', textShadow: '0 0 8px rgba(0,255,136,0.4)' }}>
+                  ✓ PAGADO
+                </span>
               )}
             </div>
+            {/* 2. CUIT/CUIL/DNI */}
+            {p.cuitPagador && (
+              <p style={{ fontSize: '11px', color: 'rgba(0,212,255,0.65)', fontWeight: 600, marginBottom: '3px' }}>
+                CUIT/DNI: {p.cuitPagador}
+              </p>
+            )}
+            {/* 3. Nombre */}
+            {p.nombrePagador ? (
+              <p style={{ fontSize: '13px', color: 'rgba(226,232,240,0.85)', marginBottom: '3px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {p.nombrePagador}
+              </p>
+            ) : (
+              <p style={{ fontSize: '12px', color: 'rgba(148,163,184,0.3)', fontStyle: 'italic', marginBottom: '3px' }}>Sin nombre</p>
+            )}
+            {/* 4. Fecha/hora */}
+            <p style={{ fontSize: '11px', color: 'rgba(148,163,184,0.45)', marginBottom: '3px' }}>
+              {fmtDate(p.fechaPago)}
+            </p>
+            {/* 5. Email */}
+            {p.emailPagador && (
+              <p style={{ fontSize: '11px', color: 'rgba(148,163,184,0.4)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {p.emailPagador}
+              </p>
+            )}
+          </div>
           )
         })}
       </div>

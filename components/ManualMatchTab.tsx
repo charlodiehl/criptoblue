@@ -258,8 +258,12 @@ export default function ManualMatchTab({
     const allPairs = unmatchedPayments.map(u => {
       const id = u.mpPaymentId || ''
       const skipCount = dismissedMap[id] ?? 0
-      // Precomputar cantidad de órdenes con mismo monto (una sola vez por pago)
-      const totalSameMonto = orders.filter(x => x.total === u.payment.monto).length
+      // Precomputar cantidad de órdenes con mismo monto ANTERIORES al pago (una orden siempre precede al pago)
+      const payTime = u.payment.fechaPago ? new Date(u.payment.fechaPago).getTime() : null
+      const totalSameMonto = orders.filter(x =>
+        x.total === u.payment.monto &&
+        (!payTime || !x.createdAt || new Date(x.createdAt).getTime() <= payTime)
+      ).length
 
       const ranked: RankedOrder[] = orders
         .filter(o => {

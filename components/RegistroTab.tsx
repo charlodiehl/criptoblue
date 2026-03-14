@@ -17,7 +17,8 @@ function fmtDate(iso: string) {
 }
 
 function fmtMontoDisplay(n: number) {
-  return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 0 }).format(n)
+  // Sin separador de miles, punto decimal (igual que el export TSV)
+  return n.toFixed(2).replace(/\.?0+$/, '')
 }
 
 // Para el TSV: punto como decimal, sin separador de miles → Google Sheets lo interpreta correctamente

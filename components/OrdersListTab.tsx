@@ -21,9 +21,10 @@ const HOURS_48 = 48 * 60 * 60 * 1000
 
 interface Props {
   orders: Order[]
+  matchedIds?: Set<string>
 }
 
-export default function OrdersListTab({ orders }: Props) {
+export default function OrdersListTab({ orders, matchedIds }: Props) {
   const now = Date.now()
   const recent = orders
     .filter(o => o.createdAt && (now - new Date(o.createdAt).getTime()) <= HOURS_48)
@@ -50,20 +51,33 @@ export default function OrdersListTab({ orders }: Props) {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '10px' }}>
-        {recent.map(o => (
+        {recent.map(o => {
+          const matched = matchedIds?.has(`${o.storeId}-${o.orderId}`)
+          return (
           <div
             key={`${o.storeId}-${o.orderId}`}
             style={{
-              background: 'linear-gradient(160deg, #0d1117 0%, #0f1824 100%)',
-              border: '1px solid rgba(0,212,255,0.1)',
+              background: matched
+                ? 'linear-gradient(160deg, #0a1a10 0%, #0d1f14 100%)'
+                : 'linear-gradient(160deg, #0d1117 0%, #0f1824 100%)',
+              border: matched
+                ? '1px solid rgba(0,255,136,0.25)'
+                : '1px solid rgba(0,212,255,0.1)',
               borderRadius: '14px',
               padding: '16px 18px',
             }}
           >
-            {/* 1. Monto */}
-            <p style={{ fontSize: '20px', fontWeight: 800, color: 'white', marginBottom: '6px', letterSpacing: '-0.02em' }}>
-              {ARS.format(o.total)}
-            </p>
+            {/* 1. Monto + badge */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+              <p style={{ fontSize: '20px', fontWeight: 800, color: 'white', letterSpacing: '-0.02em', margin: 0 }}>
+                {ARS.format(o.total)}
+              </p>
+              {matched && (
+                <span style={{ fontSize: '10px', fontWeight: 700, color: '#00ff88', letterSpacing: '0.05em', textShadow: '0 0 8px rgba(0,255,136,0.4)' }}>
+                  ✓ PAGADO
+                </span>
+              )}
+            </div>
             {/* 2. CUIT/CUIL/DNI */}
             {o.customerCuit && (
               <p style={{ fontSize: '11px', color: 'rgba(0,212,255,0.65)', fontWeight: 600, marginBottom: '3px' }}>
@@ -118,7 +132,8 @@ export default function OrdersListTab({ orders }: Props) {
               )}
             </div>
           </div>
-        ))}
+          )
+        })}
       </div>
     </div>
   )
