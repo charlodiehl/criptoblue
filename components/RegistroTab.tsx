@@ -34,7 +34,7 @@ function fmtCuit(s: string) {
 function billetera(entry: LogEntry): string {
   const source = entry.payment?.source
   if (source && PAYMENT_SOURCE_NAMES[source]) return PAYMENT_SOURCE_NAMES[source]
-  return 'MercadoPago'
+  return source || 'MercadoPago'
 }
 
 function nombrePagador(entry: LogEntry): string {

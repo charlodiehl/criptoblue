@@ -20,16 +20,26 @@ function fmtDate(iso: string) {
 
 const PAGE_SIZE = 100
 
+interface ManualPayForm {
+  medioPago: string
+  monto: string
+  nombrePagador: string
+  loading: boolean
+}
+
 interface Props {
   orders: Order[]
   matchedIds?: Set<string>
   onMarkExternal?: (orderId: string, storeId: string) => Promise<void>
+  onMarkManual?: (orderId: string, storeId: string, monto: number, medioPago: string, nombrePagador: string, order: Order) => Promise<void>
   loading?: boolean
 }
 
-export default function OrdersListTab({ orders, matchedIds, onMarkExternal, loading }: Props) {
+export default function OrdersListTab({ orders, matchedIds, onMarkExternal, onMarkManual, loading }: Props) {
   const [page, setPage] = useState(1)
   const [marking, setMarking] = useState<string | null>(null)
+  const [manualOpen, setManualOpen] = useState<string | null>(null)
+  const [manualForm, setManualForm] = useState<ManualPayForm>({ medioPago: '', monto: '', nombrePagador: '', loading: false })
 
   const handleMarkExternal = async (orderId: string, storeId: string) => {
     if (!onMarkExternal || marking) return
@@ -39,6 +49,24 @@ export default function OrdersListTab({ orders, matchedIds, onMarkExternal, load
       await onMarkExternal(orderId, storeId)
     } finally {
       setMarking(null)
+    }
+  }
+
+  const openManual = (key: string, orderTotal: number) => {
+    setManualOpen(key)
+    setManualForm({ medioPago: '', monto: String(orderTotal), nombrePagador: '', loading: false })
+  }
+
+  const handleManualSubmit = async (o: Order) => {
+    if (!onMarkManual || manualForm.loading) return
+    const monto = parseFloat(manualForm.monto.replace(',', '.'))
+    if (!manualForm.medioPago.trim() || isNaN(monto) || monto <= 0) return
+    setManualForm(f => ({ ...f, loading: true }))
+    try {
+      await onMarkManual(o.orderId, o.storeId, monto, manualForm.medioPago.trim(), manualForm.nombrePagador.trim(), o)
+      setManualOpen(null)
+    } finally {
+      setManualForm(f => ({ ...f, loading: false }))
     }
   }
 
@@ -135,28 +163,80 @@ export default function OrdersListTab({ orders, matchedIds, onMarkExternal, load
                   </span>
                 )}
               </div>
-              {/* Botón "Orden marcada" — solo en órdenes no marcadas */}
-              {!matched && onMarkExternal && (
-                <div style={{ paddingTop: '8px', marginTop: '4px', borderTop: '1px solid rgba(255,255,255,0.04)' }}>
-                  <button
-                    onClick={() => handleMarkExternal(o.orderId, o.storeId)}
-                    disabled={!!loading || !!marking}
-                    style={{
-                      fontSize: '11px',
-                      padding: '5px 10px',
-                      borderRadius: '7px',
-                      border: '1px solid rgba(0,255,136,0.2)',
-                      background: 'transparent',
-                      color: isMarking ? 'rgba(0,255,136,0.4)' : 'rgba(0,255,136,0.55)',
-                      cursor: (loading || marking) ? 'not-allowed' : 'pointer',
-                      transition: 'all 0.15s',
-                      opacity: (loading || (marking && !isMarking)) ? 0.4 : 1,
-                    }}
-                    onMouseEnter={e => { if (!loading && !marking) { (e.currentTarget as HTMLElement).style.color = '#00ff88'; (e.currentTarget as HTMLElement).style.borderColor = 'rgba(0,255,136,0.4)' } }}
-                    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'rgba(0,255,136,0.55)'; (e.currentTarget as HTMLElement).style.borderColor = 'rgba(0,255,136,0.2)' }}
-                  >
-                    {isMarking ? '...' : '✓ Orden marcada'}
-                  </button>
+              {/* Botones — solo en órdenes no marcadas */}
+              {!matched && (
+                <div style={{ paddingTop: '8px', marginTop: '4px', borderTop: '1px solid rgba(255,255,255,0.04)', display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                  {onMarkExternal && (
+                    <button
+                      onClick={() => handleMarkExternal(o.orderId, o.storeId)}
+                      disabled={!!loading || !!marking}
+                      style={{ fontSize: '11px', padding: '5px 10px', borderRadius: '7px', border: '1px solid rgba(0,255,136,0.2)', background: 'transparent', color: isMarking ? 'rgba(0,255,136,0.4)' : 'rgba(0,255,136,0.55)', cursor: (loading || marking) ? 'not-allowed' : 'pointer', opacity: (loading || (marking && !isMarking)) ? 0.4 : 1 }}
+                    >
+                      {isMarking ? '...' : '✓ Orden marcada'}
+                    </button>
+                  )}
+                  {onMarkManual && manualOpen !== key && (
+                    <button
+                      onClick={() => openManual(key, o.total)}
+                      disabled={!!loading || !!marking}
+                      style={{ fontSize: '11px', padding: '5px 10px', borderRadius: '7px', border: '1px solid rgba(148,163,184,0.2)', background: 'transparent', color: 'rgba(148,163,184,0.55)', cursor: 'pointer' }}
+                    >
+                      ✎ Marcar manualmente
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* Formulario inline de marcado manual */}
+              {!matched && manualOpen === key && (
+                <div style={{ marginTop: '10px', padding: '12px', background: 'rgba(0,0,0,0.3)', borderRadius: '10px', border: '1px solid rgba(148,163,184,0.12)' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <div>
+                      <label style={{ fontSize: '10px', color: 'rgba(148,163,184,0.5)', letterSpacing: '0.08em', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>Medio de pago *</label>
+                      <input
+                        type="text"
+                        placeholder="Ej: MercadoPago, Transferencia, Efectivo"
+                        value={manualForm.medioPago}
+                        onChange={e => setManualForm(f => ({ ...f, medioPago: e.target.value }))}
+                        style={{ width: '100%', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(148,163,184,0.2)', borderRadius: '6px', padding: '6px 10px', fontSize: '12px', color: 'white', outline: 'none', boxSizing: 'border-box' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '10px', color: 'rgba(148,163,184,0.5)', letterSpacing: '0.08em', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>Monto recibido *</label>
+                      <input
+                        type="number"
+                        placeholder="0"
+                        value={manualForm.monto}
+                        onChange={e => setManualForm(f => ({ ...f, monto: e.target.value }))}
+                        style={{ width: '100%', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(148,163,184,0.2)', borderRadius: '6px', padding: '6px 10px', fontSize: '12px', color: 'white', outline: 'none', boxSizing: 'border-box' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '10px', color: 'rgba(148,163,184,0.5)', letterSpacing: '0.08em', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>Nombre pagador</label>
+                      <input
+                        type="text"
+                        placeholder="Opcional"
+                        value={manualForm.nombrePagador}
+                        onChange={e => setManualForm(f => ({ ...f, nombrePagador: e.target.value }))}
+                        style={{ width: '100%', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(148,163,184,0.2)', borderRadius: '6px', padding: '6px 10px', fontSize: '12px', color: 'white', outline: 'none', boxSizing: 'border-box' }}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', gap: '6px', marginTop: '2px' }}>
+                      <button
+                        onClick={() => handleManualSubmit(o)}
+                        disabled={manualForm.loading || !manualForm.medioPago.trim() || !manualForm.monto}
+                        style={{ flex: 1, fontSize: '12px', fontWeight: 700, padding: '7px 12px', borderRadius: '7px', border: '1px solid rgba(0,255,136,0.3)', background: 'rgba(0,255,136,0.08)', color: '#00ff88', cursor: 'pointer', opacity: (manualForm.loading || !manualForm.medioPago.trim() || !manualForm.monto) ? 0.4 : 1 }}
+                      >
+                        {manualForm.loading ? '...' : 'Confirmar'}
+                      </button>
+                      <button
+                        onClick={() => setManualOpen(null)}
+                        style={{ fontSize: '12px', padding: '7px 12px', borderRadius: '7px', border: '1px solid rgba(148,163,184,0.15)', background: 'transparent', color: 'rgba(148,163,184,0.5)', cursor: 'pointer' }}
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
