@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from 'react'
 import type { LogEntry } from '@/lib/types'
+import { PAYMENT_SOURCE_NAMES } from '@/lib/config'
 
 function fmtDate(iso: string) {
   if (!iso) return '—'
@@ -30,7 +31,9 @@ function fmtCuit(s: string) {
   return (s || '').replace(/\D/g, '')
 }
 
-function billetera(_entry: LogEntry): string {
+function billetera(entry: LogEntry): string {
+  const source = entry.payment?.source
+  if (source && PAYMENT_SOURCE_NAMES[source]) return PAYMENT_SOURCE_NAMES[source]
   return 'MercadoPago'
 }
 

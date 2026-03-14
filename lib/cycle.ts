@@ -1,6 +1,7 @@
 import { fetchAllPaymentsSince } from './mercadopago'
 import { getPendingOrders, cancelAbandonedOrders } from './tiendanube'
 import { loadState, saveState, getStores } from './storage'
+import { HARD_CUTOFF } from './config'
 import type { UnmatchedPayment } from './types'
 
 interface CycleResult {
@@ -8,9 +9,6 @@ interface CycleResult {
   cancelled: number
   errors: string[]
 }
-
-// Nunca traer datos anteriores a esta fecha (13/03/2026 20:00 ART)
-const HARD_CUTOFF = new Date('2026-03-13T23:00:00.000Z')
 
 export async function processMPPayments(): Promise<CycleResult> {
   const result: CycleResult = { processed: 0, cancelled: 0, errors: [] }

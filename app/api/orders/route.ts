@@ -1,9 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getStores, loadState } from '@/lib/storage'
 import { getPendingOrders } from '@/lib/tiendanube'
-
-// Nunca traer órdenes anteriores a esta fecha (13/03/2026 20:00 ART)
-const HARD_CUTOFF = new Date('2026-03-13T23:00:00.000Z')
+import { HARD_CUTOFF } from '@/lib/config'
 
 export async function GET() {
   try {

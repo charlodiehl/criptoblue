@@ -1,3 +1,13 @@
+// Fecha de inicio de la app — nada anterior a este momento debe aparecer en ningún lado
+// 13/03/2026 20:00 hs Argentina (ART = UTC-3) → 23:00 UTC
+export const HARD_CUTOFF = new Date('2026-03-13T23:00:00.000Z')
+
+// Mapeo de fuente de pago → nombre amigable para el Registro
+// Para agregar un nuevo medio de pago, solo agregar una entrada acá
+export const PAYMENT_SOURCE_NAMES: Record<string, string> = {
+  mercadopago: 'Mileidy',
+}
+
 export const CONFIG = {
   tiendanube: {
     clientId: '27051',

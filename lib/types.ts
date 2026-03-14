@@ -9,6 +9,7 @@ export interface Payment {
   metodoPago: string
   fechaPago: string
   status: string
+  source?: string          // clave del medio de pago: 'mercadopago', etc.
   extractionConfidence?: number
   rawData: object
 }

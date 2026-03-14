@@ -62,6 +62,7 @@ export function normalizePayment(raw: any): Payment | null {
     metodoPago: `${raw.payment_method_id || ''} / ${raw.payment_type_id || ''}`,
     fechaPago: raw.date_approved || raw.date_created || '',
     status: raw.status || '',
+    source: 'mercadopago',
     rawData: raw,
   }
 }

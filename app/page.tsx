@@ -322,6 +322,37 @@ export default function Dashboard() {
     }
   }
 
+  const handleManualLog = async (mpPaymentId: string, storeName: string, orderNumber: string, matchedOrder: Order | null) => {
+    try {
+      const res = await fetch('/api/manual-log', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mpPaymentId, storeName, orderNumber, matchedOrder }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        const msg = data.tnMethod
+          ? 'Orden marcada como pagada en TiendaNube y registrada'
+          : 'Pago registrado manualmente'
+        addToast(msg, 'success')
+        // Actualización local instantánea
+        setUnmatchedPayments(prev => prev.filter(u => (u.mpPaymentId || u.payment.mpPaymentId) !== mpPaymentId))
+        if (data.logEntry) setLogEntries(prev => [...prev, data.logEntry])
+        if (data.recentMatch) setRecentMatches(prev => [...prev, data.recentMatch])
+        setStats(prev => prev ? {
+          ...prev,
+          paidThisMonth: prev.paidThisMonth + 1,
+          paidVolumeThisMonth: prev.paidVolumeThisMonth + (data.logEntry?.amount ?? 0),
+        } : prev)
+        setMatchRefreshKey(k => k + 1)
+      } else {
+        addToast(`Error: ${data.error}`, 'error')
+      }
+    } catch (err) {
+      addToast(`Error: ${err}`, 'error')
+    }
+  }
+
   const handleMarkOrderExternal = async (orderId: string, storeId: string) => {
     try {
       const res = await fetch('/api/mark-order-external', {
@@ -359,6 +390,10 @@ export default function Dashboard() {
 
   const HOURS_24 = 24 * 60 * 60 * 1000
   const HOURS_48 = 48 * 60 * 60 * 1000
+  // Cutoff efectivo: el más reciente entre rolling window y la fecha de inicio de la app
+  const HARD_CUTOFF_MS = 1741906800000 // 2026-03-13T23:00:00.000Z en ms
+  const cutoff24 = Math.max(Date.now() - HOURS_24, HARD_CUTOFF_MS)
+  const cutoff48 = Math.max(Date.now() - HOURS_48, HARD_CUTOFF_MS)
 
   // Todas las órdenes de las últimas 48hs (pendientes + pagadas desde log + fallback desde recentMatches)
   const allRecentOrders = useMemo((): Order[] => {
@@ -370,7 +405,7 @@ export default function Dashboard() {
       .filter(e =>
         (e.action === 'auto_paid' || e.action === 'manual_paid') &&
         e.orderId && e.storeId &&
-        (now - new Date(e.timestamp).getTime()) <= HOURS_48
+        new Date(e.timestamp).getTime() >= cutoff48
       )
       .map(e => e.order ?? ({
         orderId: e.orderId!,
@@ -394,7 +429,7 @@ export default function Dashboard() {
     // Fallback: órdenes desde recentMatches cuando el log fue borrado
     const fromRecent: Order[] = recentMatches
       .filter(m => m.order && m.orderId && m.storeId &&
-        (now - new Date(m.matchedAt).getTime()) <= HOURS_48)
+        new Date(m.matchedAt).getTime() >= cutoff48)
       .map(m => m.order!)
       .filter(o => {
         const key = `${o.storeId}-${o.orderId}`
@@ -404,35 +439,37 @@ export default function Dashboard() {
       })
 
     return [...orders, ...fromLog, ...fromRecent]
+      .filter(o => new Date(o.createdAt).getTime() >= HARD_CUTOFF_MS)
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-  }, [orders, logEntries, recentMatches, HOURS_48])
+  }, [orders, logEntries, recentMatches, cutoff48, HARD_CUTOFF_MS])
 
   // Todos los pagos de las últimas 24hs (macheados + no macheados)
   const allRecentPayments = useMemo((): Payment[] => {
     const now = Date.now()
     const seenIds = new Set<string>()
 
-    // Pagos macheados del registro (últimas 24hs)
+    // Pagos macheados del registro (desde cutoff efectivo)
     const fromLog = logEntries
       .filter(e => (e.action === 'auto_paid' || e.action === 'manual_paid') && e.payment &&
-        (now - new Date(e.timestamp).getTime()) <= HOURS_24)
+        new Date(e.timestamp).getTime() >= cutoff24)
       .map(e => e.payment!)
       .filter(p => { if (seenIds.has(p.mpPaymentId)) return false; seenIds.add(p.mpPaymentId); return true })
 
     // Fallback: pagos desde recentMatches cuando el log fue borrado
     const fromRecent = recentMatches
-      .filter(m => m.payment && (now - new Date(m.matchedAt).getTime()) <= HOURS_24)
+      .filter(m => m.payment && new Date(m.matchedAt).getTime() >= cutoff24)
       .map(m => m.payment!)
       .filter(p => { if (seenIds.has(p.mpPaymentId)) return false; seenIds.add(p.mpPaymentId); return true })
 
-    // Pagos no macheados (últimas 24hs)
+    // Pagos no macheados (desde cutoff efectivo)
     const unmatched = unmatchedPayments
-      .filter(u => (now - new Date(u.payment.fechaPago).getTime()) <= HOURS_24)
+      .filter(u => new Date(u.payment.fechaPago).getTime() >= cutoff24)
       .map(u => u.payment)
       .filter(p => !seenIds.has(p.mpPaymentId))
 
     return [...fromLog, ...fromRecent, ...unmatched]
-  }, [unmatchedPayments, logEntries, recentMatches, HOURS_24])
+      .filter(p => new Date(p.fechaPago).getTime() >= HARD_CUTOFF_MS)
+  }, [unmatchedPayments, logEntries, recentMatches, cutoff24, HARD_CUTOFF_MS])
 
   // IDs de pagos y órdenes ya macheados (para resaltar en verde en las pestañas)
   // Usan recentMatches (auto-limpia a 24h) para ser independientes del borrado manual del Registro
@@ -752,8 +789,8 @@ export default function Dashboard() {
         <div>
           {tab === 'manual' && <ManualMatchTab unmatchedPayments={unmatchedPayments} orders={orders.filter(o => !matchedOrderIds.has(`${o.storeId}-${o.orderId}`))} onManualMatch={handleManualMatch} onDismissPayment={handleDismissPayment} onMarkOrderPaid={handleMarkOrderPaid} onCancelDuplicate={handleCancelDuplicate} loading={actionLoading} lastMPCheck={stats?.lastMPCheck ?? null} refreshKey={matchRefreshKey} />}
           {tab === 'ordenes' && <OrdersListTab orders={allRecentOrders} matchedIds={matchedOrderIds} onMarkExternal={handleMarkOrderExternal} loading={actionLoading} />}
-          {tab === 'pagos' && <PaymentsListTab payments={allRecentPayments} matchedIds={matchedPaymentIds} title="Pagos · últimas 24hs" emptyText="No hay pagos en las últimas 24 horas" onMarkReceived={handleMarkPaymentReceived} loading={actionLoading} />}
-          {tab === 'sin-coincidencia' && <PaymentsListTab payments={paymentsWithoutMatch} title="Pagos sin coincidencia · últimas 24hs" emptyText="Todos los pagos de las últimas 24hs tienen una orden asignada" onMarkReceived={handleMarkPaymentReceived} loading={actionLoading} />}
+          {tab === 'pagos' && <PaymentsListTab payments={allRecentPayments} orders={allRecentOrders} matchedIds={matchedPaymentIds} title="Pagos · últimas 24hs" emptyText="No hay pagos en las últimas 24 horas" onMarkReceived={handleMarkPaymentReceived} onManualLog={handleManualLog} loading={actionLoading} />}
+          {tab === 'sin-coincidencia' && <PaymentsListTab payments={paymentsWithoutMatch} orders={allRecentOrders} title="Pagos sin coincidencia · últimas 24hs" emptyText="Todos los pagos de las últimas 24hs tienen una orden asignada" onMarkReceived={handleMarkPaymentReceived} onManualLog={handleManualLog} loading={actionLoading} />}
           {tab === 'registro' && <RegistroTab entries={logEntries} onClearLog={handleClearLog} />}
         </div>
       </main>
