@@ -79,6 +79,8 @@ export interface RecentMatch {
   matchedAt: string
   orderId?: string
   storeId?: string
+  order?: Order
+  payment?: Payment
 }
 
 export interface AppState {

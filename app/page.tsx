@@ -309,11 +309,13 @@ export default function Dashboard() {
   const HOURS_24 = 24 * 60 * 60 * 1000
   const HOURS_48 = 48 * 60 * 60 * 1000
 
-  // Todas las órdenes de las últimas 48hs (pendientes + ya pagadas reconstruidas desde el log)
+  // Todas las órdenes de las últimas 48hs (pendientes + pagadas desde log + fallback desde recentMatches)
   const allRecentOrders = useMemo((): Order[] => {
     const now = Date.now()
     const pendingMap = new Map(orders.map(o => [`${o.storeId}-${o.orderId}`, o]))
-    const paidOrders: Order[] = logEntries
+    const seenIds = new Set<string>()
+
+    const fromLog: Order[] = logEntries
       .filter(e =>
         (e.action === 'auto_paid' || e.action === 'manual_paid') &&
         e.orderId && e.storeId &&
@@ -331,27 +333,55 @@ export default function Dashboard() {
         storeId: e.storeId!,
         storeName: e.storeName || '',
       } as Order))
-      .filter(o => !pendingMap.has(`${o.storeId}-${o.orderId}`))
-    return [...orders, ...paidOrders]
+      .filter(o => {
+        const key = `${o.storeId}-${o.orderId}`
+        if (pendingMap.has(key) || seenIds.has(key)) return false
+        seenIds.add(key)
+        return true
+      })
+
+    // Fallback: órdenes desde recentMatches cuando el log fue borrado
+    const fromRecent: Order[] = recentMatches
+      .filter(m => m.order && m.orderId && m.storeId &&
+        (now - new Date(m.matchedAt).getTime()) <= HOURS_48)
+      .map(m => m.order!)
+      .filter(o => {
+        const key = `${o.storeId}-${o.orderId}`
+        if (pendingMap.has(key) || seenIds.has(key)) return false
+        seenIds.add(key)
+        return true
+      })
+
+    return [...orders, ...fromLog, ...fromRecent]
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-  }, [orders, logEntries, HOURS_48])
+  }, [orders, logEntries, recentMatches, HOURS_48])
 
   // Todos los pagos de las últimas 24hs (macheados + no macheados)
   const allRecentPayments = useMemo((): Payment[] => {
     const now = Date.now()
+    const seenIds = new Set<string>()
+
     // Pagos macheados del registro (últimas 24hs)
-    const matched = logEntries
-      .filter(e => (e.action === 'auto_paid' || e.action === 'manual_paid') && e.payment)
-      .filter(e => (now - new Date(e.timestamp).getTime()) <= HOURS_24)
+    const fromLog = logEntries
+      .filter(e => (e.action === 'auto_paid' || e.action === 'manual_paid') && e.payment &&
+        (now - new Date(e.timestamp).getTime()) <= HOURS_24)
       .map(e => e.payment!)
-    const matchedIds = new Set(matched.map(p => p.mpPaymentId))
-    // Pagos no macheados (últimas 24hs), deduplicando por si ya aparecen en el log
+      .filter(p => { if (seenIds.has(p.mpPaymentId)) return false; seenIds.add(p.mpPaymentId); return true })
+
+    // Fallback: pagos desde recentMatches cuando el log fue borrado
+    const fromRecent = recentMatches
+      .filter(m => m.payment && (now - new Date(m.matchedAt).getTime()) <= HOURS_24)
+      .map(m => m.payment!)
+      .filter(p => { if (seenIds.has(p.mpPaymentId)) return false; seenIds.add(p.mpPaymentId); return true })
+
+    // Pagos no macheados (últimas 24hs)
     const unmatched = unmatchedPayments
       .filter(u => (now - new Date(u.payment.fechaPago).getTime()) <= HOURS_24)
       .map(u => u.payment)
-      .filter(p => !matchedIds.has(p.mpPaymentId))
-    return [...matched, ...unmatched]
-  }, [unmatchedPayments, logEntries, HOURS_24])
+      .filter(p => !seenIds.has(p.mpPaymentId))
+
+    return [...fromLog, ...fromRecent, ...unmatched]
+  }, [unmatchedPayments, logEntries, recentMatches, HOURS_24])
 
   // IDs de pagos y órdenes ya macheados (para resaltar en verde en las pestañas)
   // Usan recentMatches (auto-limpia a 24h) para ser independientes del borrado manual del Registro

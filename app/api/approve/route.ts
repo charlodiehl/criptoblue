@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
 
     // recentMatches: para resaltado verde en pestañas (auto-limpia a las 24h, independiente del Registro)
     state.recentMatches = state.recentMatches || []
-    state.recentMatches.push({ mpPaymentId: match.payment.mpPaymentId, matchedAt: new Date().toISOString(), orderId: match.order.orderId, storeId: match.order.storeId })
+    state.recentMatches.push({ mpPaymentId: match.payment.mpPaymentId, matchedAt: new Date().toISOString(), orderId: match.order.orderId, storeId: match.order.storeId, order: match.order, payment: match.payment })
 
     const logEntry: LogEntry = {
       timestamp: new Date().toISOString(),

@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
 
     // recentMatches: para resaltado verde en pestañas (auto-limpia a las 24h, independiente del Registro)
     state.recentMatches = state.recentMatches || []
-    state.recentMatches.push({ mpPaymentId: payment.mpPaymentId, matchedAt: new Date().toISOString(), orderId, storeId })
+    state.recentMatches.push({ mpPaymentId: payment.mpPaymentId, matchedAt: new Date().toISOString(), orderId, storeId, order: order || undefined, payment })
 
     const logEntry: LogEntry = {
       timestamp: new Date().toISOString(),
@@ -69,7 +69,7 @@ export async function POST(req: NextRequest) {
 
     await saveState(state)
 
-    const recentMatch = { mpPaymentId: payment.mpPaymentId, matchedAt: logEntry.timestamp, orderId, storeId }
+    const recentMatch = { mpPaymentId: payment.mpPaymentId, matchedAt: logEntry.timestamp, orderId, storeId, order: order || undefined, payment }
     return NextResponse.json({ success: true, method: tnResult.method, logEntry, recentMatch })
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 })
