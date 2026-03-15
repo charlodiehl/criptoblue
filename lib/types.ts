@@ -95,7 +95,6 @@ export interface AppState {
   recentMatches: RecentMatch[]
   pendingMatches: PendingMatch[]
   unmatchedPayments: UnmatchedPayment[]
-  dismissedOrders: string[]
   // Órdenes y pagos marcados manualmente como gestionados por fuera de la app
   externallyMarkedOrders: string[]   // claves "storeId-orderId"
   externallyMarkedPayments: string[] // mpPaymentId

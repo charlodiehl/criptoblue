@@ -231,7 +231,6 @@ interface Props {
   onManualMatch: (mpPaymentId: string, orderId: string, storeId: string, order: Order) => Promise<void>
   onDismissPayment: (mpPaymentId: string) => Promise<void>
   onMarkOrderPaid: (storeId: string, orderId: string) => Promise<void>
-  onCancelDuplicate: (storeId: string, orderId: string) => Promise<void>
   loading: boolean
   lastMPCheck: string | null
   refreshKey: number
@@ -242,17 +241,14 @@ export default function ManualMatchTab({
   orders,
   onManualMatch,
   onDismissPayment,
-  onCancelDuplicate,
   loading,
   lastMPCheck,
   refreshKey,
 }: Props) {
-  const [dismissedMap, setDismissedMap] = useState<Record<string, number>>({})
   const [visibleCount, setVisibleCount] = useState(20)
   const loaderRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    setDismissedMap({})
     setVisibleCount(20)
   }, [refreshKey])
 
@@ -275,7 +271,7 @@ export default function ManualMatchTab({
     // Build all scores
     const allPairs = unmatchedPayments.map(u => {
       const id = u.mpPaymentId || ''
-      const skipCount = dismissedMap[id] ?? 0
+      const skipCount = 0
       // Precomputar cantidad de órdenes con mismo monto ANTERIORES al pago (una orden siempre precede al pago)
       const payTime = u.payment.fechaPago ? new Date(u.payment.fechaPago).getTime() : null
       const totalSameMonto = orders.filter(x =>
@@ -352,11 +348,7 @@ export default function ManualMatchTab({
       if (bGreen !== aGreen) return bGreen - aGreen
       return (b.current?.score ?? -1) - (a.current?.score ?? -1)
     })
-  }, [unmatchedPayments, orders, dismissedMap])
-
-  const handleDismissPair = (paymentId: string) => {
-    setDismissedMap(prev => ({ ...prev, [paymentId]: (prev[paymentId] ?? 0) + 1 }))
-  }
+  }, [unmatchedPayments, orders])
 
   const handleConfirm = async (paymentId: string, orderId: string, storeId: string, order: Order) => {
     await onManualMatch(paymentId, orderId, storeId, order)
@@ -398,9 +390,7 @@ export default function ManualMatchTab({
               key={pair.id}
               pair={pair}
               onConfirm={handleConfirm}
-              onDismissPair={handleDismissPair}
               onDismissPayment={onDismissPayment}
-              onCancelDuplicate={onCancelDuplicate}
               loading={loading}
             />
           ))}
@@ -420,19 +410,14 @@ export default function ManualMatchTab({
 function PairRow({
   pair,
   onConfirm,
-  onDismissPair,
   onDismissPayment,
-  onCancelDuplicate,
   loading,
 }: {
   pair: Pair
   onConfirm: (paymentId: string, orderId: string, storeId: string, order: Order) => void
-  onDismissPair: (paymentId: string) => void
   onDismissPayment: (paymentId: string) => void
-  onCancelDuplicate: (storeId: string, orderId: string) => void
   loading: boolean
 }) {
-  const [confirmCancel, setConfirmCancel] = useState(false)
   const { payment, id, current } = pair
   const p = payment.payment
 
@@ -594,62 +579,6 @@ function PairRow({
                 <span style={{ fontSize: '14px', color: 'rgba(148,163,184,0.4)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {current.order.storeName}
                 </span>
-              )}
-            </div>
-            <div style={{ marginTop: '12px' }}>
-              {!confirmCancel ? (
-                <button
-                  onClick={() => setConfirmCancel(true)}
-                  disabled={loading}
-                  style={{
-                    fontSize: '11px',
-                    padding: '5px 10px',
-                    borderRadius: '7px',
-                    border: '1px solid rgba(248,113,113,0.18)',
-                    background: 'transparent',
-                    color: 'rgba(248,113,113,0.45)',
-                    cursor: 'pointer',
-                    transition: 'all 0.15s',
-                  }}
-                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = 'rgba(248,113,113,0.75)'; (e.currentTarget as HTMLElement).style.borderColor = 'rgba(248,113,113,0.4)' }}
-                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'rgba(248,113,113,0.45)'; (e.currentTarget as HTMLElement).style.borderColor = 'rgba(248,113,113,0.18)' }}
-                >
-                  orden duplicada
-                </button>
-              ) : (
-                <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                  <span style={{ fontSize: '11px', color: 'rgba(248,113,113,0.7)' }}>¿Cancelar en TN?</span>
-                  <button
-                    onClick={() => { onCancelDuplicate(current.order.storeId, current.order.orderId); setConfirmCancel(false) }}
-                    disabled={loading}
-                    style={{
-                      fontSize: '11px',
-                      padding: '4px 10px',
-                      borderRadius: '6px',
-                      border: '1px solid rgba(248,113,113,0.5)',
-                      background: 'rgba(248,113,113,0.1)',
-                      color: '#f87171',
-                      cursor: 'pointer',
-                      fontWeight: 700,
-                    }}
-                  >
-                    Sí, cancelar
-                  </button>
-                  <button
-                    onClick={() => setConfirmCancel(false)}
-                    style={{
-                      fontSize: '11px',
-                      padding: '4px 8px',
-                      borderRadius: '6px',
-                      border: '1px solid rgba(255,255,255,0.08)',
-                      background: 'transparent',
-                      color: 'rgba(148,163,184,0.4)',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    No
-                  </button>
-                </div>
               )}
             </div>
           </>
