@@ -296,10 +296,10 @@ export default function Dashboard() {
     }
   }, [fetchUnmatched, fetchOrders, fetchStatus])
 
-  // Auto-refresh cada 2 minutos (solo cuando la pestaña está activa)
+  // Auto-refresh cada 2 minutos (corre aunque la pestaña esté minimizada)
   useEffect(() => {
     const interval = setInterval(() => {
-      if (!document.hidden) silentRefresh()
+      silentRefresh()
     }, 2 * 60 * 1000)
     return () => clearInterval(interval)
   }, [silentRefresh])
