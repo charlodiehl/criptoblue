@@ -505,7 +505,7 @@ function PairRow({
                 ✓ Confirmar pago
               </button>
               <button
-                onClick={() => onDismissPair(id)}
+                onClick={() => onDismissPayment(id)}
                 disabled={loading}
                 style={{
                   padding: '9px 0',
