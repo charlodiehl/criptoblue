@@ -40,6 +40,7 @@ export default function Dashboard() {
   const [recentMatches, setRecentMatches] = useState<RecentMatch[]>([])
   const [matchRefreshKey, setMatchRefreshKey] = useState(0)
   const toastIdRef = useRef(0)
+  const isRefreshingRef = useRef(false)
 
   // User menu
   const [userMenuOpen, setUserMenuOpen] = useState(false)
@@ -280,7 +281,8 @@ export default function Dashboard() {
 
   // Refresh silencioso: no bloquea la UI, solo muestra el indicador en el header
   const silentRefresh = useCallback(async () => {
-    if (isRefreshing) return // evitar solapamiento
+    if (isRefreshingRef.current) return // evitar solapamiento
+    isRefreshingRef.current = true
     setIsRefreshing(true)
     try {
       await fetch('/api/reevaluar', { method: 'POST' })
@@ -289,9 +291,10 @@ export default function Dashboard() {
     } catch {
       // silencioso: no mostrar toast en auto-refresh
     } finally {
+      isRefreshingRef.current = false
       setIsRefreshing(false)
     }
-  }, [isRefreshing, fetchUnmatched, fetchOrders, fetchStatus])
+  }, [fetchUnmatched, fetchOrders, fetchStatus])
 
   // Auto-refresh cada 2 minutos (solo cuando la pestaña está activa)
   useEffect(() => {
