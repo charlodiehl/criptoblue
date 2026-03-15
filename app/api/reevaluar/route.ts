@@ -4,7 +4,14 @@ import { loadState, saveState } from '@/lib/storage'
 
 export const maxDuration = 60
 
-export async function POST() {
+export async function POST(req: Request) {
+  const cronSecret = process.env.CRON_SECRET
+  if (cronSecret) {
+    const authHeader = req.headers.get('x-cron-secret')
+    if (authHeader !== cronSecret) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+  }
   try {
     // Reset all paid/pending data, then re-sync last 48h fresh
     const state = await loadState()
