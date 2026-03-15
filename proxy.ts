@@ -14,6 +14,13 @@ export function proxy(req: NextRequest) {
     return NextResponse.next()
   }
 
+  // Permitir requests de cron con CRON_SECRET válido
+  const cronSecret = process.env.CRON_SECRET
+  const authHeader = req.headers.get('authorization')
+  if (pathname.startsWith('/api/') && cronSecret && authHeader === `Bearer ${cronSecret}`) {
+    return NextResponse.next()
+  }
+
   const session = req.cookies.get('cb_session')?.value
   const validToken = makeSessionToken(process.env.AUTH_USERNAME || 'Benancio')
 
