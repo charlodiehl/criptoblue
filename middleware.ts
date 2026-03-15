@@ -1,18 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createHmac } from 'crypto'
 
-function makeSessionToken(username: string): string {
+async function makeSessionToken(username: string): Promise<string> {
   const secret = process.env.AUTH_SECRET || 'criptoblue-secret'
-  return createHmac('sha256', secret).update(username).digest('hex')
+  const enc = new TextEncoder()
+  const key = await crypto.subtle.importKey(
+    'raw', enc.encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false, ['sign']
+  )
+  const sig = await crypto.subtle.sign('HMAC', key, enc.encode(username))
+  return Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, '0')).join('')
 }
 
-function isValidSession(token: string): boolean {
+async function isValidSession(token: string): Promise<boolean> {
   const username = process.env.AUTH_USERNAME || 'Benancio'
-  const expected = makeSessionToken(username)
+  const expected = await makeSessionToken(username)
   return token === expected
 }
 
-export function middleware(req: NextRequest) {
+export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl
 
   // Rutas públicas: login y sus assets
@@ -26,8 +32,7 @@ export function middleware(req: NextRequest) {
   }
 
   const token = req.cookies.get('cb_session')?.value
-  if (!token || !isValidSession(token)) {
-    // API routes → 401 JSON, no redirect
+  if (!token || !(await isValidSession(token))) {
     if (pathname.startsWith('/api/')) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
