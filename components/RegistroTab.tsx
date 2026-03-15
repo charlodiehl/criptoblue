@@ -104,7 +104,7 @@ export default function RegistroTab({ entries, onClearLog }: Props) {
   const [page, setPage] = useState(1)
 
   const paid = useMemo(() => {
-    const filtered = entries.filter(e => e.action === 'manual_paid' || e.action === 'auto_paid')
+    const filtered = entries.filter(e => e.action === 'manual_paid' || e.action === 'auto_paid' || e.action === 'no_match')
     return filtered.sort((a, b) => {
       const va = getSortValue(a, sortKey)
       const vb = getSortValue(b, sortKey)

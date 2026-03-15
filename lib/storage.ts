@@ -119,6 +119,26 @@ export async function saveState(state: AppState): Promise<void> {
   // recentMatches: auto-cleanup al cutoff efectivo (solo se usa para resaltado verde en pestañas)
   state.recentMatches = (state.recentMatches || []).filter(m => new Date(m.matchedAt).getTime() >= effectiveCutoffMs)
 
+  // unmatchedPayments: antes de eliminar los vencidos, registrarlos en el matchLog
+  const expiredPayments = state.unmatchedPayments.filter(
+    u => u.payment.fechaPago && new Date(u.payment.fechaPago).getTime() < effectiveCutoffMs
+  )
+  const alreadyLoggedIds = new Set(
+    (state.matchLog || []).filter(e => e.action === 'no_match').map(e => e.mpPaymentId).filter(Boolean)
+  )
+  for (const u of expiredPayments) {
+    if (!alreadyLoggedIds.has(u.payment.mpPaymentId)) {
+      state.matchLog = state.matchLog || []
+      state.matchLog.push({
+        timestamp: u.payment.fechaPago,
+        action: 'no_match',
+        payment: u.payment,
+        amount: u.payment.monto,
+        mpPaymentId: u.payment.mpPaymentId,
+      })
+    }
+  }
+
   // unmatchedPayments: eliminar los anteriores al cutoff efectivo
   // IMPORTANTE: usar getTime() para comparar correctamente fechas con distintos offsets de timezone
   state.unmatchedPayments = state.unmatchedPayments.filter(
