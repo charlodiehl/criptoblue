@@ -236,6 +236,15 @@ interface Props {
   refreshKey: number
 }
 
+function matchesSearch(query: string, fields: (string | number | undefined | null)[]): boolean {
+  if (!query.trim()) return true
+  const q = query.toLowerCase().trim().replace(/[$.,']/g, '')
+  return fields.some(f => {
+    if (f == null) return false
+    return String(f).toLowerCase().replace(/[$.,']/g, '').includes(q)
+  })
+}
+
 export default function ManualMatchTab({
   unmatchedPayments,
   orders,
@@ -247,6 +256,7 @@ export default function ManualMatchTab({
 }: Props) {
   const PAGE_SIZE = 5
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
+  const [search, setSearch] = useState('')
 
   useEffect(() => {
     setVisibleCount(PAGE_SIZE)
@@ -335,12 +345,43 @@ export default function ManualMatchTab({
     })
   }, [unmatchedPayments, orders])
 
+  const filteredPairs = useMemo(() => {
+    if (!search.trim()) return pairs
+    return pairs.filter(pair => {
+      const p = pair.payment.payment
+      const o = pair.current?.order
+      return matchesSearch(search, [
+        p.nombrePagador, p.cuitPagador, p.monto,
+        o?.customerName, o?.customerCuit, o?.orderNumber,
+      ])
+    })
+  }, [pairs, search])
+
   const handleConfirm = async (paymentId: string, orderId: string, storeId: string, order: Order) => {
     await onManualMatch(paymentId, orderId, storeId, order)
   }
 
   return (
     <div className="space-y-4">
+      {/* Buscador */}
+      <div style={{ position: 'relative' }}>
+        <span style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', fontSize: '14px', color: 'rgba(0,212,255,0.4)', pointerEvents: 'none' }}>⌕</span>
+        <input
+          type="text"
+          placeholder="Buscar por nombre, CUIT, nro de orden o monto..."
+          value={search}
+          onChange={e => { setSearch(e.target.value); setVisibleCount(PAGE_SIZE) }}
+          style={{
+            width: '100%', boxSizing: 'border-box',
+            padding: '9px 12px 9px 32px', borderRadius: '10px',
+            background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(0,212,255,0.15)',
+            color: 'rgba(226,232,240,0.9)', fontSize: '13px', outline: 'none',
+          }}
+        />
+        {search && (
+          <button onClick={() => { setSearch(''); setVisibleCount(PAGE_SIZE) }} style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: 'rgba(148,163,184,0.4)', cursor: 'pointer', fontSize: '16px', lineHeight: 1 }}>×</button>
+        )}
+      </div>
       {/* Column labels */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px 1fr', gap: '8px', padding: '0 20px' }}>
         {[
@@ -361,16 +402,18 @@ export default function ManualMatchTab({
       </div>
 
       {/* All pairs */}
-      {pairs.length === 0 ? (
+      {filteredPairs.length === 0 ? (
         <div
           className="flex items-center justify-center rounded-2xl py-16"
           style={{ background: 'linear-gradient(135deg, #0d1117, #111827)', border: '1px solid rgba(0,212,255,0.08)' }}
         >
-          <p style={{ fontSize: '13px', color: 'rgba(148,163,184,0.35)' }}>No hay pagos pendientes</p>
+          <p style={{ fontSize: '13px', color: 'rgba(148,163,184,0.35)' }}>
+            {search.trim() ? 'Sin resultados para esa búsqueda' : 'No hay pagos pendientes'}
+          </p>
         </div>
       ) : (
         <div className="space-y-3">
-          {pairs.slice(0, visibleCount).map(pair => (
+          {filteredPairs.slice(0, visibleCount).map(pair => (
             <PairRow
               key={pair.id}
               pair={pair}
@@ -379,10 +422,10 @@ export default function ManualMatchTab({
               loading={loading}
             />
           ))}
-          {pairs.length > visibleCount && (
+          {filteredPairs.length > visibleCount && (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 20px' }}>
               <span style={{ fontSize: '12px', color: 'rgba(148,163,184,0.35)' }}>
-                Mostrando {Math.min(visibleCount, pairs.length)} de {pairs.length} emparejamientos
+                Mostrando {Math.min(visibleCount, filteredPairs.length)} de {filteredPairs.length} emparejamientos
               </span>
               <button
                 onClick={() => setVisibleCount(v => v + PAGE_SIZE)}

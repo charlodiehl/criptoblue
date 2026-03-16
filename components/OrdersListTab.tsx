@@ -1,7 +1,16 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import type { Order } from '@/lib/types'
+
+function matchesSearch(query: string, fields: (string | number | undefined | null)[]): boolean {
+  if (!query.trim()) return true
+  const q = query.toLowerCase().trim().replace(/[$.,']/g, '')
+  return fields.some(f => {
+    if (f == null) return false
+    return String(f).toLowerCase().replace(/[$.,']/g, '').includes(q)
+  })
+}
 
 const ARS = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 0 })
 
@@ -40,6 +49,7 @@ export default function OrdersListTab({ orders, matchedIds, onMarkExternal, onMa
   const [marking, setMarking] = useState<string | null>(null)
   const [manualOpen, setManualOpen] = useState<string | null>(null)
   const [manualForm, setManualForm] = useState<ManualPayForm>({ medioPago: '', monto: '', nombrePagador: '', loading: false })
+  const [search, setSearch] = useState('')
 
   const handleMarkExternal = async (orderId: string, storeId: string) => {
     if (!onMarkExternal || marking) return
@@ -71,7 +81,14 @@ export default function OrdersListTab({ orders, matchedIds, onMarkExternal, onMa
   }
 
   // orders ya vienen filtradas y ordenadas desde page.tsx
-  const sorted = [...orders].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+  const allSorted = useMemo(() =>
+    [...orders].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
+    [orders]
+  )
+  const sorted = useMemo(() => {
+    if (!search.trim()) return allSorted
+    return allSorted.filter(o => matchesSearch(search, [o.customerName, o.customerCuit, o.orderNumber, o.total, o.storeName]))
+  }, [allSorted, search])
   const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE))
   const currentPage = Math.min(page, totalPages)
   const pageItems = sorted.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
@@ -89,13 +106,34 @@ export default function OrdersListTab({ orders, matchedIds, onMarkExternal, onMa
 
   return (
     <div>
+      {/* Buscador */}
+      <div style={{ marginBottom: '12px', position: 'relative' }}>
+        <span style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', fontSize: '14px', color: 'rgba(0,212,255,0.4)', pointerEvents: 'none' }}>⌕</span>
+        <input
+          type="text"
+          placeholder="Buscar por nombre, CUIT, nro de orden o monto..."
+          value={search}
+          onChange={e => { setSearch(e.target.value); setPage(1) }}
+          style={{
+            width: '100%', boxSizing: 'border-box',
+            padding: '9px 12px 9px 32px', borderRadius: '10px',
+            background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(0,212,255,0.15)',
+            color: 'rgba(226,232,240,0.9)', fontSize: '13px', outline: 'none',
+          }}
+        />
+        {search && (
+          <button onClick={() => { setSearch(''); setPage(1) }} style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: 'rgba(148,163,184,0.4)', cursor: 'pointer', fontSize: '16px', lineHeight: 1 }}>×</button>
+        )}
+      </div>
       {/* Header */}
       <div style={{ marginBottom: '12px', display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
           <span style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.15em', textTransform: 'uppercase', color: 'rgba(0,212,255,0.6)' }}>
             Últimas 48hs
           </span>
-          <span style={{ fontSize: '11px', color: 'rgba(148,163,184,0.35)' }}>{sorted.length} orden{sorted.length !== 1 ? 'es' : ''}</span>
+          <span style={{ fontSize: '11px', color: 'rgba(148,163,184,0.35)' }}>
+            {sorted.length} orden{sorted.length !== 1 ? 'es' : ''}{search.trim() ? ` encontrada${sorted.length !== 1 ? 's' : ''}` : ''}
+          </span>
         </div>
         {totalPages > 1 && (
           <span style={{ fontSize: '11px', color: 'rgba(148,163,184,0.4)' }}>
