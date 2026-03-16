@@ -98,6 +98,28 @@ export default function Dashboard() {
     } catch { /* ignore */ }
   }, [])
 
+  // fetchSync: reemplaza fetchStatus + fetchUnmatched en el polling — 1 lectura a Supabase en vez de 2
+  const fetchSync = useCallback(async () => {
+    try {
+      const res = await fetch('/api/sync')
+      if (res.ok) {
+        const data = await res.json()
+        setStats({
+          paidThisMonth: data.paidThisMonth,
+          paidVolumeThisMonth: data.paidVolumeThisMonth,
+          pendingOrders: data.pendingOrders,
+          pendingPayments: data.pendingPayments,
+          lastMPCheck: data.lastMPCheck,
+          externallyMarkedOrders: data.externallyMarkedOrders,
+          externallyMarkedPayments: data.externallyMarkedPayments,
+          recentMatches: data.recentMatches,
+        })
+        if (data.recentMatches) setRecentMatches(data.recentMatches)
+        setUnmatchedPayments(data.unmatchedPayments)
+      }
+    } catch { /* ignore */ }
+  }, [])
+
   const fetchOrders = useCallback(async () => {
     try {
       const res = await fetch('/api/orders')
@@ -131,29 +153,20 @@ export default function Dashboard() {
     }
   }, [])
 
-  // Initial loads
+  // Initial loads — fetchSync reemplaza fetchStatus + fetchUnmatched (1 lectura a Supabase)
   useEffect(() => {
-    fetchStatus()
-    fetchUnmatched()
+    fetchSync()
     fetchStores()
-  }, [fetchStatus, fetchUnmatched, fetchStores])
+  }, [fetchSync, fetchStores])
 
-  // Poll status every 5 seconds — incluye recentMatches para sincronizar multi-usuario
+  // Poll sync every 5 seconds — reemplaza los polls separados de status y unmatchedPayments
+  // 1 lectura a Supabase cada 5s en vez de 2 (ahorro del 50% de reads de polling)
   useEffect(() => {
     const interval = setInterval(() => {
-      fetchStatus()
+      fetchSync()
     }, 5000)
     return () => clearInterval(interval)
-  }, [fetchStatus])
-
-  // Poll unmatchedPayments every 5 seconds — sincroniza dismiss y otras acciones
-  // que no pasan por recentMatches/externallyMarkedPayments
-  useEffect(() => {
-    const interval = setInterval(() => {
-      fetchUnmatched()
-    }, 5000)
-    return () => clearInterval(interval)
-  }, [fetchUnmatched])
+  }, [fetchSync])
 
   // Poll registro every 5 seconds mientras la pestaña está activa
   useEffect(() => {
@@ -298,7 +311,7 @@ export default function Dashboard() {
     setIsRefreshing(true)
     try {
       await fetch('/api/reevaluar', { method: 'POST' })
-      await Promise.all([fetchUnmatched(), fetchOrders(), fetchStatus(), fetchLog()])
+      await Promise.all([fetchSync(), fetchOrders(), fetchLog()])
       setMatchRefreshKey(k => k + 1)
     } catch {
       // silencioso: no mostrar toast en auto-refresh
@@ -306,7 +319,7 @@ export default function Dashboard() {
       isRefreshingRef.current = false
       setIsRefreshing(false)
     }
-  }, [fetchUnmatched, fetchOrders, fetchStatus, fetchLog])
+  }, [fetchSync, fetchOrders, fetchLog])
 
   // Auto-refresh cada 5 minutos (corre aunque la pestaña esté minimizada)
   useEffect(() => {
