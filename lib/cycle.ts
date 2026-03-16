@@ -52,6 +52,7 @@ export async function processMPPayments(): Promise<CycleResult> {
       .map(e => e.mpPaymentId)
       .filter((id): id is string => !!id),
     ...(state.externallyMarkedPayments || []),
+    ...(state.retainedPaymentIds || []),
   ])
 
   const storeEntries = Object.values(stores)

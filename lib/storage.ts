@@ -50,6 +50,7 @@ const DEFAULT_STATE: AppState = {
   unmatchedPayments: [],
   externallyMarkedOrders: [],
   externallyMarkedPayments: [],
+  retainedPaymentIds: [],
   lastMPCheck: '',
   settings: {},
   monthlyStats: {},
@@ -102,6 +103,7 @@ export async function loadState(): Promise<AppState> {
     unmatchedPayments: state.unmatchedPayments || [],
     externallyMarkedOrders: state.externallyMarkedOrders || [],
     externallyMarkedPayments: state.externallyMarkedPayments || [],
+    retainedPaymentIds: state.retainedPaymentIds || [],
     monthlyStats: state.monthlyStats || {},
     errorLog: state.errorLog || [],
     activityLog: state.activityLog || [],
@@ -166,6 +168,13 @@ export async function saveState(state: AppState): Promise<void> {
   // Limpiar externallyMarkedOrders: mantener solo los últimos 500
   if ((state.externallyMarkedOrders || []).length > 500) {
     state.externallyMarkedOrders = (state.externallyMarkedOrders || []).slice(-500)
+  }
+
+  // Limpiar retainedPaymentIds: mantener solo los que sigan referenciados (mismo criterio que externallyMarkedPayments)
+  if ((state.retainedPaymentIds || []).length > 500) {
+    state.retainedPaymentIds = (state.retainedPaymentIds || []).filter(
+      id => activePaymentIds.has(id)
+    )
   }
 
   // errorLog: descarta errores resueltos con más de 7 días, y limita total a 500

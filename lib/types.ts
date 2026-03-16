@@ -97,7 +97,10 @@ export interface AppState {
   unmatchedPayments: UnmatchedPayment[]
   // Órdenes y pagos marcados manualmente como gestionados por fuera de la app
   externallyMarkedOrders: string[]   // claves "storeId-orderId"
-  externallyMarkedPayments: string[] // mpPaymentId
+  externallyMarkedPayments: string[] // mpPaymentId — solo pagos marcados con "No es de tiendas"
+  // IDs de pagos confirmados (manual_paid/auto_paid) que se preservan después de borrar el registro
+  // Solo para protección en cycle.ts — no afecta badges del frontend
+  retainedPaymentIds: string[]
   lastMPCheck: string
   settings: Record<string, unknown>
   // Acumulador mensual: clave "YYYY-MM", persiste aunque se borre el registro
