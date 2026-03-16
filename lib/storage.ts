@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
-import type { AppState, Store, Payment, ErrorEntry } from './types'
+import type { AppState, Store, Payment, ErrorEntry, ActivityEntry } from './types'
 import { HARD_CUTOFF } from './config'
 
 function stripRawData(payment: Payment): Payment {
@@ -54,6 +54,7 @@ const DEFAULT_STATE: AppState = {
   settings: {},
   monthlyStats: {},
   errorLog: [],
+  activityLog: [],
 }
 
 // Nombres manuales para tiendas que la API de TN no devuelve bien
@@ -103,6 +104,7 @@ export async function loadState(): Promise<AppState> {
     externallyMarkedPayments: state.externallyMarkedPayments || [],
     monthlyStats: state.monthlyStats || {},
     errorLog: state.errorLog || [],
+    activityLog: state.activityLog || [],
   }
 }
 
@@ -171,6 +173,11 @@ export async function saveState(state: AppState): Promise<void> {
   state.errorLog = (state.errorLog || [])
     .filter(e => !e.resolved || new Date(e.timestamp).getTime() >= cutoff7dMs)
     .slice(-500)
+
+  // activityLog: mantener solo las últimas 24hs, límite de 1000 entradas
+  state.activityLog = (state.activityLog || [])
+    .filter(e => new Date(e.timestamp).getTime() >= cutoff24hMs)
+    .slice(-1000)
   // Strip rawData from all Payment objects to prevent state bloat
   // (raw MP payment JSON is ~5-10KB per payment; with thousands of payments this would exceed Supabase limits)
   const clean: AppState = {
@@ -219,4 +226,21 @@ export function incrementMonthlyStats(state: AppState, amount: number): void {
   const key = new Date().toISOString().slice(0, 7) // "YYYY-MM"
   const prev = state.monthlyStats[key] || { count: 0, volume: 0 }
   state.monthlyStats[key] = { count: prev.count + 1, volume: prev.volume + amount }
+}
+
+export function appendActivity(
+  state: AppState,
+  actor: 'human' | 'system',
+  action: string,
+  details?: Record<string, unknown>
+): void {
+  state.activityLog = state.activityLog || []
+  const entry: ActivityEntry = {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    timestamp: new Date().toISOString(),
+    actor,
+    action,
+    details,
+  }
+  state.activityLog.push(entry)
 }

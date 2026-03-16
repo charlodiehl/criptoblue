@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { loadState, saveState, getMatchId } from '@/lib/storage'
+import { loadState, saveState, getMatchId, appendActivity } from '@/lib/storage'
 import type { LogEntry } from '@/lib/types'
 
 export async function POST(req: NextRequest) {
@@ -22,6 +22,7 @@ export async function POST(req: NextRequest) {
         amount: match.payment.monto,
       }
       state.matchLog.push(logEntry)
+      appendActivity(state, 'human', 'pago_descartado', { mpPaymentId: match.payment.mpPaymentId, monto: match.payment.monto })
       await saveState(state)
       return NextResponse.json({ success: true })
     }
@@ -39,6 +40,7 @@ export async function POST(req: NextRequest) {
         amount: unmatched.payment.monto,
       }
       state.matchLog.push(logEntry)
+      appendActivity(state, 'human', 'pago_descartado', { mpPaymentId: unmatched.payment.mpPaymentId, monto: unmatched.payment.monto })
       await saveState(state)
       return NextResponse.json({ success: true })
     }

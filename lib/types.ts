@@ -104,6 +104,16 @@ export interface AppState {
   monthlyStats: Record<string, MonthlyStats>
   // Log de errores del sistema (persiste en Supabase, auto-limpia a 30 días)
   errorLog: ErrorEntry[]
+  // Log de actividad interno: todas las acciones de las últimas 24hs (humano o sistema)
+  activityLog: ActivityEntry[]
+}
+
+export interface ActivityEntry {
+  id: string
+  timestamp: string
+  actor: 'human' | 'system'
+  action: string
+  details?: Record<string, unknown>
 }
 
 export interface MatchResult {

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { processMPPayments } from '@/lib/cycle'
-import { loadState, saveState, appendError } from '@/lib/storage'
+import { loadState, saveState, appendError, appendActivity } from '@/lib/storage'
 
 export const maxDuration = 60
 
@@ -22,6 +22,7 @@ export async function GET(req: Request) {
     state.unmatchedPayments = []
     state.processedPayments = []
     state.lastMPCheck = ''
+    appendActivity(state, 'system', 'reevaluar_automatico')
     await saveState(state)
 
     const result = await processMPPayments()
@@ -47,6 +48,7 @@ export async function POST(_req: Request) {
     state.unmatchedPayments = []
     state.processedPayments = []
     state.lastMPCheck = ''
+    appendActivity(state, 'human', 'reevaluar_manual')
     await saveState(state)
 
     const result = await processMPPayments()

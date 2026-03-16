@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { loadState, saveState, getStores, getMatchId, incrementMonthlyStats } from '@/lib/storage'
+import { loadState, saveState, getStores, getMatchId, incrementMonthlyStats, appendActivity } from '@/lib/storage'
 import { markOrderAsPaid } from '@/lib/tiendanube'
 import type { LogEntry } from '@/lib/types'
 
@@ -51,6 +51,13 @@ export async function POST(req: NextRequest) {
       customerName: match.order.customerName,
     }
     state.matchLog.push(logEntry)
+
+    appendActivity(state, 'system', 'pago_aprobado_auto', {
+      mpPaymentId: match.payment.mpPaymentId,
+      monto: match.payment.monto,
+      orderNumber: match.order.orderNumber,
+      storeName: match.order.storeName,
+    })
 
     await saveState(state)
 

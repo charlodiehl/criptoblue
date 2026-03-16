@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { loadState, saveState } from '@/lib/storage'
+import { loadState, saveState, appendActivity } from '@/lib/storage'
 
 export async function POST(req: NextRequest) {
   try {
@@ -12,6 +12,8 @@ export async function POST(req: NextRequest) {
     if (!state.externallyMarkedOrders.includes(key)) {
       state.externallyMarkedOrders.push(key)
     }
+
+    appendActivity(state, 'human', 'orden_marcada_externa', { orderId, storeId })
 
     await saveState(state)
     return NextResponse.json({ success: true })

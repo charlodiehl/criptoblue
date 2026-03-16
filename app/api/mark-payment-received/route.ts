@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { loadState, saveState } from '@/lib/storage'
+import { loadState, saveState, appendActivity } from '@/lib/storage'
 
 export async function POST(req: NextRequest) {
   try {
@@ -7,6 +7,11 @@ export async function POST(req: NextRequest) {
     if (!mpPaymentId) return NextResponse.json({ success: false, error: 'mpPaymentId requerido' }, { status: 400 })
 
     const state = await loadState()
+
+    // Capturar datos del pago antes de sacarlo de la cola
+    const payment = state.unmatchedPayments.find(
+      u => u.mpPaymentId === mpPaymentId || u.payment.mpPaymentId === mpPaymentId
+    )?.payment
 
     // Sacar de la cola de emparejamiento
     state.unmatchedPayments = state.unmatchedPayments.filter(
@@ -22,6 +27,11 @@ export async function POST(req: NextRequest) {
     if (!state.externallyMarkedPayments.includes(mpPaymentId)) {
       state.externallyMarkedPayments.push(mpPaymentId)
     }
+
+    appendActivity(state, 'human', 'pago_marcado_recibido', {
+      mpPaymentId,
+      monto: payment?.monto,
+    })
 
     await saveState(state)
     return NextResponse.json({ success: true })

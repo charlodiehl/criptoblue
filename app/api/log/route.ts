@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { loadState, saveState } from '@/lib/storage'
+import { loadState, saveState, appendActivity } from '@/lib/storage'
 
 // GET: devuelve matchLog + recentMatches para el frontend
 export async function GET() {
@@ -34,7 +34,11 @@ export async function DELETE() {
     }
     state.externallyMarkedPayments = Array.from(existing)
 
+    const entryCount = state.matchLog.length
     state.matchLog = []
+
+    appendActivity(state, 'human', 'registro_borrado', { entradasEliminadas: entryCount })
+
     await saveState(state)
     return NextResponse.json({ success: true })
   } catch (err) {
