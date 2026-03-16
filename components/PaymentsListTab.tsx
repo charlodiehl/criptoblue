@@ -116,15 +116,6 @@ export default function PaymentsListTab({
     }
   }
 
-  if (sorted.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center rounded-2xl py-20 text-center"
-        style={{ background: 'linear-gradient(135deg, #0d1117, #111827)', border: '1px solid rgba(0,212,255,0.08)' }}>
-        <p style={{ fontSize: '13px', color: 'rgba(148,163,184,0.4)' }}>{emptyText}</p>
-      </div>
-    )
-  }
-
   const inputStyle: React.CSSProperties = {
     width: '100%', fontSize: '12px', padding: '6px 10px', borderRadius: '7px',
     background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(0,212,255,0.15)',
@@ -167,6 +158,14 @@ export default function PaymentsListTab({
         )}
       </div>
 
+      {sorted.length === 0 ? (
+        <div className="flex flex-col items-center justify-center rounded-2xl py-20 text-center"
+          style={{ background: 'linear-gradient(135deg, #0d1117, #111827)', border: '1px solid rgba(0,212,255,0.08)' }}>
+          <p style={{ fontSize: '13px', color: 'rgba(148,163,184,0.4)' }}>
+            {search.trim() ? 'Sin resultados para esa búsqueda' : emptyText}
+          </p>
+        </div>
+      ) : (
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '10px' }}>
         {pageItems.map(p => {
           const isExternal = externallyMarkedIds?.has(p.mpPaymentId)
@@ -332,8 +331,10 @@ export default function PaymentsListTab({
         })}
       </div>
 
+      )}
+
       {/* Paginación */}
-      {totalPages > 1 && (
+      {sorted.length > 0 && totalPages > 1 && (
         <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '12px', marginTop: '24px' }}>
           <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={currentPage === 1}
             style={{ padding: '7px 18px', borderRadius: '8px', fontSize: '13px', fontWeight: 600, cursor: currentPage === 1 ? 'not-allowed' : 'pointer', background: currentPage === 1 ? 'rgba(255,255,255,0.04)' : 'rgba(0,212,255,0.1)', border: '1px solid rgba(0,212,255,0.15)', color: currentPage === 1 ? 'rgba(148,163,184,0.3)' : 'rgba(0,212,255,0.8)' }}>

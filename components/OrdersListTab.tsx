@@ -93,17 +93,6 @@ export default function OrdersListTab({ orders, matchedIds, onMarkExternal, onMa
   const currentPage = Math.min(page, totalPages)
   const pageItems = sorted.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
 
-  if (sorted.length === 0) {
-    return (
-      <div
-        className="flex flex-col items-center justify-center rounded-2xl py-20 text-center"
-        style={{ background: 'linear-gradient(135deg, #0d1117, #111827)', border: '1px solid rgba(0,212,255,0.08)' }}
-      >
-        <p style={{ fontSize: '13px', color: 'rgba(148,163,184,0.4)' }}>No hay órdenes en las últimas 48hs</p>
-      </div>
-    )
-  }
-
   return (
     <div>
       {/* Buscador */}
@@ -142,6 +131,16 @@ export default function OrdersListTab({ orders, matchedIds, onMarkExternal, onMa
         )}
       </div>
 
+      {sorted.length === 0 ? (
+        <div
+          className="flex flex-col items-center justify-center rounded-2xl py-20 text-center"
+          style={{ background: 'linear-gradient(135deg, #0d1117, #111827)', border: '1px solid rgba(0,212,255,0.08)' }}
+        >
+          <p style={{ fontSize: '13px', color: 'rgba(148,163,184,0.4)' }}>
+            {search.trim() ? 'Sin resultados para esa búsqueda' : 'No hay órdenes en las últimas 48hs'}
+          </p>
+        </div>
+      ) : (
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '10px' }}>
         {pageItems.map(o => {
           const key = `${o.storeId}-${o.orderId}`
@@ -281,9 +280,10 @@ export default function OrdersListTab({ orders, matchedIds, onMarkExternal, onMa
           )
         })}
       </div>
+      )}
 
       {/* Paginación */}
-      {totalPages > 1 && (
+      {sorted.length > 0 && totalPages > 1 && (
         <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '12px', marginTop: '24px' }}>
           <button
             onClick={() => setPage(p => Math.max(1, p - 1))}
