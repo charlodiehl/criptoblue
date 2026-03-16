@@ -164,6 +164,15 @@ export default function Dashboard() {
     return () => clearInterval(interval)
   }, [tab, fetchLog])
 
+  // Poll orders every 30 seconds — sincroniza lista de órdenes entre usuarios
+  // (no se hace cada 5s para no saturar la API de TiendaNube con múltiples usuarios)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchOrders()
+    }, 30000)
+    return () => clearInterval(interval)
+  }, [fetchOrders])
+
   // Load orders/payments when tab is shown
   useEffect(() => {
     if (tab === 'manual' || tab === 'ordenes') {
