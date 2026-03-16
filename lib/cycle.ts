@@ -79,8 +79,8 @@ export async function processMPPayments(): Promise<CycleResult> {
   }
 
   // Traer órdenes pendientes de TiendaNube y cachearlas (todos los clientes leen de este cache)
-  const sinceMs = Math.max(now.getTime() - 48 * 3600000, HARD_CUTOFF.getTime())
-  const sinceHours = (now.getTime() - sinceMs) / 3600000
+  // IMPORTANTE: las órdenes siempre usan ventana fija de 48h — el HARD_CUTOFF aplica solo a pagos de MP
+  const sinceHours = 48
   const allOrdersPerStore = await Promise.allSettled(
     storeEntries.map(s => getPendingOrders(s.storeId, s.accessToken, s.storeName, sinceHours))
   )
