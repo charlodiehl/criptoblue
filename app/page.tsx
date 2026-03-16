@@ -19,6 +19,7 @@ interface Stats {
   lastMPCheck: string | null
   externallyMarkedOrders: string[]
   externallyMarkedPayments: string[]
+  recentMatches?: RecentMatch[]
 }
 
 interface Toast {
@@ -81,7 +82,12 @@ export default function Dashboard() {
   const fetchStatus = useCallback(async () => {
     try {
       const res = await fetch('/api/status')
-      if (res.ok) setStats(await res.json())
+      if (res.ok) {
+        const data = await res.json()
+        setStats(data)
+        // Sincronizar recentMatches desde status (polled cada 5s) para multi-usuario
+        if (data.recentMatches) setRecentMatches(data.recentMatches)
+      }
     } catch { /* ignore */ }
   }, [])
 
@@ -132,13 +138,22 @@ export default function Dashboard() {
     fetchStores()
   }, [fetchStatus, fetchUnmatched, fetchStores])
 
-  // Poll status every 5 seconds (no fetchStores — el dropdown no debe actualizarse solo)
+  // Poll status every 5 seconds — incluye recentMatches para sincronizar multi-usuario
   useEffect(() => {
     const interval = setInterval(() => {
       fetchStatus()
     }, 5000)
     return () => clearInterval(interval)
   }, [fetchStatus])
+
+  // Poll unmatchedPayments every 5 seconds — sincroniza dismiss y otras acciones
+  // que no pasan por recentMatches/externallyMarkedPayments
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchUnmatched()
+    }, 5000)
+    return () => clearInterval(interval)
+  }, [fetchUnmatched])
 
   // Load orders/payments when tab is shown
   useEffect(() => {
@@ -246,6 +261,7 @@ export default function Dashboard() {
       const data = await res.json()
       if (data.success) {
         addToast('Pago eliminado', 'success')
+        setMatchRefreshKey(k => k + 1)
         await fetchUnmatched()
       } else {
         addToast(`Error: ${data.error}`, 'error')
@@ -264,7 +280,7 @@ export default function Dashboard() {
     setIsRefreshing(true)
     try {
       await fetch('/api/reevaluar', { method: 'POST' })
-      await Promise.all([fetchUnmatched(), fetchOrders(), fetchStatus()])
+      await Promise.all([fetchUnmatched(), fetchOrders(), fetchStatus(), fetchLog()])
       setMatchRefreshKey(k => k + 1)
     } catch {
       // silencioso: no mostrar toast en auto-refresh
@@ -272,13 +288,13 @@ export default function Dashboard() {
       isRefreshingRef.current = false
       setIsRefreshing(false)
     }
-  }, [fetchUnmatched, fetchOrders, fetchStatus])
+  }, [fetchUnmatched, fetchOrders, fetchStatus, fetchLog])
 
-  // Auto-refresh cada 2 minutos (corre aunque la pestaña esté minimizada)
+  // Auto-refresh cada 5 minutos (corre aunque la pestaña esté minimizada)
   useEffect(() => {
     const interval = setInterval(() => {
       silentRefresh()
-    }, 2 * 60 * 1000)
+    }, 5 * 60 * 1000)
     return () => clearInterval(interval)
   }, [silentRefresh])
 
@@ -293,7 +309,7 @@ export default function Dashboard() {
         const parts = [`${data.processed} pagos nuevos`]
         if (data.cancelled > 0) parts.push(`${data.cancelled} órdenes abandonadas canceladas`)
         addToast(`Actualizado: ${parts.join(' · ')}`, 'success')
-        await Promise.all([fetchUnmatched(), fetchOrders(), fetchStatus()])
+        await Promise.all([fetchUnmatched(), fetchOrders(), fetchStatus(), fetchLog()])
       } else {
         addToast(`Error al reevaluar: ${data.error}`, 'error')
       }
@@ -315,6 +331,8 @@ export default function Dashboard() {
       const data = await res.json()
       if (data.success) {
         addToast('Pago marcado como recibido', 'success')
+        // Remover de la cola de emparejamiento inmediatamente
+        setUnmatchedPayments(prev => prev.filter(u => (u.mpPaymentId || u.payment.mpPaymentId) !== mpPaymentId))
         // Actualización optimista: verde inmediato sin esperar fetchStatus
         setStats(prev => prev ? {
           ...prev,

@@ -146,6 +146,23 @@ export async function saveState(state: AppState): Promise<void> {
   if (state.processedPayments.length > 5000) {
     state.processedPayments = state.processedPayments.slice(-5000)
   }
+
+  // Limpiar externallyMarkedPayments: mantener solo los que sigan en matchLog o unmatchedPayments
+  // Evita que el array crezca indefinidamente con entradas que ya no son relevantes
+  const activePaymentIds = new Set([
+    ...(state.unmatchedPayments || []).map(u => u.payment.mpPaymentId),
+    ...(state.matchLog || []).map(e => e.mpPaymentId).filter(Boolean) as string[],
+  ])
+  if ((state.externallyMarkedPayments || []).length > 500) {
+    state.externallyMarkedPayments = (state.externallyMarkedPayments || []).filter(
+      id => activePaymentIds.has(id)
+    )
+  }
+
+  // Limpiar externallyMarkedOrders: mantener solo los últimos 500
+  if ((state.externallyMarkedOrders || []).length > 500) {
+    state.externallyMarkedOrders = (state.externallyMarkedOrders || []).slice(-500)
+  }
   // Strip rawData from all Payment objects to prevent state bloat
   // (raw MP payment JSON is ~5-10KB per payment; with thousands of payments this would exceed Supabase limits)
   const clean: AppState = {

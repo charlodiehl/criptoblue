@@ -42,13 +42,15 @@ export async function processMPPayments(): Promise<CycleResult> {
   const newPayments = payments.filter(p => !processedSet.has(p.mpPaymentId))
   result.processed = newPayments.length
 
-  // IDs de pagos ya confirmados (no deben reaparecer en la cola)
-  const confirmedIds = new Set(
-    state.matchLog
-      .filter(e => e.action === 'manual_paid' || e.action === 'auto_paid')
+  // IDs de pagos ya procesados (no deben reaparecer en la cola)
+  // Incluye: confirmados via match, descartados, y marcados como recibidos externamente
+  const confirmedIds = new Set<string>([
+    ...state.matchLog
+      .filter(e => e.action === 'manual_paid' || e.action === 'auto_paid' || e.action === 'dismissed')
       .map(e => e.mpPaymentId)
-      .filter((id): id is string => !!id)
-  )
+      .filter((id): id is string => !!id),
+    ...(state.externallyMarkedPayments || []),
+  ])
 
   const storeEntries = Object.values(stores)
 

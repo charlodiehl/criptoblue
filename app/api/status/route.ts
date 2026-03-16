@@ -33,6 +33,12 @@ export async function GET() {
       isThisMonth(p.timestamp)
     ).length
 
+    // recentMatches filtrados a las últimas 24h para no crecer indefinidamente
+    const cutoff24h = Date.now() - 24 * 60 * 60 * 1000
+    const recentMatches = (state.recentMatches || []).filter(
+      m => new Date(m.matchedAt).getTime() >= cutoff24h
+    )
+
     return NextResponse.json({
       paidThisMonth,
       paidVolumeThisMonth,
@@ -41,6 +47,7 @@ export async function GET() {
       lastMPCheck: state.lastMPCheck || null,
       externallyMarkedOrders: state.externallyMarkedOrders || [],
       externallyMarkedPayments: state.externallyMarkedPayments || [],
+      recentMatches,
     })
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 })
