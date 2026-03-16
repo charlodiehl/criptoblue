@@ -58,6 +58,7 @@ export interface LogEntry {
   storeId?: string
   storeName?: string
   customerName?: string
+  cuitPagador?: string
   mpPaymentId?: string
 }
 

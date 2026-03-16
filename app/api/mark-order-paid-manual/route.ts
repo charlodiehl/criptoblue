@@ -5,7 +5,7 @@ import type { LogEntry, Payment } from '@/lib/types'
 
 export async function POST(req: NextRequest) {
   try {
-    const { orderId, storeId, monto, medioPago, nombrePagador, order: orderFromClient } = await req.json()
+    const { orderId, storeId, monto, medioPago, nombrePagador, cuitPagador, order: orderFromClient } = await req.json()
     if (!orderId || !storeId || !monto || !medioPago) {
       return NextResponse.json({ error: 'orderId, storeId, monto y medioPago son requeridos' }, { status: 400 })
     }
@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
       monto: Number(monto),
       nombrePagador: nombrePagador || '',
       emailPagador: '',
-      cuitPagador: '',
+      cuitPagador: cuitPagador || '',
       referencia: '',
       operationId: '',
       metodoPago: medioPago,
@@ -66,6 +66,7 @@ export async function POST(req: NextRequest) {
       storeId,
       storeName: store.storeName,
       customerName: nombrePagador || order?.customerName,
+      cuitPagador: cuitPagador || undefined,
     }
     state.matchLog.push(logEntry)
 

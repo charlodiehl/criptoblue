@@ -33,6 +33,7 @@ interface ManualPayForm {
   medioPago: string
   monto: string
   nombrePagador: string
+  cuitPagador: string
   loading: boolean
 }
 
@@ -40,7 +41,7 @@ interface Props {
   orders: Order[]
   matchedIds?: Set<string>
   onMarkExternal?: (orderId: string, storeId: string) => Promise<void>
-  onMarkManual?: (orderId: string, storeId: string, monto: number, medioPago: string, nombrePagador: string, order: Order) => Promise<void>
+  onMarkManual?: (orderId: string, storeId: string, monto: number, medioPago: string, nombrePagador: string, order: Order, cuitPagador?: string) => Promise<void>
   loading?: boolean
 }
 
@@ -48,7 +49,7 @@ export default function OrdersListTab({ orders, matchedIds, onMarkExternal, onMa
   const [page, setPage] = useState(1)
   const [marking, setMarking] = useState<string | null>(null)
   const [manualOpen, setManualOpen] = useState<string | null>(null)
-  const [manualForm, setManualForm] = useState<ManualPayForm>({ medioPago: '', monto: '', nombrePagador: '', loading: false })
+  const [manualForm, setManualForm] = useState<ManualPayForm>({ medioPago: '', monto: '', nombrePagador: '', cuitPagador: '', loading: false })
   const [search, setSearch] = useState('')
 
   const handleMarkExternal = async (orderId: string, storeId: string) => {
@@ -64,7 +65,7 @@ export default function OrdersListTab({ orders, matchedIds, onMarkExternal, onMa
 
   const openManual = (key: string, orderTotal: number) => {
     setManualOpen(key)
-    setManualForm({ medioPago: '', monto: String(orderTotal), nombrePagador: '', loading: false })
+    setManualForm({ medioPago: '', monto: String(orderTotal), nombrePagador: '', cuitPagador: '', loading: false })
   }
 
   const handleManualSubmit = async (o: Order) => {
@@ -73,7 +74,7 @@ export default function OrdersListTab({ orders, matchedIds, onMarkExternal, onMa
     if (!manualForm.medioPago.trim() || isNaN(monto) || monto <= 0) return
     setManualForm(f => ({ ...f, loading: true }))
     try {
-      await onMarkManual(o.orderId, o.storeId, monto, manualForm.medioPago.trim(), manualForm.nombrePagador.trim(), o)
+      await onMarkManual(o.orderId, o.storeId, monto, manualForm.medioPago.trim(), manualForm.nombrePagador.trim(), o, manualForm.cuitPagador.trim() || undefined)
       setManualOpen(null)
     } finally {
       setManualForm(f => ({ ...f, loading: false }))
@@ -255,6 +256,16 @@ export default function OrdersListTab({ orders, matchedIds, onMarkExternal, onMa
                         placeholder="Opcional"
                         value={manualForm.nombrePagador}
                         onChange={e => setManualForm(f => ({ ...f, nombrePagador: e.target.value }))}
+                        style={{ width: '100%', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(148,163,184,0.2)', borderRadius: '6px', padding: '6px 10px', fontSize: '12px', color: 'white', outline: 'none', boxSizing: 'border-box' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '10px', color: 'rgba(148,163,184,0.5)', letterSpacing: '0.08em', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>CUIT / DNI pagador</label>
+                      <input
+                        type="text"
+                        placeholder="Opcional"
+                        value={manualForm.cuitPagador}
+                        onChange={e => setManualForm(f => ({ ...f, cuitPagador: e.target.value }))}
                         style={{ width: '100%', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(148,163,184,0.2)', borderRadius: '6px', padding: '6px 10px', fontSize: '12px', color: 'white', outline: 'none', boxSizing: 'border-box' }}
                       />
                     </div>
