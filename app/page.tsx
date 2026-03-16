@@ -164,6 +164,15 @@ export default function Dashboard() {
     return () => clearInterval(interval)
   }, [fetchUnmatched])
 
+  // Poll registro every 5 seconds mientras la pestaña está activa
+  useEffect(() => {
+    if (tab !== 'registro') return
+    const interval = setInterval(() => {
+      fetchLog()
+    }, 5000)
+    return () => clearInterval(interval)
+  }, [tab, fetchLog])
+
   // Load orders/payments when tab is shown
   useEffect(() => {
     if (tab === 'manual' || tab === 'ordenes') {
