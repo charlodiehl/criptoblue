@@ -7,10 +7,9 @@ import ManualMatchTab from '@/components/ManualMatchTab'
 import OrdersListTab from '@/components/OrdersListTab'
 import PaymentsListTab from '@/components/PaymentsListTab'
 import RegistroTab from '@/components/RegistroTab'
-import ErrorLogTab from '@/components/ErrorLogTab'
-import type { Order, UnmatchedPayment, Store, LogEntry, Payment, RecentMatch, ErrorEntry } from '@/lib/types'
+import type { Order, UnmatchedPayment, Store, LogEntry, Payment, RecentMatch } from '@/lib/types'
 
-type Tab = 'manual' | 'ordenes' | 'pagos' | 'sin-coincidencia' | 'registro' | 'errores'
+type Tab = 'manual' | 'ordenes' | 'pagos' | 'sin-coincidencia' | 'registro'
 
 interface Stats {
   paidThisMonth: number
@@ -40,7 +39,6 @@ export default function Dashboard() {
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [logEntries, setLogEntries] = useState<LogEntry[]>([])
   const [recentMatches, setRecentMatches] = useState<RecentMatch[]>([])
-  const [errorEntries, setErrorEntries] = useState<ErrorEntry[]>([])
   const [matchRefreshKey, setMatchRefreshKey] = useState(0)
   const toastIdRef = useRef(0)
   const isRefreshingRef = useRef(false)
@@ -123,13 +121,6 @@ export default function Dashboard() {
     } catch { /* ignore */ }
   }, [])
 
-  const fetchErrors = useCallback(async () => {
-    try {
-      const res = await fetch('/api/errors')
-      if (res.ok) setErrorEntries(await res.json())
-    } catch { /* ignore */ }
-  }, [])
-
   const fetchStores = useCallback(async () => {
     setStoresLoading(true)
     try {
@@ -184,10 +175,7 @@ export default function Dashboard() {
     if (tab === 'registro' || tab === 'pagos' || tab === 'sin-coincidencia') {
       fetchLog()
     }
-    if (tab === 'errores') {
-      fetchErrors()
-    }
-  }, [tab, fetchOrders, fetchUnmatched, fetchLog, fetchErrors])
+  }, [tab, fetchOrders, fetchUnmatched, fetchLog])
 
   const handleDeleteStore = async (storeId: string, storeName: string) => {
     if (!confirm(`¿Eliminar "${storeName}"? Se borrarán todas sus órdenes del registro.`)) return
@@ -443,29 +431,6 @@ export default function Dashboard() {
     }
   }
 
-  const handleResolveError = async (id: string, resolved: boolean) => {
-    try {
-      const res = await fetch('/api/errors', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, resolved }),
-      })
-      if (res.ok) {
-        setErrorEntries(prev => prev.map(e => e.id === id ? { ...e, resolved } : e))
-      }
-    } catch { /* ignore */ }
-  }
-
-  const handleClearResolvedErrors = async () => {
-    try {
-      const res = await fetch('/api/errors', { method: 'DELETE' })
-      if (res.ok) {
-        setErrorEntries(prev => prev.filter(e => !e.resolved))
-        addToast('Errores resueltos eliminados', 'success')
-      }
-    } catch { /* ignore */ }
-  }
-
   const handleClearLog = async () => {
     try {
       const res = await fetch('/api/log', { method: 'DELETE' })
@@ -605,15 +570,12 @@ export default function Dashboard() {
     }).length
   }, [unmatchedPayments, orders])
 
-  const unresolvedErrors = errorEntries.filter(e => !e.resolved).length
-
   const tabs: { id: Tab; label: string; primary?: boolean; badge?: number; badgeColor?: string }[] = [
     { id: 'manual', label: 'Emparejamiento', primary: true },
     { id: 'ordenes', label: `Órdenes (${allRecentOrders.length})` },
     { id: 'pagos', label: `Pagos (${allRecentPayments.length})` },
     { id: 'sin-coincidencia', label: `Sin coincidencia (${paymentsWithoutMatch.length})` },
     { id: 'registro', label: 'Registro' },
-    { id: 'errores', label: 'Errores', badge: unresolvedErrors, badgeColor: '#f87171' },
   ]
 
   return (
@@ -900,7 +862,6 @@ export default function Dashboard() {
           {tab === 'pagos' && <PaymentsListTab payments={allRecentPayments} orders={allRecentOrders} matchedIds={matchedPaymentIds} externallyMarkedIds={new Set(stats?.externallyMarkedPayments ?? [])} title="Pagos · últimas 24hs" emptyText="No hay pagos en las últimas 24 horas" onMarkReceived={handleMarkPaymentReceived} onManualLog={handleManualLog} loading={actionLoading} />}
           {tab === 'sin-coincidencia' && <PaymentsListTab payments={paymentsWithoutMatch} orders={allRecentOrders} externallyMarkedIds={new Set(stats?.externallyMarkedPayments ?? [])} title="Pagos sin coincidencia · últimas 24hs" emptyText="Todos los pagos de las últimas 24hs tienen una orden asignada" onMarkReceived={handleMarkPaymentReceived} onManualLog={handleManualLog} loading={actionLoading} />}
           {tab === 'registro' && <RegistroTab entries={logEntries} onClearLog={handleClearLog} />}
-          {tab === 'errores' && <ErrorLogTab entries={errorEntries} onResolve={handleResolveError} onClearResolved={handleClearResolvedErrors} />}
         </div>
       </main>
     </div>
