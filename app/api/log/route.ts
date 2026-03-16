@@ -1,6 +1,36 @@
 import { NextResponse } from 'next/server'
 import { loadState, saveState, appendActivity } from '@/lib/storage'
 
+// PATCH: edita campos de nombre y CUIT de una entrada del registro (solo esos dos campos)
+export async function PATCH(request: Request) {
+  try {
+    const { timestamp, customerName, cuit } = await request.json()
+    if (!timestamp) return NextResponse.json({ error: 'timestamp requerido' }, { status: 400 })
+
+    const state = await loadState()
+    const idx = state.matchLog.findIndex(e => e.timestamp === timestamp)
+    if (idx === -1) return NextResponse.json({ error: 'Entrada no encontrada' }, { status: 404 })
+
+    const entry = state.matchLog[idx]
+
+    if (customerName !== undefined) {
+      entry.customerName = customerName
+      if (entry.payment) entry.payment.nombrePagador = customerName
+    }
+    if (cuit !== undefined) {
+      if (entry.payment) entry.payment.cuitPagador = cuit
+    }
+
+    state.matchLog[idx] = entry
+    appendActivity(state, 'human', 'registro_editado', { timestamp, customerName, cuit })
+    await saveState(state)
+
+    return NextResponse.json({ success: true })
+  } catch (err) {
+    return NextResponse.json({ error: String(err) }, { status: 500 })
+  }
+}
+
 // GET: devuelve matchLog + recentMatches para el frontend
 export async function GET() {
   try {

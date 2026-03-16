@@ -883,7 +883,7 @@ export default function Dashboard() {
           {tab === 'ordenes' && <OrdersListTab orders={allRecentOrders} matchedIds={matchedOrderIds} onMarkExternal={handleMarkOrderExternal} onMarkManual={handleMarkOrderManual} loading={actionLoading} />}
           {tab === 'pagos' && <PaymentsListTab payments={allRecentPayments} orders={allRecentOrders} matchedIds={matchedPaymentIds} externallyMarkedIds={new Set(stats?.externallyMarkedPayments ?? [])} title="Pagos · últimas 24hs" emptyText="No hay pagos en las últimas 24 horas" onMarkReceived={handleMarkPaymentReceived} onManualLog={handleManualLog} loading={actionLoading} />}
           {tab === 'sin-coincidencia' && <PaymentsListTab payments={paymentsWithoutMatch} orders={allRecentOrders} externallyMarkedIds={new Set(stats?.externallyMarkedPayments ?? [])} title="Pagos sin coincidencia · últimas 24hs" emptyText="Todos los pagos de las últimas 24hs tienen una orden asignada" onMarkReceived={handleMarkPaymentReceived} onManualLog={handleManualLog} loading={actionLoading} />}
-          {tab === 'registro' && <RegistroTab entries={logEntries} onClearLog={handleClearLog} />}
+          {tab === 'registro' && <RegistroTab entries={logEntries} onClearLog={handleClearLog} onEntryEdited={fetchLog} />}
         </div>
       </main>
     </div>

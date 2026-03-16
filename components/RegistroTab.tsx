@@ -49,6 +49,7 @@ const PAGE_SIZE = 25
 interface Props {
   entries: LogEntry[]
   onClearLog?: () => void
+  onEntryEdited?: () => void
 }
 
 const COLUMNS: { label: string; key: SortKey }[] = [
@@ -86,9 +87,28 @@ const DEFAULT_DIR: Record<SortKey, SortDir> = {
   billetera: 'asc',
 }
 
-export default function RegistroTab({ entries, onClearLog }: Props) {
+const inputStyle: React.CSSProperties = {
+  background: 'rgba(0,212,255,0.05)',
+  border: '1px solid rgba(0,212,255,0.35)',
+  borderRadius: '6px',
+  color: 'rgba(226,232,240,0.9)',
+  fontSize: '13px',
+  padding: '4px 8px',
+  outline: 'none',
+  width: '100%',
+  minWidth: '100px',
+}
+
+export default function RegistroTab({ entries, onClearLog, onEntryEdited }: Props) {
   const [copied, setCopied] = useState(false)
   const [clearing, setClearing] = useState(false)
+
+  // Inline edit state
+  const [editingTs, setEditingTs] = useState<string | null>(null)
+  const [editName, setEditName] = useState('')
+  const [editCuit, setEditCuit] = useState('')
+  const [editSaving, setEditSaving] = useState(false)
+  const [editError, setEditError] = useState<string | null>(null)
 
   const handleClear = async () => {
     if (!confirm('¿Borrar todo el registro? Esta acción no se puede deshacer.')) return
@@ -145,6 +165,41 @@ export default function RegistroTab({ entries, onClearLog }: Props) {
       setCopied(true)
       setTimeout(() => setCopied(false), 2500)
     })
+  }
+
+  const startEdit = (e: LogEntry) => {
+    setEditingTs(e.timestamp)
+    setEditName(nombrePagador(e))
+    setEditCuit(fmtCuit(e.payment?.cuitPagador || ''))
+    setEditError(null)
+  }
+
+  const cancelEdit = () => {
+    setEditingTs(null)
+    setEditError(null)
+  }
+
+  const saveEdit = async (timestamp: string) => {
+    setEditSaving(true)
+    setEditError(null)
+    try {
+      const res = await fetch('/api/log', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ timestamp, customerName: editName, cuit: editCuit }),
+      })
+      if (!res.ok) {
+        const data = await res.json()
+        setEditError(data.error || 'Error al guardar')
+        return
+      }
+      setEditingTs(null)
+      onEntryEdited?.()
+    } catch {
+      setEditError('Error de red')
+    } finally {
+      setEditSaving(false)
+    }
   }
 
   return (
@@ -229,10 +284,13 @@ export default function RegistroTab({ entries, onClearLog }: Props) {
                     </th>
                   )
                 })}
+                {/* Columna de edición — sin encabezado */}
+                <th style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', width: '42px' }} />
               </tr>
             </thead>
             <tbody>
               {pageRows.map((e, i) => {
+                const isEditing = editingTs === e.timestamp
                 const fecha = fmtDate(e.payment?.fechaPago || e.timestamp)
                 const monto = fmtMontoDisplay(e.payment?.monto ?? e.amount ?? 0)
                 const cuit = fmtCuit(e.payment?.cuitPagador || '')
@@ -246,21 +304,143 @@ export default function RegistroTab({ entries, onClearLog }: Props) {
                     key={`${e.mpPaymentId}-${i}`}
                     style={{
                       borderBottom: '1px solid rgba(255,255,255,0.04)',
-                      background: i % 2 === 0 ? 'transparent' : 'rgba(0,212,255,0.015)',
+                      background: isEditing
+                        ? 'rgba(0,212,255,0.04)'
+                        : i % 2 === 0 ? 'transparent' : 'rgba(0,212,255,0.015)',
                     }}
                   >
+                    {/* Fecha — siempre readonly */}
                     <td style={{ padding: '12px 14px', color: 'rgba(148,163,184,0.6)', whiteSpace: 'nowrap' }}>{fecha}</td>
+
+                    {/* Monto — siempre readonly */}
                     <td style={{ padding: '12px 14px', color: 'white', fontWeight: 700, whiteSpace: 'nowrap' }}>{monto}</td>
-                    <td style={{ padding: '12px 14px', color: 'rgba(0,212,255,0.7)', fontFamily: 'monospace' }}>{cuit || '—'}</td>
-                    <td style={{ padding: '12px 14px', color: 'rgba(226,232,240,0.85)', maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nombre || '—'}</td>
+
+                    {/* CUIT — editable */}
+                    <td style={{ padding: isEditing ? '6px 14px' : '12px 14px', color: 'rgba(0,212,255,0.7)', fontFamily: 'monospace' }}>
+                      {isEditing ? (
+                        <input
+                          value={editCuit}
+                          onChange={ev => setEditCuit(ev.target.value.replace(/\D/g, ''))}
+                          placeholder="CUIT sin guiones"
+                          maxLength={11}
+                          style={{ ...inputStyle, fontFamily: 'monospace', color: 'rgba(0,212,255,0.9)' }}
+                          onKeyDown={ev => {
+                            if (ev.key === 'Enter') saveEdit(e.timestamp)
+                            if (ev.key === 'Escape') cancelEdit()
+                          }}
+                        />
+                      ) : (
+                        cuit || '—'
+                      )}
+                    </td>
+
+                    {/* Nombre — editable */}
+                    <td style={{ padding: isEditing ? '6px 14px' : '12px 14px', color: 'rgba(226,232,240,0.85)', maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: isEditing ? 'normal' : 'nowrap' }}>
+                      {isEditing ? (
+                        <input
+                          value={editName}
+                          onChange={ev => setEditName(ev.target.value)}
+                          placeholder="Nombre y apellido"
+                          autoFocus
+                          style={inputStyle}
+                          onKeyDown={ev => {
+                            if (ev.key === 'Enter') saveEdit(e.timestamp)
+                            if (ev.key === 'Escape') cancelEdit()
+                          }}
+                        />
+                      ) : (
+                        nombre || '—'
+                      )}
+                    </td>
+
+                    {/* Tienda — siempre readonly */}
                     <td style={{ padding: '12px 14px', color: 'rgba(148,163,184,0.5)', whiteSpace: 'nowrap' }}>{tienda}</td>
+
+                    {/* Orden — siempre readonly */}
                     <td style={{ padding: '12px 14px', color: '#00d4ff', fontWeight: 600, whiteSpace: 'nowrap' }}>{orden}</td>
+
+                    {/* Billetera — siempre readonly */}
                     <td style={{ padding: '12px 14px', color: 'rgba(148,163,184,0.4)', whiteSpace: 'nowrap' }}>{bill}</td>
+
+                    {/* Botones de acción */}
+                    <td style={{ padding: '6px 8px', textAlign: 'center', whiteSpace: 'nowrap' }}>
+                      {isEditing ? (
+                        <div style={{ display: 'flex', gap: '4px', justifyContent: 'center' }}>
+                          <button
+                            onClick={() => saveEdit(e.timestamp)}
+                            disabled={editSaving}
+                            title="Guardar"
+                            style={{
+                              width: '26px', height: '26px', borderRadius: '6px',
+                              border: '1px solid rgba(0,255,136,0.4)',
+                              background: 'rgba(0,255,136,0.08)',
+                              color: '#00ff88',
+                              fontSize: '13px', cursor: editSaving ? 'not-allowed' : 'pointer',
+                              opacity: editSaving ? 0.5 : 1,
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            }}
+                          >
+                            ✓
+                          </button>
+                          <button
+                            onClick={cancelEdit}
+                            disabled={editSaving}
+                            title="Cancelar"
+                            style={{
+                              width: '26px', height: '26px', borderRadius: '6px',
+                              border: '1px solid rgba(255,70,70,0.3)',
+                              background: 'rgba(255,70,70,0.06)',
+                              color: 'rgba(255,100,100,0.8)',
+                              fontSize: '13px', cursor: editSaving ? 'not-allowed' : 'pointer',
+                              opacity: editSaving ? 0.5 : 1,
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            }}
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => startEdit(e)}
+                          title="Editar nombre y CUIT"
+                          style={{
+                            width: '26px', height: '26px', borderRadius: '6px',
+                            border: '1px solid rgba(255,255,255,0.07)',
+                            background: 'transparent',
+                            color: 'rgba(148,163,184,0.35)',
+                            fontSize: '13px', cursor: 'pointer',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            transition: 'all 0.15s',
+                          }}
+                          onMouseEnter={ev => {
+                            const btn = ev.currentTarget
+                            btn.style.color = 'rgba(0,212,255,0.7)'
+                            btn.style.borderColor = 'rgba(0,212,255,0.3)'
+                            btn.style.background = 'rgba(0,212,255,0.06)'
+                          }}
+                          onMouseLeave={ev => {
+                            const btn = ev.currentTarget
+                            btn.style.color = 'rgba(148,163,184,0.35)'
+                            btn.style.borderColor = 'rgba(255,255,255,0.07)'
+                            btn.style.background = 'transparent'
+                          }}
+                        >
+                          ✎
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 )
               })}
             </tbody>
           </table>
+
+          {/* Error de edición */}
+          {editError && (
+            <div style={{ padding: '8px 14px', color: 'rgba(255,100,100,0.8)', fontSize: '12px' }}>
+              ⚠ {editError}
+            </div>
+          )}
 
           {/* Paginador */}
           {totalPages > 1 && (
