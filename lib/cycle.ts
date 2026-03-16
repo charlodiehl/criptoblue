@@ -1,6 +1,6 @@
 import { fetchAllPaymentsSince } from './mercadopago'
 import { getPendingOrders, cancelAbandonedOrders } from './tiendanube'
-import { loadState, saveState, getStores } from './storage'
+import { loadState, saveState, getStores, appendError } from './storage'
 import { HARD_CUTOFF } from './config'
 import type { UnmatchedPayment } from './types'
 
@@ -35,6 +35,8 @@ export async function processMPPayments(): Promise<CycleResult> {
     payments = await fetchAllPaymentsSince(since)
   } catch (err) {
     result.errors.push(`MP fetch error: ${String(err)}`)
+    appendError(state, 'mercadopago', 'error', `Error al traer pagos de MercadoPago: ${String(err)}`)
+    await saveState(state)
     return result
   }
 
@@ -80,6 +82,10 @@ export async function processMPPayments(): Promise<CycleResult> {
   allOrdersPerStore.forEach((r, i) => {
     if (r.status === 'rejected') {
       result.errors.push(`TN fetch error store ${storeEntries[i].storeId}: ${r.reason}`)
+      appendError(state, 'tiendanube', 'warning',
+        `Error al traer órdenes de tienda "${storeEntries[i].storeName}"`,
+        { storeId: storeEntries[i].storeId, storeName: storeEntries[i].storeName, error: String(r.reason) }
+      )
     }
   })
 

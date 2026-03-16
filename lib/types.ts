@@ -102,6 +102,8 @@ export interface AppState {
   settings: Record<string, unknown>
   // Acumulador mensual: clave "YYYY-MM", persiste aunque se borre el registro
   monthlyStats: Record<string, MonthlyStats>
+  // Log de errores del sistema (persiste en Supabase, auto-limpia a 30 días)
+  errorLog: ErrorEntry[]
 }
 
 export interface MatchResult {
@@ -111,4 +113,14 @@ export interface MatchResult {
   matchType: string
   decision: 'auto_paid' | 'needs_review' | 'no_match'
   thirdParty: boolean
+}
+
+export interface ErrorEntry {
+  id: string
+  timestamp: string
+  source: string   // 'cycle' | 'mercadopago' | 'tiendanube' | 'manual-match' | 'reevaluar' | etc.
+  level: 'error' | 'warning' | 'info'
+  message: string
+  context?: Record<string, unknown>
+  resolved: boolean
 }

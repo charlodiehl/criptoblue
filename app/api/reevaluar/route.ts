@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { processMPPayments } from '@/lib/cycle'
-import { loadState, saveState } from '@/lib/storage'
+import { loadState, saveState, appendError } from '@/lib/storage'
 
 export const maxDuration = 60
 
@@ -27,6 +27,11 @@ export async function GET(req: Request) {
     const result = await processMPPayments()
     return NextResponse.json({ success: true, ...result })
   } catch (err) {
+    try {
+      const state = await loadState()
+      appendError(state, 'reevaluar', 'error', `Error inesperado en ciclo automático (GET): ${String(err)}`)
+      await saveState(state)
+    } catch { /* no bloquear si falla el logging */ }
     return NextResponse.json({ success: false, error: String(err) }, { status: 500 })
   }
 }
@@ -47,6 +52,11 @@ export async function POST(_req: Request) {
     const result = await processMPPayments()
     return NextResponse.json({ success: true, ...result })
   } catch (err) {
+    try {
+      const state = await loadState()
+      appendError(state, 'reevaluar', 'error', `Error inesperado en ciclo manual (POST): ${String(err)}`)
+      await saveState(state)
+    } catch { /* no bloquear si falla el logging */ }
     return NextResponse.json({ success: false, error: String(err) }, { status: 500 })
   }
 }

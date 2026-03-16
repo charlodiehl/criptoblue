@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
-import type { AppState, Store, Payment } from './types'
+import type { AppState, Store, Payment, ErrorEntry } from './types'
 import { HARD_CUTOFF } from './config'
 
 function stripRawData(payment: Payment): Payment {
@@ -53,6 +53,7 @@ const DEFAULT_STATE: AppState = {
   lastMPCheck: '',
   settings: {},
   monthlyStats: {},
+  errorLog: [],
 }
 
 // Nombres manuales para tiendas que la API de TN no devuelve bien
@@ -101,6 +102,7 @@ export async function loadState(): Promise<AppState> {
     externallyMarkedOrders: state.externallyMarkedOrders || [],
     externallyMarkedPayments: state.externallyMarkedPayments || [],
     monthlyStats: state.monthlyStats || {},
+    errorLog: state.errorLog || [],
   }
 }
 
@@ -163,6 +165,12 @@ export async function saveState(state: AppState): Promise<void> {
   if ((state.externallyMarkedOrders || []).length > 500) {
     state.externallyMarkedOrders = (state.externallyMarkedOrders || []).slice(-500)
   }
+
+  // errorLog: descarta errores resueltos con más de 7 días, y limita total a 500
+  const cutoff7dMs = Date.now() - 7 * 24 * 60 * 60 * 1000
+  state.errorLog = (state.errorLog || [])
+    .filter(e => !e.resolved || new Date(e.timestamp).getTime() >= cutoff7dMs)
+    .slice(-500)
   // Strip rawData from all Payment objects to prevent state bloat
   // (raw MP payment JSON is ~5-10KB per payment; with thousands of payments this would exceed Supabase limits)
   const clean: AppState = {
@@ -185,6 +193,26 @@ export async function saveState(state: AppState): Promise<void> {
 
 export function getMatchId(entry: { mpPaymentId?: string }): string {
   return entry.mpPaymentId || ''
+}
+
+export function appendError(
+  state: AppState,
+  source: string,
+  level: 'error' | 'warning' | 'info',
+  message: string,
+  context?: Record<string, unknown>
+): void {
+  state.errorLog = state.errorLog || []
+  const entry: ErrorEntry = {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    timestamp: new Date().toISOString(),
+    source,
+    level,
+    message,
+    context,
+    resolved: false,
+  }
+  state.errorLog.push(entry)
 }
 
 export function incrementMonthlyStats(state: AppState, amount: number): void {

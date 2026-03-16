@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { loadState, saveState, getStores, getMatchId, incrementMonthlyStats } from '@/lib/storage'
+import { loadState, saveState, getStores, getMatchId, incrementMonthlyStats, appendError } from '@/lib/storage'
 import { markOrderAsPaid, getPendingOrders } from '@/lib/tiendanube'
 import type { LogEntry } from '@/lib/types'
 
@@ -39,11 +39,20 @@ export async function POST(req: NextRequest) {
     console.log('[manual-match] TN result:', JSON.stringify(tnResult))
 
     if (!tnResult.success) {
+      appendError(state, 'manual-match', 'error',
+        `Error al marcar orden como pagada en TiendaNube`,
+        { orderId, storeId, storeName: store.storeName, orderNumber: order?.orderNumber, error: tnResult.error }
+      )
+      await saveState(state)
       return NextResponse.json({ error: tnResult.error }, { status: 500 })
     }
 
     if (tnResult.method === 'note') {
       console.warn('[manual-match] WARNING: TN returned 403/422 for payment_status change. Only a note was added. Order may NOT be marked paid in TiendaNube.')
+      appendError(state, 'manual-match', 'warning',
+        `TiendaNube no permitió cambiar el estado de la orden (403/422) — solo se agregó una nota. Marcala manualmente en TN.`,
+        { orderId, storeId, storeName: store.storeName, orderNumber: order?.orderNumber }
+      )
     }
 
     state.unmatchedPayments.splice(unmatchedIndex, 1)
