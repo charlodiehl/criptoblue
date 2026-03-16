@@ -107,6 +107,8 @@ export default function RegistroTab({ entries, onClearLog, onEntryEdited }: Prop
   const [editingTs, setEditingTs] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
   const [editCuit, setEditCuit] = useState('')
+  const [editOrderNumber, setEditOrderNumber] = useState('')
+  const [editStoreName, setEditStoreName] = useState('')
   const [editSaving, setEditSaving] = useState(false)
   const [editError, setEditError] = useState<string | null>(null)
 
@@ -171,6 +173,8 @@ export default function RegistroTab({ entries, onClearLog, onEntryEdited }: Prop
     setEditingTs(e.timestamp)
     setEditName(nombrePagador(e))
     setEditCuit(fmtCuit(e.payment?.cuitPagador || ''))
+    setEditOrderNumber(e.orderNumber || e.order?.orderNumber || '')
+    setEditStoreName(e.storeName || e.order?.storeName || '')
     setEditError(null)
   }
 
@@ -186,7 +190,7 @@ export default function RegistroTab({ entries, onClearLog, onEntryEdited }: Prop
       const res = await fetch('/api/log', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ timestamp, customerName: editName, cuit: editCuit }),
+        body: JSON.stringify({ timestamp, customerName: editName, cuit: editCuit, orderNumber: editOrderNumber, storeName: editStoreName }),
       })
       if (!res.ok) {
         const data = await res.json()
@@ -353,11 +357,41 @@ export default function RegistroTab({ entries, onClearLog, onEntryEdited }: Prop
                       )}
                     </td>
 
-                    {/* Tienda — siempre readonly */}
-                    <td style={{ padding: '12px 14px', color: 'rgba(148,163,184,0.5)', whiteSpace: 'nowrap' }}>{tienda}</td>
+                    {/* Tienda — editable */}
+                    <td style={{ padding: isEditing ? '6px 14px' : '12px 14px', color: 'rgba(148,163,184,0.5)', whiteSpace: isEditing ? 'normal' : 'nowrap' }}>
+                      {isEditing ? (
+                        <input
+                          value={editStoreName}
+                          onChange={ev => setEditStoreName(ev.target.value)}
+                          placeholder="Nombre de la tienda"
+                          style={{ ...inputStyle, color: 'rgba(148,163,184,0.8)' }}
+                          onKeyDown={ev => {
+                            if (ev.key === 'Enter') saveEdit(e.timestamp)
+                            if (ev.key === 'Escape') cancelEdit()
+                          }}
+                        />
+                      ) : (
+                        tienda
+                      )}
+                    </td>
 
-                    {/* Orden — siempre readonly */}
-                    <td style={{ padding: '12px 14px', color: '#00d4ff', fontWeight: 600, whiteSpace: 'nowrap' }}>{orden}</td>
+                    {/* Orden — editable */}
+                    <td style={{ padding: isEditing ? '6px 14px' : '12px 14px', color: '#00d4ff', fontWeight: 600, whiteSpace: isEditing ? 'normal' : 'nowrap' }}>
+                      {isEditing ? (
+                        <input
+                          value={editOrderNumber}
+                          onChange={ev => setEditOrderNumber(ev.target.value)}
+                          placeholder="Número de orden"
+                          style={{ ...inputStyle, color: '#00d4ff', fontWeight: 600 }}
+                          onKeyDown={ev => {
+                            if (ev.key === 'Enter') saveEdit(e.timestamp)
+                            if (ev.key === 'Escape') cancelEdit()
+                          }}
+                        />
+                      ) : (
+                        orden
+                      )}
+                    </td>
 
                     {/* Billetera — siempre readonly */}
                     <td style={{ padding: '12px 14px', color: 'rgba(148,163,184,0.4)', whiteSpace: 'nowrap' }}>{bill}</td>

@@ -4,7 +4,7 @@ import { loadState, saveState, appendActivity } from '@/lib/storage'
 // PATCH: edita campos de nombre y CUIT de una entrada del registro (solo esos dos campos)
 export async function PATCH(request: Request) {
   try {
-    const { timestamp, customerName, cuit } = await request.json()
+    const { timestamp, customerName, cuit, orderNumber, storeName } = await request.json()
     if (!timestamp) return NextResponse.json({ error: 'timestamp requerido' }, { status: 400 })
 
     const state = await loadState()
@@ -20,9 +20,17 @@ export async function PATCH(request: Request) {
     if (cuit !== undefined) {
       if (entry.payment) entry.payment.cuitPagador = cuit
     }
+    if (orderNumber !== undefined) {
+      entry.orderNumber = orderNumber
+      if (entry.order) entry.order.orderNumber = orderNumber
+    }
+    if (storeName !== undefined) {
+      entry.storeName = storeName
+      if (entry.order) entry.order.storeName = storeName
+    }
 
     state.matchLog[idx] = entry
-    appendActivity(state, 'human', 'registro_editado', { timestamp, customerName, cuit })
+    appendActivity(state, 'human', 'registro_editado', { timestamp, customerName, cuit, orderNumber, storeName })
     await saveState(state)
 
     return NextResponse.json({ success: true })
