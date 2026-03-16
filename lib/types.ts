@@ -101,6 +101,10 @@ export interface AppState {
   // IDs de pagos confirmados (manual_paid/auto_paid) que se preservan después de borrar el registro
   // Solo para protección en cycle.ts — no afecta badges del frontend
   retainedPaymentIds: string[]
+  // Cache de órdenes de TiendaNube — se actualiza en cada ciclo del cron (cada 5min)
+  // Todos los clientes leen de acá para ver exactamente las mismas órdenes
+  cachedOrders: Order[]
+  cachedOrdersAt: string  // ISO timestamp del último cache exitoso
   lastMPCheck: string
   settings: Record<string, unknown>
   // Acumulador mensual: clave "YYYY-MM", persiste aunque se borre el registro

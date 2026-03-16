@@ -76,9 +76,11 @@ export async function processMPPayments(): Promise<CycleResult> {
     })
   }
 
-  // Verificar órdenes pendientes recientes (solo para loggear errores de fetch)
+  // Traer órdenes pendientes de TiendaNube y cachearlas (todos los clientes leen de este cache)
+  const sinceMs = Math.max(now.getTime() - 48 * 3600000, HARD_CUTOFF.getTime())
+  const sinceHours = (now.getTime() - sinceMs) / 3600000
   const allOrdersPerStore = await Promise.allSettled(
-    storeEntries.map(s => getPendingOrders(s.storeId, s.accessToken, s.storeName, 48))
+    storeEntries.map(s => getPendingOrders(s.storeId, s.accessToken, s.storeName, sinceHours))
   )
   allOrdersPerStore.forEach((r, i) => {
     if (r.status === 'rejected') {
@@ -89,6 +91,12 @@ export async function processMPPayments(): Promise<CycleResult> {
       )
     }
   })
+  // Actualizar cache solo si al menos una tienda respondió correctamente
+  const anyFulfilled = allOrdersPerStore.some(r => r.status === 'fulfilled')
+  if (anyFulfilled) {
+    state.cachedOrders = allOrdersPerStore.flatMap(r => r.status === 'fulfilled' ? r.value : [])
+    state.cachedOrdersAt = now.toISOString()
+  }
 
   // Todos los pagos nuevos van a la cola de revisión manual (excepto los ya confirmados)
   for (const payment of newPayments) {
