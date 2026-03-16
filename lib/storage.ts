@@ -115,9 +115,9 @@ export async function loadState(): Promise<AppState> {
 }
 
 export async function saveState(state: AppState): Promise<void> {
-  const cutoff24hMs = Date.now() - 24 * 60 * 60 * 1000
-  // Efectivo: el más reciente entre rolling 24h y el hard cutoff (comparación numérica, evita bugs de timezone en strings)
-  const effectiveCutoffMs = Math.max(cutoff24hMs, HARD_CUTOFF.getTime())
+  const cutoff48hMs = Date.now() - 48 * 60 * 60 * 1000
+  // Efectivo: el más reciente entre rolling 48h y el hard cutoff (comparación numérica, evita bugs de timezone en strings)
+  const effectiveCutoffMs = Math.max(cutoff48hMs, HARD_CUTOFF.getTime())
 
   // matchLog: sin límite de tiempo — se limpia solo manualmente desde el Registro
   // Pero sí filtramos entradas anteriores al hard cutoff (datos de antes de la app)
@@ -187,9 +187,9 @@ export async function saveState(state: AppState): Promise<void> {
     .filter(e => !e.resolved || new Date(e.timestamp).getTime() >= cutoff7dMs)
     .slice(-500)
 
-  // activityLog: mantener solo las últimas 24hs, límite de 1000 entradas
+  // activityLog: mantener solo las últimas 48hs, límite de 1000 entradas
   state.activityLog = (state.activityLog || [])
-    .filter(e => new Date(e.timestamp).getTime() >= cutoff24hMs)
+    .filter(e => new Date(e.timestamp).getTime() >= cutoff48hMs)
     .slice(-1000)
   // Strip rawData from all Payment objects to prevent state bloat
   // (raw MP payment JSON is ~5-10KB per payment; with thousands of payments this would exceed Supabase limits)

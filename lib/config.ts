@@ -1,6 +1,6 @@
 // Fecha de inicio de la app — nada anterior a este momento debe aparecer en ningún lado
-// 13/03/2026 20:00 hs Argentina (ART = UTC-3) → 23:00 UTC
-export const HARD_CUTOFF = new Date('2026-03-13T23:00:00.000Z')
+// 16/03/2026 15:51 hs Argentina (ART = UTC-3) → 18:51 UTC
+export const HARD_CUTOFF = new Date('2026-03-16T18:51:00.000Z')
 
 // Mapeo de fuente de pago → nombre amigable para el Registro
 // Para agregar un nuevo medio de pago, solo agregar una entrada acá

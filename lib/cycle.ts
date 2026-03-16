@@ -16,14 +16,16 @@ export async function processMPPayments(): Promise<CycleResult> {
   const [state, stores] = await Promise.all([loadState(), getStores()])
 
   const now = new Date()
-  const cutoff24h = new Date(now.getTime() - 24 * 60 * 60 * 1000)
-  // Usar el más reciente entre el rolling 24h y el hard cutoff
-  const since = cutoff24h > HARD_CUTOFF ? cutoff24h : HARD_CUTOFF
+  const cutoff48h = new Date(now.getTime() - 48 * 60 * 60 * 1000)
+  // Usar el más reciente entre el rolling 48h y el hard cutoff
+  const since = cutoff48h > HARD_CUTOFF ? cutoff48h : HARD_CUTOFF
 
   // Purge pagos anteriores al cutoff efectivo
+  const purge48h = new Date(now.getTime() - 48 * 60 * 60 * 1000)
+  const purgeCutoff = purge48h > HARD_CUTOFF ? purge48h : HARD_CUTOFF
   state.unmatchedPayments = state.unmatchedPayments.filter(u => {
     const date = u.payment.fechaPago ? new Date(u.payment.fechaPago) : new Date(u.timestamp)
-    return date >= since
+    return date >= purgeCutoff
   })
 
   // Limpiar pendingMatches (ya no se usa en el flujo manual)
