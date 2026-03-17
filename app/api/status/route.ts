@@ -8,42 +8,41 @@ export async function GET() {
     const now = new Date()
     const currentMonth = now.getMonth()
     const currentYear = now.getFullYear()
-    const monthKey = now.toISOString().slice(0, 7) // "YYYY-MM"
 
     const isThisMonth = (ts: string) => {
       const d = new Date(ts)
       return d.getMonth() === currentMonth && d.getFullYear() === currentYear
     }
 
-    // Acumulador mensual persistente (no se borra con el registro)
-    const monthly = (state.monthlyStats || {})[monthKey] || { count: 0, volume: 0 }
-
-    // Fallback: si monthlyStats no tiene datos aún, reconstruir desde matchLog
-    const paidLogs = state.matchLog.filter(e =>
-      (e.action === 'manual_paid' || e.action === 'auto_paid') && isThisMonth(e.timestamp)
+    const matchedLogs = state.matchLog.filter(e =>
+      (e.action === 'manual_paid' || e.action === 'auto_paid') &&
+      isThisMonth(e.timestamp) &&
+      e.mpPaymentId && !e.mpPaymentId.startsWith('manual_')
     )
-    const paidThisMonth = monthly.count > 0 ? monthly.count : paidLogs.length
-    const paidVolumeThisMonth = monthly.volume > 0 ? monthly.volume : paidLogs.reduce((sum, e) => sum + (e.amount || 0), 0)
+    const manualLogs = state.matchLog.filter(e =>
+      e.action === 'manual_paid' &&
+      isThisMonth(e.timestamp) &&
+      e.mpPaymentId?.startsWith('manual_')
+    )
 
-    // Total de pagos en cola de revisión manual (todos los sin confirmar)
+    const matchedCount = matchedLogs.length
+    const matchedVolume = matchedLogs.reduce((sum, e) => sum + (e.amount || 0), 0)
+    const manualCount = manualLogs.length
+    const manualVolume = manualLogs.reduce((sum, e) => sum + (e.amount || 0), 0)
+
     const pendingOrders = state.unmatchedPayments.length
 
-    // Pagos sin identificar ingresados este mes
-    const pendingPayments = state.unmatchedPayments.filter(p =>
-      isThisMonth(p.timestamp)
-    ).length
-
-    // recentMatches filtrados a las últimas 24h para no crecer indefinidamente
     const cutoff24h = Date.now() - 24 * 60 * 60 * 1000
     const recentMatches = (state.recentMatches || []).filter(
       m => new Date(m.matchedAt).getTime() >= cutoff24h
     )
 
     return NextResponse.json({
-      paidThisMonth,
-      paidVolumeThisMonth,
+      matchedCount,
+      matchedVolume,
+      manualCount,
+      manualVolume,
       pendingOrders,
-      pendingPayments,
       lastMPCheck: state.lastMPCheck || null,
       externallyMarkedOrders: state.externallyMarkedOrders || [],
       externallyMarkedPayments: (state.externallyMarkedPayments || []).map(e => e.id),

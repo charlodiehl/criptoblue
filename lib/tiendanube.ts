@@ -25,15 +25,14 @@ function normalizeOrder(order: any, storeId: string, storeName: string): Order {
   }
 }
 
-export async function getPendingOrders(storeId: string, accessToken: string, storeName: string, sinceHours = 48): Promise<Order[]> {
+export async function getPendingOrders(storeId: string, accessToken: string, storeName: string, since: Date): Promise<Order[]> {
   const allOrders: Order[] = []
   let page = 1
 
-  // Solo órdenes dentro del rango de horas solicitado (default 48h)
-  const since = new Date(Date.now() - sinceHours * 60 * 60 * 1000).toISOString()
+  const sinceISO = since.toISOString()
 
   while (true) {
-    const url = `${CONFIG.tiendanube.apiBase}/${storeId}/orders?payment_status=pending&per_page=200&page=${page}&created_at_min=${since}`
+    const url = `${CONFIG.tiendanube.apiBase}/${storeId}/orders?payment_status=pending&per_page=200&page=${page}&created_at_min=${sinceISO}`
     const res = await fetch(url, { headers: tnHeaders(accessToken) })
 
     if (!res.ok) {

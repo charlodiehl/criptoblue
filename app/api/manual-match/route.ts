@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { loadState, saveState, getStores, getMatchId, incrementMonthlyStats, appendError, appendActivity } from '@/lib/storage'
 import { markOrderAsPaid, getPendingOrders } from '@/lib/tiendanube'
+import { HARD_CUTOFF } from '@/lib/config'
 import type { LogEntry } from '@/lib/types'
 
 export async function POST(req: NextRequest) {
@@ -27,7 +28,8 @@ export async function POST(req: NextRequest) {
     let order = orderFromClient || null
     if (!order) {
       try {
-        const orders = await getPendingOrders(storeId, store.accessToken, store.storeName)
+        const since = new Date(Math.max(Date.now() - 48 * 3600000, HARD_CUTOFF.getTime()))
+        const orders = await getPendingOrders(storeId, store.accessToken, store.storeName, since)
         order = orders.find(o => o.orderId === orderId) || null
       } catch {
         // Si falla el fetch igual continuamos; el log quedará sin datos de orden

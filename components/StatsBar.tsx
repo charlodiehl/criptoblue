@@ -6,10 +6,11 @@ import { motion, useMotionValue, useSpring, useTransform } from 'framer-motion'
 const ARS = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 0 })
 
 interface Stats {
-  paidThisMonth: number
-  paidVolumeThisMonth: number
+  matchedCount: number
+  matchedVolume: number
+  manualCount: number
+  manualVolume: number
   pendingOrders: number
-  pendingPayments: number
 }
 
 function AnimatedNumber({ value, format }: { value: number; format?: (n: number) => string }) {
@@ -77,8 +78,8 @@ function StatCard({ label, sublabel, value, format, color, glow, borderColor, ic
   )
 }
 
-export default function StatsBar({ stats, pendingPairs, ordersCount }: { stats: Stats | null; pendingPairs: number; ordersCount: number }) {
-  const s = stats || { paidThisMonth: 0, paidVolumeThisMonth: 0, pendingOrders: 0, pendingPayments: 0 }
+export default function StatsBar({ stats }: { stats: Stats | null }) {
+  const s = stats || { matchedCount: 0, matchedVolume: 0, manualCount: 0, manualVolume: 0, pendingOrders: 0 }
 
   const now = new Date()
   const monthName = now.toLocaleDateString('es-AR', { month: 'long' })
@@ -86,9 +87,9 @@ export default function StatsBar({ stats, pendingPairs, ordersCount }: { stats: 
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
       <StatCard
-        label="Órdenes marcadas como pagadas"
-        sublabel={`Este mes (${monthName}) · se reinicia el 1ro`}
-        value={s.paidThisMonth}
+        label="Pagos emparejados"
+        sublabel={`Confirmados vía Emparejamiento · ${monthName}`}
+        value={s.matchedCount}
         color="#00ff88"
         glow="0 0 20px rgba(0,255,136,0.08)"
         borderColor="rgba(0,255,136,0.2)"
@@ -100,23 +101,25 @@ export default function StatsBar({ stats, pendingPairs, ordersCount }: { stats: 
         delay={0}
       />
       <StatCard
-        label="Emparejamientos pendientes"
-        sublabel="Pagos con ≥2 señales coincidentes con una orden"
-        value={pendingPairs}
+        label="Marcados manualmente"
+        sublabel={`Órdenes ingresadas con 'Marcar manualmente' · ${monthName}`}
+        value={s.manualCount}
         color="#f59e0b"
         glow="0 0 20px rgba(245,158,11,0.08)"
         borderColor="rgba(245,158,11,0.2)"
         icon={
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-7 h-7">
-            <path fillRule="evenodd" d="M12 2.25c-5.385 0-9.75 4.365-9.75 9.75s4.365 9.75 9.75 9.75 9.75-4.365 9.75-9.75S17.385 2.25 12 2.25ZM12.75 6a.75.75 0 0 0-1.5 0v6c0 .414.336.75.75.75h4.5a.75.75 0 0 0 0-1.5h-3.75V6Z" clipRule="evenodd" />
+            <path d="M21.731 2.269a2.625 2.625 0 0 0-3.712 0l-1.157 1.157 3.712 3.712 1.157-1.157a2.625 2.625 0 0 0 0-3.712ZM19.513 8.199l-3.712-3.712-8.4 8.4a5.25 5.25 0 0 0-1.32 2.214l-.8 2.685a.75.75 0 0 0 .933.933l2.685-.8a5.25 5.25 0 0 0 2.214-1.32l8.4-8.4Z" />
+            <path d="M5.25 5.25a3 3 0 0 0-3 3v10.5a3 3 0 0 0 3 3h10.5a3 3 0 0 0 3-3V13.5a.75.75 0 0 0-1.5 0v5.25a1.5 1.5 0 0 1-1.5 1.5H5.25a1.5 1.5 0 0 1-1.5-1.5V8.25a1.5 1.5 0 0 1 1.5-1.5h5.25a.75.75 0 0 0 0-1.5H5.25Z" />
           </svg>
         }
         delay={0.06}
       />
       <StatCard
-        label="Órdenes sin identificar"
-        sublabel="Pendientes de pago · últimas 48hs"
-        value={ordersCount}
+        label="Volumen manual"
+        sublabel={`Suma de órdenes marcadas manualmente · ${monthName}`}
+        value={s.manualVolume}
+        format={n => ARS.format(n)}
         color="#f87171"
         glow="0 0 20px rgba(248,113,113,0.08)"
         borderColor="rgba(248,113,113,0.2)"
@@ -129,9 +132,9 @@ export default function StatsBar({ stats, pendingPairs, ordersCount }: { stats: 
         delay={0.12}
       />
       <StatCard
-        label="Volumen identificado"
-        sublabel={`Suma de pagos con orden asignada (${monthName})`}
-        value={s.paidVolumeThisMonth}
+        label="Volumen emparejado"
+        sublabel={`Suma de pagos confirmados vía Emparejamiento · ${monthName}`}
+        value={s.matchedVolume}
         format={n => ARS.format(n)}
         color="#00d4ff"
         glow="0 0 20px rgba(0,212,255,0.08)"

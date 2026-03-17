@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
-import type { AppState, Store, Payment, ErrorEntry, ActivityEntry, ExternalPaymentMark } from './types'
+import type { AppState, Store, Payment, ErrorEntry, ActivityEntry } from './types'
 import { HARD_CUTOFF } from './config'
 
 function stripRawData(payment: Payment): Payment {
@@ -99,13 +99,6 @@ export async function loadState(): Promise<AppState> {
   const state = await kvGet<AppState>(STATE_KEY)
   if (!state) return { ...DEFAULT_STATE }
 
-  // Migración: externallyMarkedPayments era string[], ahora es ExternalPaymentMark[]
-  // Las entradas viejas (solo string) reciben markedAt = ahora → expiran en 48h
-  const rawExternal: unknown[] = (state.externallyMarkedPayments as unknown[]) || []
-  const normalizedExternal: ExternalPaymentMark[] = rawExternal.map(e =>
-    typeof e === 'string' ? { id: e, markedAt: new Date().toISOString() } : (e as ExternalPaymentMark)
-  )
-
   return {
     ...DEFAULT_STATE,
     ...state,
@@ -115,7 +108,7 @@ export async function loadState(): Promise<AppState> {
     pendingMatches: state.pendingMatches || [],
     unmatchedPayments: state.unmatchedPayments || [],
     externallyMarkedOrders: state.externallyMarkedOrders || [],
-    externallyMarkedPayments: normalizedExternal,
+    externallyMarkedPayments: state.externallyMarkedPayments || [],
     retainedPaymentIds: state.retainedPaymentIds || [],
     cachedOrders: state.cachedOrders || [],
     cachedOrdersAt: state.cachedOrdersAt || '',

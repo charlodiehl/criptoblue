@@ -10,25 +10,33 @@ export async function GET() {
     const now = new Date()
     const currentMonth = now.getMonth()
     const currentYear = now.getFullYear()
-    const monthKey = now.toISOString().slice(0, 7) // "YYYY-MM"
 
     const isThisMonth = (ts: string) => {
       const d = new Date(ts)
       return d.getMonth() === currentMonth && d.getFullYear() === currentYear
     }
 
-    // Acumulador mensual persistente (no se borra con el registro)
-    const monthly = (state.monthlyStats || {})[monthKey] || { count: 0, volume: 0 }
-
-    // Fallback: si monthlyStats no tiene datos aún, reconstruir desde matchLog
-    const paidLogs = state.matchLog.filter(e =>
-      (e.action === 'manual_paid' || e.action === 'auto_paid') && isThisMonth(e.timestamp)
+    // Emparejados: pagos reales de MP confirmados desde la pestaña Emparejamiento
+    // mpPaymentId NO empieza con 'manual_' (son IDs reales de MP)
+    const matchedLogs = state.matchLog.filter(e =>
+      (e.action === 'manual_paid' || e.action === 'auto_paid') &&
+      isThisMonth(e.timestamp) &&
+      e.mpPaymentId && !e.mpPaymentId.startsWith('manual_')
     )
-    const paidThisMonth = monthly.count > 0 ? monthly.count : paidLogs.length
-    const paidVolumeThisMonth = monthly.volume > 0 ? monthly.volume : paidLogs.reduce((sum, e) => sum + (e.amount || 0), 0)
+    // Marcados manualmente: órdenes marcadas con el formulario "Marcar manualmente" (Órdenes tab)
+    // mpPaymentId empieza con 'manual_' (ID sintético generado por mark-order-paid-manual)
+    const manualLogs = state.matchLog.filter(e =>
+      e.action === 'manual_paid' &&
+      isThisMonth(e.timestamp) &&
+      e.mpPaymentId?.startsWith('manual_')
+    )
+
+    const matchedCount = matchedLogs.length
+    const matchedVolume = matchedLogs.reduce((sum, e) => sum + (e.amount || 0), 0)
+    const manualCount = manualLogs.length
+    const manualVolume = manualLogs.reduce((sum, e) => sum + (e.amount || 0), 0)
 
     const pendingOrders = state.unmatchedPayments.length
-    const pendingPayments = state.unmatchedPayments.filter(p => isThisMonth(p.timestamp)).length
 
     const cutoff24h = Date.now() - 24 * 60 * 60 * 1000
     const recentMatches = (state.recentMatches || []).filter(
@@ -36,16 +44,15 @@ export async function GET() {
     )
 
     return NextResponse.json({
-      // Campos de /api/status
-      paidThisMonth,
-      paidVolumeThisMonth,
+      matchedCount,
+      matchedVolume,
+      manualCount,
+      manualVolume,
       pendingOrders,
-      pendingPayments,
       lastMPCheck: state.lastMPCheck || null,
       externallyMarkedOrders: state.externallyMarkedOrders || [],
       externallyMarkedPayments: (state.externallyMarkedPayments || []).map(e => e.id),
       recentMatches,
-      // Campos de /api/unmatched-payments
       unmatchedPayments: state.unmatchedPayments,
     })
   } catch (err) {

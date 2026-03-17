@@ -12,10 +12,11 @@ import type { Order, UnmatchedPayment, Store, LogEntry, Payment, RecentMatch } f
 type Tab = 'manual' | 'ordenes' | 'pagos' | 'sin-coincidencia' | 'registro'
 
 interface Stats {
-  paidThisMonth: number
-  paidVolumeThisMonth: number
+  matchedCount: number        // pagos emparejados desde Emparejamiento (MP real)
+  matchedVolume: number       // volumen de emparejados
+  manualCount: number         // órdenes marcadas con "Marcar manualmente" (Órdenes tab)
+  manualVolume: number        // volumen de marcados manualmente
   pendingOrders: number
-  pendingPayments: number
   lastMPCheck: string | null
   externallyMarkedOrders: string[]
   externallyMarkedPayments: string[]
@@ -105,10 +106,11 @@ export default function Dashboard() {
       if (res.ok) {
         const data = await res.json()
         setStats({
-          paidThisMonth: data.paidThisMonth,
-          paidVolumeThisMonth: data.paidVolumeThisMonth,
+          matchedCount: data.matchedCount,
+          matchedVolume: data.matchedVolume,
+          manualCount: data.manualCount,
+          manualVolume: data.manualVolume,
           pendingOrders: data.pendingOrders,
-          pendingPayments: data.pendingPayments,
           lastMPCheck: data.lastMPCheck,
           externallyMarkedOrders: data.externallyMarkedOrders,
           externallyMarkedPayments: data.externallyMarkedPayments,
@@ -266,8 +268,8 @@ export default function Dashboard() {
         if (data.recentMatch) setRecentMatches(prev => [...prev, data.recentMatch])
         setStats(prev => prev ? {
           ...prev,
-          paidThisMonth: prev.paidThisMonth + 1,
-          paidVolumeThisMonth: prev.paidVolumeThisMonth + (data.logEntry?.amount ?? 0),
+          matchedCount: prev.matchedCount + 1,
+          matchedVolume: prev.matchedVolume + (data.logEntry?.amount ?? 0),
           pendingOrders: Math.max(0, prev.pendingOrders - 1),
         } : prev)
         setMatchRefreshKey(k => k + 1)
@@ -397,8 +399,8 @@ export default function Dashboard() {
         if (data.recentMatch) setRecentMatches(prev => [...prev, data.recentMatch])
         setStats(prev => prev ? {
           ...prev,
-          paidThisMonth: prev.paidThisMonth + 1,
-          paidVolumeThisMonth: prev.paidVolumeThisMonth + (data.logEntry?.amount ?? 0),
+          matchedCount: prev.matchedCount + 1,
+          matchedVolume: prev.matchedVolume + (data.logEntry?.amount ?? 0),
         } : prev)
         setMatchRefreshKey(k => k + 1)
       } else {
@@ -466,7 +468,7 @@ export default function Dashboard() {
   const HOURS_24 = 24 * 60 * 60 * 1000
   const HOURS_48 = 48 * 60 * 60 * 1000
   // Cutoff efectivo: el más reciente entre rolling window y la fecha de inicio de la app
-  const HARD_CUTOFF_MS = 1742151060000 // 2026-03-16T18:51:00.000Z en ms
+  const HARD_CUTOFF_MS = 1773762120000 // 2026-03-17T15:42:00.000Z en ms
   const cutoff24 = Math.max(Date.now() - HOURS_24, HARD_CUTOFF_MS)
   const cutoff48 = Math.max(Date.now() - HOURS_48, HARD_CUTOFF_MS)
 
@@ -807,7 +809,7 @@ export default function Dashboard() {
       </header>
 
       <main className="relative mx-auto max-w-[1400px] px-6 py-6 space-y-6">
-        <StatsBar stats={stats} pendingPairs={pendingPairsCount} ordersCount={orders.length} />
+        <StatsBar stats={stats} />
 
         {/* Tabs */}
         <div className="flex gap-4 overflow-x-auto pb-1">

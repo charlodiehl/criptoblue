@@ -16,11 +16,10 @@ export async function GET() {
     const stores = await getStores()
     const storeList = Object.values(stores)
 
-    const sinceMs = Math.max(Date.now() - 48 * 3600000, HARD_CUTOFF.getTime())
-    const sinceHours = (Date.now() - sinceMs) / 3600000
+    const since = new Date(Math.max(Date.now() - 48 * 3600000, HARD_CUTOFF.getTime()))
 
     const results = await Promise.allSettled(
-      storeList.map(s => getPendingOrders(s.storeId, s.accessToken, s.storeName, sinceHours))
+      storeList.map(s => getPendingOrders(s.storeId, s.accessToken, s.storeName, since))
     )
 
     const orders = results.flatMap((r, i) => {
