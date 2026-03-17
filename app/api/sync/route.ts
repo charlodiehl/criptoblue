@@ -43,7 +43,7 @@ export async function GET() {
       pendingPayments,
       lastMPCheck: state.lastMPCheck || null,
       externallyMarkedOrders: state.externallyMarkedOrders || [],
-      externallyMarkedPayments: state.externallyMarkedPayments || [],
+      externallyMarkedPayments: (state.externallyMarkedPayments || []).map(e => e.id),
       recentMatches,
       // Campos de /api/unmatched-payments
       unmatchedPayments: state.unmatchedPayments,

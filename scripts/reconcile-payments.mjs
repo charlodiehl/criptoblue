@@ -143,7 +143,8 @@ async function main() {
       .map(e => e.mpPaymentId)
       .filter(Boolean)
   )
-  const externalIds = new Set(externallyMarkedPayments)
+  // Soportar tanto string[] (formato viejo) como { id, markedAt }[] (formato nuevo)
+  const externalIds = new Set(externallyMarkedPayments.map(e => typeof e === 'string' ? e : e.id))
 
   // 3. Traer pagos de MP
   const mpPayments = await fetchAllMPPayments()

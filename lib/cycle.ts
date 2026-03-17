@@ -49,7 +49,7 @@ export async function processMPPayments(): Promise<CycleResult> {
       .filter(e => e.action === 'manual_paid' || e.action === 'auto_paid' || e.action === 'dismissed')
       .map(e => e.mpPaymentId)
       .filter((id): id is string => !!id),
-    ...(state.externallyMarkedPayments || []),
+    ...(state.externallyMarkedPayments || []).map(e => e.id),
     ...(state.retainedPaymentIds || []),
   ])
 

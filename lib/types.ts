@@ -90,6 +90,11 @@ export interface MonthlyStats {
   volume: number
 }
 
+export interface ExternalPaymentMark {
+  id: string        // mpPaymentId
+  markedAt: string  // ISO timestamp — usado para expirar a las 48h igual que el resto
+}
+
 export interface AppState {
   processedPayments: string[]
   matchLog: LogEntry[]
@@ -97,8 +102,8 @@ export interface AppState {
   pendingMatches: PendingMatch[]
   unmatchedPayments: UnmatchedPayment[]
   // Órdenes y pagos marcados manualmente como gestionados por fuera de la app
-  externallyMarkedOrders: string[]   // claves "storeId-orderId"
-  externallyMarkedPayments: string[] // mpPaymentId — solo pagos marcados con "No es de tiendas"
+  externallyMarkedOrders: string[]          // claves "storeId-orderId"
+  externallyMarkedPayments: ExternalPaymentMark[] // pagos marcados con "No es de tiendas", expiran a las 48h
   // IDs de pagos confirmados (manual_paid/auto_paid) que se preservan después de borrar el registro
   // Solo para protección en cycle.ts — no afecta badges del frontend
   retainedPaymentIds: string[]

@@ -79,11 +79,12 @@ export async function DELETE() {
       .map(e => e.mpPaymentId)
       .filter((id): id is string => !!id)
 
-    const existingExternal = new Set(state.externallyMarkedPayments || [])
+    const now = new Date().toISOString()
     for (const id of dismissedIds) {
-      existingExternal.add(id)
+      if (!state.externallyMarkedPayments.some(e => e.id === id)) {
+        state.externallyMarkedPayments.push({ id, markedAt: now })
+      }
     }
-    state.externallyMarkedPayments = Array.from(existingExternal)
 
     const entryCount = state.matchLog.length
     state.matchLog = []

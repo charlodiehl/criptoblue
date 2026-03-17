@@ -19,9 +19,9 @@ export async function POST(req: NextRequest) {
       state.processedPayments.push(mpPaymentId)
     }
 
-    // Registrar como marcado externamente
-    if (!state.externallyMarkedPayments.includes(mpPaymentId)) {
-      state.externallyMarkedPayments.push(mpPaymentId)
+    // Registrar como marcado externamente con timestamp (para que expire a las 48h igual que el resto)
+    if (!state.externallyMarkedPayments.some(e => e.id === mpPaymentId)) {
+      state.externallyMarkedPayments.push({ id: mpPaymentId, markedAt: new Date().toISOString() })
     }
 
     appendActivity(state, 'human', 'pago_marcado_recibido', {

@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
-import type { AppState, Store, Payment, ErrorEntry, ActivityEntry } from './types'
+import type { AppState, Store, Payment, ErrorEntry, ActivityEntry, ExternalPaymentMark } from './types'
 import { HARD_CUTOFF } from './config'
 
 function stripRawData(payment: Payment): Payment {
@@ -98,6 +98,14 @@ export async function saveStores(stores: Record<string, Store>): Promise<void> {
 export async function loadState(): Promise<AppState> {
   const state = await kvGet<AppState>(STATE_KEY)
   if (!state) return { ...DEFAULT_STATE }
+
+  // Migración: externallyMarkedPayments era string[], ahora es ExternalPaymentMark[]
+  // Las entradas viejas (solo string) reciben markedAt = ahora → expiran en 48h
+  const rawExternal: unknown[] = (state.externallyMarkedPayments as unknown[]) || []
+  const normalizedExternal: ExternalPaymentMark[] = rawExternal.map(e =>
+    typeof e === 'string' ? { id: e, markedAt: new Date().toISOString() } : (e as ExternalPaymentMark)
+  )
+
   return {
     ...DEFAULT_STATE,
     ...state,
@@ -107,7 +115,7 @@ export async function loadState(): Promise<AppState> {
     pendingMatches: state.pendingMatches || [],
     unmatchedPayments: state.unmatchedPayments || [],
     externallyMarkedOrders: state.externallyMarkedOrders || [],
-    externallyMarkedPayments: state.externallyMarkedPayments || [],
+    externallyMarkedPayments: normalizedExternal,
     retainedPaymentIds: state.retainedPaymentIds || [],
     cachedOrders: state.cachedOrders || [],
     cachedOrdersAt: state.cachedOrdersAt || '',
@@ -160,28 +168,20 @@ export async function saveState(state: AppState): Promise<void> {
     state.processedPayments = state.processedPayments.slice(-5000)
   }
 
-  // Limpiar externallyMarkedPayments: mantener solo los que sigan en matchLog o unmatchedPayments
-  // Evita que el array crezca indefinidamente con entradas que ya no son relevantes
-  const activePaymentIds = new Set([
-    ...(state.unmatchedPayments || []).map(u => u.payment.mpPaymentId),
-    ...(state.matchLog || []).map(e => e.mpPaymentId).filter(Boolean) as string[],
-  ])
-  if ((state.externallyMarkedPayments || []).length > 500) {
-    state.externallyMarkedPayments = (state.externallyMarkedPayments || []).filter(
-      id => activePaymentIds.has(id)
-    )
-  }
+  // Limpiar externallyMarkedPayments: eliminar entradas anteriores al cutoff efectivo (48h / hard cutoff)
+  // Se limpia SIEMPRE (no solo cuando >500) para que los pagos expiren igual que el resto
+  state.externallyMarkedPayments = (state.externallyMarkedPayments || []).filter(
+    e => new Date(e.markedAt).getTime() >= effectiveCutoffMs
+  )
 
   // Limpiar externallyMarkedOrders: mantener solo los últimos 500
   if ((state.externallyMarkedOrders || []).length > 500) {
     state.externallyMarkedOrders = (state.externallyMarkedOrders || []).slice(-500)
   }
 
-  // Limpiar retainedPaymentIds: mantener solo los que sigan referenciados (mismo criterio que externallyMarkedPayments)
-  if ((state.retainedPaymentIds || []).length > 500) {
-    state.retainedPaymentIds = (state.retainedPaymentIds || []).filter(
-      id => activePaymentIds.has(id)
-    )
+  // Limpiar retainedPaymentIds: limitar a los últimos 1000
+  if ((state.retainedPaymentIds || []).length > 1000) {
+    state.retainedPaymentIds = (state.retainedPaymentIds || []).slice(-1000)
   }
 
   // errorLog: descarta errores resueltos con más de 7 días, y limita total a 500
