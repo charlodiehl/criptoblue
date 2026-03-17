@@ -466,7 +466,7 @@ export default function Dashboard() {
   const HOURS_24 = 24 * 60 * 60 * 1000
   const HOURS_48 = 48 * 60 * 60 * 1000
   // Cutoff efectivo: el más reciente entre rolling window y la fecha de inicio de la app
-  const HARD_CUTOFF_MS = 1741906800000 // 2026-03-13T23:00:00.000Z en ms
+  const HARD_CUTOFF_MS = 1742151060000 // 2026-03-16T18:51:00.000Z en ms
   const cutoff24 = Math.max(Date.now() - HOURS_24, HARD_CUTOFF_MS)
   const cutoff48 = Math.max(Date.now() - HOURS_48, HARD_CUTOFF_MS)
 
@@ -518,33 +518,32 @@ export default function Dashboard() {
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
   }, [orders, logEntries, recentMatches, cutoff48, HARD_CUTOFF_MS])
 
-  // Todos los pagos de las últimas 24hs (macheados + no macheados)
+  // Todos los pagos de las últimas 48hs (macheados + no macheados)
   const allRecentPayments = useMemo((): Payment[] => {
-    const now = Date.now()
     const seenIds = new Set<string>()
 
     // Pagos macheados del registro (desde cutoff efectivo)
     const fromLog = logEntries
       .filter(e => (e.action === 'auto_paid' || e.action === 'manual_paid') && e.payment &&
-        new Date(e.timestamp).getTime() >= cutoff24)
+        new Date(e.timestamp).getTime() >= cutoff48)
       .map(e => e.payment!)
       .filter(p => { if (seenIds.has(p.mpPaymentId)) return false; seenIds.add(p.mpPaymentId); return true })
 
     // Fallback: pagos desde recentMatches cuando el log fue borrado
     const fromRecent = recentMatches
-      .filter(m => m.payment && new Date(m.matchedAt).getTime() >= cutoff24)
+      .filter(m => m.payment && new Date(m.matchedAt).getTime() >= cutoff48)
       .map(m => m.payment!)
       .filter(p => { if (seenIds.has(p.mpPaymentId)) return false; seenIds.add(p.mpPaymentId); return true })
 
-    // Pagos no macheados (desde cutoff efectivo)
+    // Pagos no macheados (desde cutoff efectivo 48h)
     const unmatched = unmatchedPayments
-      .filter(u => new Date(u.payment.fechaPago).getTime() >= cutoff24)
+      .filter(u => new Date(u.payment.fechaPago).getTime() >= cutoff48)
       .map(u => u.payment)
       .filter(p => !seenIds.has(p.mpPaymentId))
 
     return [...fromLog, ...fromRecent, ...unmatched]
       .filter(p => new Date(p.fechaPago).getTime() >= HARD_CUTOFF_MS)
-  }, [unmatchedPayments, logEntries, recentMatches, cutoff24, HARD_CUTOFF_MS])
+  }, [unmatchedPayments, logEntries, recentMatches, cutoff48, HARD_CUTOFF_MS])
 
   // IDs de pagos y órdenes ya macheados (para resaltar en verde en las pestañas)
   // Usan recentMatches (auto-limpia a 24h) para ser independientes del borrado manual del Registro
@@ -558,14 +557,14 @@ export default function Dashboard() {
     ...(stats?.externallyMarkedOrders ?? []),
   ]), [recentMatches, stats?.externallyMarkedOrders])
 
-  // Pagos de las últimas 24hs sin coincidencia con ninguna orden
+  // Pagos de las últimas 48hs sin coincidencia con ninguna orden
   const paymentsWithoutMatch = useMemo((): Payment[] => {
     const now = Date.now()
     return unmatchedPayments
-      .filter(u => (now - new Date(u.payment.fechaPago).getTime()) <= HOURS_24)
+      .filter(u => (now - new Date(u.payment.fechaPago).getTime()) <= HOURS_48)
       .map(u => u.payment)
       .filter(p => !matchedPaymentIds.has(p.mpPaymentId))
-  }, [unmatchedPayments, matchedPaymentIds, HOURS_24])
+  }, [unmatchedPayments, matchedPaymentIds, HOURS_48])
 
   // Cuenta pares potenciales: pagos con ≥2 señales coincidentes con alguna orden
   const pendingPairsCount = useMemo(() => {
