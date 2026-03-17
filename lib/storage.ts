@@ -63,6 +63,9 @@ const DEFAULT_STATE: AppState = {
 // Nombres manuales para tiendas que la API de TN no devuelve bien
 const STORE_NAME_OVERRIDES: Record<string, string> = {
   '5512981': 'Perla',
+  '1935431': 'Chunas',
+  '6557652': 'Deportivo',
+  '4963651': 'Dege',
 }
 
 export async function getStores(): Promise<Record<string, Store>> {
