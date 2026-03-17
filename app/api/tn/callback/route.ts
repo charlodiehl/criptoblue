@@ -5,6 +5,8 @@ import { CONFIG } from '@/lib/config'
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl
   const code = searchParams.get('code')
+  // "state" contiene el nombre de la tienda ingresado por el usuario antes del OAuth
+  const stateParam = searchParams.get('state') || ''
 
   if (!code) {
     return NextResponse.redirect(new URL('/tn-success?tn_error=no_code', req.nextUrl.origin))
@@ -44,26 +46,30 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(new URL('/tn-success?tn_error=token_error', req.nextUrl.origin))
   }
 
-  // Obtener nombre de la tienda
-  let storeName = `Tienda ${storeId}`
-  try {
-    const storeRes = await fetch(`${CONFIG.tiendanube.apiBase}/${storeId}`, {
-      headers: {
-        Authentication: `bearer ${accessToken}`,
-        'User-Agent': CONFIG.tiendanube.userAgent,
-      },
-    })
-    if (storeRes.ok) {
-      const storeData = await storeRes.json()
-      const name = storeData.name
-      if (typeof name === 'string' && name) {
-        storeName = name
-      } else if (name && typeof name === 'object') {
-        storeName = name.es || name.pt || Object.values(name).find((v): v is string => typeof v === 'string') || storeName
+  // Nombre de la tienda: prioridad al ingresado manualmente por el usuario (state param)
+  // Si no vino en el state, intentar obtenerlo de la API de TiendaNube como fallback
+  let storeName = stateParam.trim() || `Tienda ${storeId}`
+
+  if (!stateParam.trim()) {
+    try {
+      const storeRes = await fetch(`${CONFIG.tiendanube.apiBase}/${storeId}`, {
+        headers: {
+          Authentication: `bearer ${accessToken}`,
+          'User-Agent': CONFIG.tiendanube.userAgent,
+        },
+      })
+      if (storeRes.ok) {
+        const storeData = await storeRes.json()
+        const name = storeData.name
+        if (typeof name === 'string' && name) {
+          storeName = name
+        } else if (name && typeof name === 'object') {
+          storeName = name.es || name.pt || Object.values(name).find((v): v is string => typeof v === 'string') || storeName
+        }
       }
+    } catch {
+      // usar nombre por defecto
     }
-  } catch {
-    // usar nombre por defecto
   }
 
   // Guardar en Supabase

@@ -18,6 +18,8 @@ export default function StoresTab({ onToast }: Props) {
   const [stores, setStores] = useState<Store[]>([])
   const [loading, setLoading] = useState(true)
   const [deleting, setDeleting] = useState<string | null>(null)
+  const [modalOpen, setModalOpen] = useState(false)
+  const [newStoreName, setNewStoreName] = useState('')
 
   async function fetchStores() {
     try {
@@ -52,8 +54,61 @@ export default function StoresTab({ onToast }: Props) {
     }
   }
 
+  function handleConnect() {
+    const name = newStoreName.trim()
+    if (!name) return
+    setModalOpen(false)
+    setNewStoreName('')
+    window.location.href = `/api/tn/connect?name=${encodeURIComponent(name)}`
+  }
+
   return (
     <div className="space-y-6">
+
+      {/* Modal: nombre de la tienda */}
+      {modalOpen && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onClick={e => { if (e.target === e.currentTarget) { setModalOpen(false); setNewStoreName('') } }}
+        >
+          <div style={{ background: 'white', borderRadius: '16px', padding: '28px 24px', width: '100%', maxWidth: '400px', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>
+            <h3 style={{ fontSize: '16px', fontWeight: 700, color: '#1e293b', marginBottom: '6px' }}>
+              Conectar nueva tienda
+            </h3>
+            <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px' }}>
+              Ingresá el nombre de la tienda antes de autorizar en TiendaNube.
+            </p>
+            <label style={{ fontSize: '12px', fontWeight: 600, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', marginBottom: '6px' }}>
+              Nombre de la tienda
+            </label>
+            <input
+              type="text"
+              autoFocus
+              placeholder="Ej: Deportes Norte"
+              value={newStoreName}
+              onChange={e => setNewStoreName(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') handleConnect() }}
+              style={{ width: '100%', border: '1.5px solid #cbd5e1', borderRadius: '8px', padding: '9px 12px', fontSize: '14px', color: '#1e293b', outline: 'none', boxSizing: 'border-box', marginBottom: '20px' }}
+            />
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => { setModalOpen(false); setNewStoreName('') }}
+                style={{ padding: '8px 16px', borderRadius: '8px', border: '1px solid #e2e8f0', background: 'white', fontSize: '13px', fontWeight: 600, color: '#64748b', cursor: 'pointer' }}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleConnect}
+                disabled={!newStoreName.trim()}
+                style={{ padding: '8px 18px', borderRadius: '8px', border: 'none', background: newStoreName.trim() ? '#2563eb' : '#93c5fd', fontSize: '13px', fontWeight: 600, color: 'white', cursor: newStoreName.trim() ? 'pointer' : 'not-allowed' }}
+              >
+                Conectar con TiendaNube →
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -62,13 +117,13 @@ export default function StoresTab({ onToast }: Props) {
             Administrá las tiendas de TiendaNube que se sincronizan con MercadoPago
           </p>
         </div>
-        <a
-          href="/api/tn/connect"
+        <button
+          onClick={() => setModalOpen(true)}
           className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 transition shadow-sm"
         >
           <span>+</span>
           Conectar tienda nueva
-        </a>
+        </button>
       </div>
 
       {/* Stores list */}
@@ -77,12 +132,12 @@ export default function StoresTab({ onToast }: Props) {
       ) : stores.length === 0 ? (
         <div className="rounded-2xl border-2 border-dashed border-slate-200 py-16 text-center">
           <p className="text-slate-400 text-sm">No hay tiendas conectadas</p>
-          <a
-            href="/api/tn/connect"
+          <button
+            onClick={() => setModalOpen(true)}
             className="mt-4 inline-block rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 transition"
           >
             Conectar primera tienda
-          </a>
+          </button>
         </div>
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -128,6 +183,7 @@ export default function StoresTab({ onToast }: Props) {
         <p className="font-medium mb-1">¿Cómo conectar una tienda?</p>
         <ol className="list-decimal list-inside space-y-1 text-blue-600">
           <li>Hacé clic en "Conectar tienda nueva"</li>
+          <li>Ingresá el nombre de la tienda</li>
           <li>El dueño de la tienda autoriza la app en TiendaNube</li>
           <li>La tienda queda activa automáticamente</li>
         </ol>
