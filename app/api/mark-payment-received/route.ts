@@ -8,15 +8,11 @@ export async function POST(req: NextRequest) {
 
     const state = await loadState()
 
-    // Capturar datos del pago antes de sacarlo de la cola
+    // El pago se QUEDA en unmatchedPayments para seguir visible en la pestaña Pagos
+    // (con badge amarillo "NO ES TIENDAS"). Solo se saca de Sin coincidencia via externallyMarkedPayments.
     const payment = state.unmatchedPayments.find(
       u => u.mpPaymentId === mpPaymentId || u.payment.mpPaymentId === mpPaymentId
     )?.payment
-
-    // Sacar de la cola de emparejamiento
-    state.unmatchedPayments = state.unmatchedPayments.filter(
-      u => u.mpPaymentId !== mpPaymentId && u.payment.mpPaymentId !== mpPaymentId
-    )
 
     // Marcar como procesado para que no vuelva en el próximo sync
     if (!state.processedPayments.includes(mpPaymentId)) {
