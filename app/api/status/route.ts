@@ -17,12 +17,19 @@ export async function GET() {
     const matchedLogs = state.matchLog.filter(e =>
       (e.action === 'manual_paid' || e.action === 'auto_paid') &&
       isThisMonth(e.timestamp) &&
-      e.mpPaymentId && !e.mpPaymentId.startsWith('manual_')
+      (
+        e.source === 'emparejamiento' ||
+        (!e.source && e.mpPaymentId && !e.mpPaymentId.startsWith('manual_'))
+      )
     )
     const manualLogs = state.matchLog.filter(e =>
       e.action === 'manual_paid' &&
       isThisMonth(e.timestamp) &&
-      e.mpPaymentId?.startsWith('manual_')
+      (
+        e.source === 'manual_pagos' ||
+        e.source === 'manual_ordenes' ||
+        (!e.source && e.mpPaymentId?.startsWith('manual_'))
+      )
     )
 
     // Base persistida: stats acumuladas de borrados de registro anteriores este mes

@@ -400,8 +400,8 @@ export default function Dashboard() {
         if (data.recentMatch) setRecentMatches(prev => [...prev, data.recentMatch])
         setStats(prev => prev ? {
           ...prev,
-          matchedCount: prev.matchedCount + 1,
-          matchedVolume: prev.matchedVolume + (data.logEntry?.amount ?? 0),
+          manualCount: prev.manualCount + 1,
+          manualVolume: prev.manualVolume + (data.logEntry?.amount ?? 0),
         } : prev)
         setMatchRefreshKey(k => k + 1)
         fetchLog() // confirma que el Registro refleja el estado real de Supabase

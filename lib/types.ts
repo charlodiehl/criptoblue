@@ -49,6 +49,11 @@ export interface PendingMatch {
 export interface LogEntry {
   timestamp: string
   action: 'auto_paid' | 'manual_paid' | 'needs_review' | 'no_match' | 'dismissed' | 'cancelled'
+  // Origen de la entrada — determina a qué tarjeta de stats pertenece:
+  // 'emparejamiento' → tarjeta 1 (Pagos emparejados)
+  // 'manual_pagos'   → tarjeta 2 (Marcados manualmente) — desde pestaña Pagos/Sin coincidencia
+  // 'manual_ordenes' → tarjeta 2 (Marcados manualmente) — desde pestaña Órdenes
+  source?: 'emparejamiento' | 'manual_pagos' | 'manual_ordenes'
   payment?: Payment
   order?: Order
   score?: number

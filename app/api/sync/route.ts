@@ -16,19 +16,26 @@ export async function GET() {
       return d.getMonth() === currentMonth && d.getFullYear() === currentYear
     }
 
-    // Emparejados: pagos reales de MP confirmados desde la pestaña Emparejamiento
-    // mpPaymentId NO empieza con 'manual_' (son IDs reales de MP)
+    // Emparejados: confirmados desde pestaña Emparejamiento (source='emparejamiento' o auto_paid)
+    // Compat. hacia atrás: entradas sin source con ID real de MP (pre-field) van a tarjeta 1
     const matchedLogs = state.matchLog.filter(e =>
       (e.action === 'manual_paid' || e.action === 'auto_paid') &&
       isThisMonth(e.timestamp) &&
-      e.mpPaymentId && !e.mpPaymentId.startsWith('manual_')
+      (
+        e.source === 'emparejamiento' ||
+        (!e.source && e.mpPaymentId && !e.mpPaymentId.startsWith('manual_'))
+      )
     )
-    // Marcados manualmente: órdenes marcadas con el formulario "Marcar manualmente" (Órdenes tab)
-    // mpPaymentId empieza con 'manual_' (ID sintético generado por mark-order-paid-manual)
+    // Marcados manualmente: desde pestaña Pagos (manual_pagos) u Órdenes (manual_ordenes)
+    // Compat. hacia atrás: entradas sin source con ID sintético (manual_) van a tarjeta 2
     const manualLogs = state.matchLog.filter(e =>
       e.action === 'manual_paid' &&
       isThisMonth(e.timestamp) &&
-      e.mpPaymentId?.startsWith('manual_')
+      (
+        e.source === 'manual_pagos' ||
+        e.source === 'manual_ordenes' ||
+        (!e.source && e.mpPaymentId?.startsWith('manual_'))
+      )
     )
 
     // Base persistida: stats acumuladas de borrados de registro anteriores este mes

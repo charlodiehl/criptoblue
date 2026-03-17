@@ -57,6 +57,7 @@ export async function POST(req: NextRequest) {
     const logEntry: LogEntry = {
       timestamp: now,
       action: 'manual_paid',
+      source: 'manual_ordenes',
       payment: fakePayment,
       order: order || undefined,
       mpPaymentId: fakeMpPaymentId,

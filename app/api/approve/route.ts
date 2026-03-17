@@ -39,6 +39,7 @@ export async function POST(req: NextRequest) {
     const logEntry: LogEntry = {
       timestamp: new Date().toISOString(),
       action: 'manual_paid',
+      source: 'emparejamiento',
       payment: match.payment,
       order: match.order,
       score: match.score,
