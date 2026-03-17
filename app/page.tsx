@@ -273,6 +273,7 @@ export default function Dashboard() {
           pendingOrders: Math.max(0, prev.pendingOrders - 1),
         } : prev)
         setMatchRefreshKey(k => k + 1)
+        fetchLog() // confirma que el Registro refleja el estado real de Supabase
       } else {
         addToast(`Error: ${data.error}`, 'error')
       }
@@ -403,6 +404,7 @@ export default function Dashboard() {
           matchedVolume: prev.matchedVolume + (data.logEntry?.amount ?? 0),
         } : prev)
         setMatchRefreshKey(k => k + 1)
+        fetchLog() // confirma que el Registro refleja el estado real de Supabase
       } else {
         addToast(`Error: ${data.error}`, 'error')
       }
@@ -446,7 +448,7 @@ export default function Dashboard() {
       const data = await res.json()
       if (data.success) {
         addToast('Orden marcada como pagada', 'success')
-        await Promise.all([fetchStatus(), fetchLog()])
+        await Promise.all([fetchSync(), fetchLog()])
       } else {
         addToast(`Error: ${data.error}`, 'error')
       }

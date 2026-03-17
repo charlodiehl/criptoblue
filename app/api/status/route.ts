@@ -25,10 +25,14 @@ export async function GET() {
       e.mpPaymentId?.startsWith('manual_')
     )
 
-    const matchedCount = matchedLogs.length
-    const matchedVolume = matchedLogs.reduce((sum, e) => sum + (e.amount || 0), 0)
-    const manualCount = manualLogs.length
-    const manualVolume = manualLogs.reduce((sum, e) => sum + (e.amount || 0), 0)
+    // Base persistida: stats acumuladas de borrados de registro anteriores este mes
+    const monthKey = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`
+    const base = (state.persistedMonthStats || {})[monthKey] || { matchedCount: 0, matchedVolume: 0, manualCount: 0, manualVolume: 0 }
+
+    const matchedCount = base.matchedCount + matchedLogs.length
+    const matchedVolume = base.matchedVolume + matchedLogs.reduce((sum, e) => sum + (e.amount || 0), 0)
+    const manualCount  = base.manualCount   + manualLogs.length
+    const manualVolume = base.manualVolume  + manualLogs.reduce((sum, e) => sum + (e.amount || 0), 0)
 
     const pendingOrders = state.unmatchedPayments.length
 
