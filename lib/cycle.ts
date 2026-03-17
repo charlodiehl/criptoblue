@@ -23,10 +23,6 @@ export async function processMPPayments(): Promise<CycleResult> {
   // Purge pagos anteriores al cutoff efectivo
   const purge48h = new Date(now.getTime() - 48 * 60 * 60 * 1000)
   const purgeCutoff = purge48h > HARD_CUTOFF ? purge48h : HARD_CUTOFF
-  state.unmatchedPayments = state.unmatchedPayments.filter(u => {
-    const date = u.payment.fechaPago ? new Date(u.payment.fechaPago) : new Date(u.timestamp)
-    return date >= purgeCutoff
-  })
 
   // Limpiar pendingMatches (ya no se usa en el flujo manual)
   state.pendingMatches = []
@@ -93,30 +89,68 @@ export async function processMPPayments(): Promise<CycleResult> {
       )
     }
   })
-  // Actualizar cache solo si al menos una tienda respondió correctamente
-  const anyFulfilled = allOrdersPerStore.some(r => r.status === 'fulfilled')
-  if (anyFulfilled) {
-    state.cachedOrders = allOrdersPerStore.flatMap(r => r.status === 'fulfilled' ? r.value : [])
-    state.cachedOrdersAt = now.toISOString()
-  }
 
-  // Todos los pagos nuevos van a la cola de revisión manual (excepto los ya confirmados)
+  // Nuevos pagos a agregar a la cola (colectados aparte para merge seguro al final)
+  const newUnmatchedToAdd: UnmatchedPayment[] = []
   for (const payment of newPayments) {
     processedSet.add(payment.mpPaymentId)
     if (confirmedIds.has(payment.mpPaymentId)) continue
 
-    const unmatched: UnmatchedPayment = {
+    newUnmatchedToAdd.push({
       payment,
       timestamp: new Date().toISOString(),
       mpPaymentId: payment.mpPaymentId,
-    }
-    state.unmatchedPayments.push(unmatched)
+    })
   }
 
-  state.processedPayments = Array.from(processedSet)
-  state.lastMPCheck = now.toISOString()
+  // ─── Re-cargar estado fresco antes de guardar ──────────────────────────────
+  // Evita race condition: si un usuario hizo match/dismiss mientras este ciclo
+  // corría, sus cambios en unmatchedPayments quedarían sobreescritos si usamos
+  // el state cargado al inicio. Recargamos y hacemos merge solo de lo nuevo.
+  const freshState = await loadState()
 
-  await saveState(state)
+  // 1. Purge en el estado fresco (eliminar pagos vencidos)
+  freshState.unmatchedPayments = freshState.unmatchedPayments.filter(u => {
+    const date = u.payment.fechaPago ? new Date(u.payment.fechaPago) : new Date(u.timestamp)
+    return date >= purgeCutoff
+  })
+
+  // 2. Agregar nuevos pagos (sin duplicados)
+  const freshUnmatchedIds = new Set(freshState.unmatchedPayments.map(u => u.payment.mpPaymentId))
+  for (const u of newUnmatchedToAdd) {
+    if (!freshUnmatchedIds.has(u.payment.mpPaymentId)) {
+      freshState.unmatchedPayments.push(u)
+    }
+  }
+
+  // 3. Merge de processedPayments (unión de ambos sets)
+  const mergedProcessed = new Set([...freshState.processedPayments, ...Array.from(processedSet)])
+  freshState.processedPayments = Array.from(mergedProcessed)
+
+  // 4. Campos exclusivos del ciclo
+  freshState.lastMPCheck = now.toISOString()
+  freshState.pendingMatches = []
+
+  // 5. Actualizar cache de órdenes (si al menos una tienda respondió)
+  const anyFulfilled = allOrdersPerStore.some(r => r.status === 'fulfilled')
+  if (anyFulfilled) {
+    freshState.cachedOrders = allOrdersPerStore.flatMap(r => r.status === 'fulfilled' ? r.value : [])
+    freshState.cachedOrdersAt = now.toISOString()
+  }
+
+  // 6. Merge de errorLog agregado en este ciclo
+  const freshErrorIds = new Set(freshState.errorLog.map(e => e.id))
+  for (const e of state.errorLog) {
+    if (!freshErrorIds.has(e.id)) freshState.errorLog.push(e)
+  }
+
+  // 7. Merge de activityLog agregado en este ciclo
+  const freshActivityIds = new Set(freshState.activityLog.map(a => a.id))
+  for (const a of state.activityLog) {
+    if (!freshActivityIds.has(a.id)) freshState.activityLog.push(a)
+  }
+
+  await saveState(freshState)
 
   return result
 }
