@@ -90,6 +90,14 @@ export interface MonthlyStats {
   volume: number
 }
 
+// Stats mensuales persistentes por mes — sobreviven al borrado del registro
+export interface PersistedMonthStats {
+  matchedCount: number
+  matchedVolume: number
+  manualCount: number
+  manualVolume: number
+}
+
 export interface ExternalPaymentMark {
   id: string        // mpPaymentId
   markedAt: string  // ISO timestamp — usado para expirar a las 48h igual que el resto
@@ -113,8 +121,11 @@ export interface AppState {
   cachedOrdersAt: string  // ISO timestamp del último cache exitoso
   lastMPCheck: string
   settings: Record<string, unknown>
-  // Acumulador mensual: clave "YYYY-MM", persiste aunque se borre el registro
+  // Acumulador mensual legacy (no se usa en tarjetas nuevas)
   monthlyStats: Record<string, MonthlyStats>
+  // Stats de las 4 tarjetas persistidas por mes — NO se borran con el registro
+  // Clave: "YYYY-MM". Se acumulan en DELETE /api/log antes de vaciar el matchLog.
+  persistedMonthStats: Record<string, PersistedMonthStats>
   // Log de errores del sistema (persiste en Supabase, auto-limpia a 30 días)
   errorLog: ErrorEntry[]
   // Log de actividad interno: todas las acciones de las últimas 24hs (humano o sistema)

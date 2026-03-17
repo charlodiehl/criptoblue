@@ -56,6 +56,7 @@ const DEFAULT_STATE: AppState = {
   lastMPCheck: '',
   settings: {},
   monthlyStats: {},
+  persistedMonthStats: {},
   errorLog: [],
   activityLog: [],
 }
@@ -113,6 +114,7 @@ export async function loadState(): Promise<AppState> {
     cachedOrders: state.cachedOrders || [],
     cachedOrdersAt: state.cachedOrdersAt || '',
     monthlyStats: state.monthlyStats || {},
+    persistedMonthStats: state.persistedMonthStats || {},
     errorLog: state.errorLog || [],
     activityLog: state.activityLog || [],
   }

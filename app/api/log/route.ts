@@ -57,6 +57,7 @@ export async function GET() {
 // no los re-agregue a la cola de emparejamiento tras un reevaluar.
 // - manual_paid / auto_paid → retainedPaymentIds (protección en backend, sin efecto en badges)
 // - dismissed → externallyMarkedPayments (protección en backend; mantiene semántica "No es de tiendas")
+// También acumula los stats de las 4 tarjetas en persistedMonthStats antes de vaciar el log.
 export async function DELETE() {
   try {
     const state = await loadState()
@@ -79,11 +80,42 @@ export async function DELETE() {
       .map(e => e.mpPaymentId)
       .filter((id): id is string => !!id)
 
-    const now = new Date().toISOString()
+    const now = new Date()
+    const nowISO = now.toISOString()
     for (const id of dismissedIds) {
       if (!state.externallyMarkedPayments.some(e => e.id === id)) {
-        state.externallyMarkedPayments.push({ id, markedAt: now })
+        state.externallyMarkedPayments.push({ id, markedAt: nowISO })
       }
+    }
+
+    // Acumular stats de las 4 tarjetas por mes en persistedMonthStats
+    // para que no se pierdan al borrar el log
+    const currentMonth = now.getMonth()
+    const currentYear = now.getFullYear()
+    const isThisMonth = (ts: string) => {
+      const d = new Date(ts)
+      return d.getMonth() === currentMonth && d.getFullYear() === currentYear
+    }
+    const monthKey = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`
+
+    const matchedLogs = state.matchLog.filter(e =>
+      (e.action === 'manual_paid' || e.action === 'auto_paid') &&
+      isThisMonth(e.timestamp) &&
+      e.mpPaymentId && !e.mpPaymentId.startsWith('manual_')
+    )
+    const manualLogs = state.matchLog.filter(e =>
+      e.action === 'manual_paid' &&
+      isThisMonth(e.timestamp) &&
+      e.mpPaymentId?.startsWith('manual_')
+    )
+
+    state.persistedMonthStats = state.persistedMonthStats || {}
+    const base = state.persistedMonthStats[monthKey] || { matchedCount: 0, matchedVolume: 0, manualCount: 0, manualVolume: 0 }
+    state.persistedMonthStats[monthKey] = {
+      matchedCount: base.matchedCount + matchedLogs.length,
+      matchedVolume: base.matchedVolume + matchedLogs.reduce((s, e) => s + (e.amount || 0), 0),
+      manualCount:   base.manualCount   + manualLogs.length,
+      manualVolume:  base.manualVolume  + manualLogs.reduce((s, e) => s + (e.amount || 0), 0),
     }
 
     const entryCount = state.matchLog.length
