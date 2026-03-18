@@ -365,9 +365,10 @@ export default function Dashboard() {
       const data = await res.json()
       if (data.success) {
         addToast('Pago marcado como recibido', 'success')
-        // Remover de la cola de emparejamiento inmediatamente
-        setUnmatchedPayments(prev => prev.filter(u => (u.mpPaymentId || u.payment.mpPaymentId) !== mpPaymentId))
-        // Actualización optimista: verde inmediato sin esperar fetchStatus
+        // NO remover de unmatchedPayments — el pago debe permanecer visible en la pestaña Pagos
+        // pintado de amarillo. La exclusión de emparejamiento y sin-coincidencias se da
+        // automáticamente porque matchedPaymentIds incluye externallyMarkedPayments.
+        // Actualización optimista: amarillo inmediato sin esperar fetchStatus
         setStats(prev => prev ? {
           ...prev,
           externallyMarkedPayments: [...(prev.externallyMarkedPayments ?? []), mpPaymentId],

@@ -43,13 +43,15 @@ export async function processMPPayments(): Promise<CycleResult> {
   result.processed = newPayments.length
 
   // IDs de pagos ya procesados (no deben reaparecer en la cola)
-  // Incluye: confirmados via match, descartados, y marcados como recibidos externamente
+  // Incluye: confirmados via match y descartados.
+  // Los externallyMarkedPayments ("no es de tiendas") se excluyen a propósito:
+  // deben seguir en unmatchedPayments para que la pestaña Pagos los muestre en amarillo,
+  // y el frontend los filtra de emparejamiento/sin-coincidencias via matchedPaymentIds.
   const confirmedIds = new Set<string>([
     ...state.matchLog
       .filter(e => e.action === 'manual_paid' || e.action === 'auto_paid' || e.action === 'dismissed')
       .map(e => e.mpPaymentId)
       .filter((id): id is string => !!id),
-    ...(state.externallyMarkedPayments || []).map(e => e.id),
     ...(state.retainedPaymentIds || []),
   ])
 
