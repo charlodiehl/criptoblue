@@ -5,7 +5,7 @@ import type { LogEntry, Payment } from '@/lib/types'
 
 export async function POST(req: NextRequest) {
   try {
-    const { orderId, storeId, monto, medioPago, nombrePagador, cuitPagador, order: orderFromClient } = await req.json()
+    const { orderId, storeId, monto, medioPago, nombrePagador, cuitPagador, order: orderFromClient, fechaPago } = await req.json()
     if (!orderId || !storeId || !monto || !medioPago) {
       return NextResponse.json({ error: 'orderId, storeId, monto y medioPago son requeridos' }, { status: 400 })
     }
@@ -20,7 +20,8 @@ export async function POST(req: NextRequest) {
     }
 
     const fakeMpPaymentId = `manual_${Date.now()}_${orderId}`
-    const now = new Date().toISOString()
+    // Usar la fecha/hora ingresada por el usuario; si no viene, usar el momento actual
+    const now = fechaPago ? new Date(fechaPago).toISOString() : new Date().toISOString()
 
     // Payment sintético con los datos ingresados por el usuario
     const fakePayment: Payment = {
