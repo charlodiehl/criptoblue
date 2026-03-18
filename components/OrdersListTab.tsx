@@ -161,13 +161,9 @@ export default function OrdersListTab({ orders, matchedIds, duplicateMap, onMark
               style={{
                 background: matched
                   ? 'linear-gradient(160deg, #0a1a10 0%, #0d1f14 100%)'
-                  : dupInfo
-                  ? 'linear-gradient(160deg, #1a1200 0%, #1f1800 100%)'
                   : 'linear-gradient(160deg, #0d1117 0%, #0f1824 100%)',
                 border: matched
                   ? '1px solid rgba(0,255,136,0.25)'
-                  : dupInfo
-                  ? '1px solid rgba(251,191,36,0.35)'
                   : '1px solid rgba(0,212,255,0.1)',
                 borderRadius: '14px',
                 padding: '16px 18px',

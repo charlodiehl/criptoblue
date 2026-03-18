@@ -225,9 +225,15 @@ interface Pair {
   skipCount: number
 }
 
+interface DuplicateInfo {
+  order: Order
+  confidence: 'alta' | 'media'
+}
+
 interface Props {
   unmatchedPayments: UnmatchedPayment[]
   orders: Order[]
+  duplicateMap?: Map<string, DuplicateInfo>
   onManualMatch: (mpPaymentId: string, orderId: string, storeId: string, order: Order) => Promise<void>
   onDismissPayment: (mpPaymentId: string) => Promise<void>
   onMarkOrderPaid: (storeId: string, orderId: string) => Promise<void>
@@ -248,6 +254,7 @@ function matchesSearch(query: string, fields: (string | number | undefined | nul
 export default function ManualMatchTab({
   unmatchedPayments,
   orders,
+  duplicateMap,
   onManualMatch,
   onDismissPayment,
   loading,
@@ -420,6 +427,7 @@ export default function ManualMatchTab({
               onConfirm={handleConfirm}
               onDismissPayment={onDismissPayment}
               loading={loading}
+              duplicateMap={duplicateMap}
             />
           ))}
           {filteredPairs.length > visibleCount && (
@@ -457,11 +465,13 @@ function PairRow({
   onConfirm,
   onDismissPayment,
   loading,
+  duplicateMap,
 }: {
   pair: Pair
   onConfirm: (paymentId: string, orderId: string, storeId: string, order: Order) => void
   onDismissPayment: (paymentId: string) => void
   loading: boolean
+  duplicateMap?: Map<string, { order: Order; confidence: 'alta' | 'media' }>
 }) {
   const { payment, id, current } = pair
   const p = payment.payment
@@ -626,6 +636,17 @@ function PairRow({
                 </span>
               )}
             </div>
+            {(() => {
+              const dupKey = `${current.order.storeId}-${current.order.orderId}`
+              const dupInfo = duplicateMap?.get(dupKey)
+              if (!dupInfo) return null
+              return (
+                <div style={{ marginTop: '10px', padding: '6px 10px', background: 'rgba(251,191,36,0.07)', border: '1px solid rgba(251,191,36,0.2)', borderRadius: '8px', fontSize: '12px', color: 'rgba(251,191,36,0.85)', lineHeight: 1.4 }}>
+                  ⚠ Posible duplicado · Orden #{dupInfo.order.orderNumber} con mismo{' '}
+                  {dupInfo.confidence === 'alta' ? 'cliente y monto' : 'nombre y monto'}
+                </div>
+              )
+            })()}
           </>
         ) : (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
