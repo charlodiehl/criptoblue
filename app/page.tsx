@@ -364,7 +364,7 @@ export default function Dashboard() {
       })
       const data = await res.json()
       if (data.success) {
-        addToast('Pago marcado como recibido', 'success')
+        addToast('Pago marcado como "No es de tiendas"', 'success')
         // NO remover de unmatchedPayments — el pago debe permanecer visible en la pestaña Pagos
         // pintado de amarillo. La exclusión de emparejamiento y sin-coincidencias se da
         // automáticamente porque matchedPaymentIds incluye externallyMarkedPayments.
