@@ -561,6 +561,55 @@ export default function Dashboard() {
     ...(stats?.externallyMarkedOrders ?? []),
   ]), [recentMatches, stats?.externallyMarkedOrders])
 
+  // Mapa de órdenes duplicadas: compara dentro de la misma tienda por email/CUIT/nombre + monto
+  const duplicateMap = useMemo(() => {
+    const map = new Map<string, { order: Order; confidence: 'alta' | 'media' }>()
+    const WINDOW_48H = 48 * 60 * 60 * 1000
+    const WINDOW_24H = 24 * 60 * 60 * 1000
+
+    for (let i = 0; i < allRecentOrders.length; i++) {
+      for (let j = i + 1; j < allRecentOrders.length; j++) {
+        const a = allRecentOrders[i]
+        const b = allRecentOrders[j]
+
+        // Solo dentro de la misma tienda
+        if (a.storeId !== b.storeId) continue
+        // Misma orden → ignorar
+        if (a.orderId === b.orderId) continue
+        // Montos distintos → no es duplicado
+        if (a.total !== b.total) continue
+
+        const timeDiff = Math.abs(new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+
+        const emailMatch = !!(
+          a.customerEmail && b.customerEmail &&
+          a.customerEmail.toLowerCase() === b.customerEmail.toLowerCase()
+        )
+        const cuitMatch = !!(
+          a.customerCuit && b.customerCuit &&
+          a.customerCuit.replace(/\D/g, '') === b.customerCuit.replace(/\D/g, '') &&
+          a.customerCuit.replace(/\D/g, '').length >= 7
+        )
+
+        const keyA = `${a.storeId}-${a.orderId}`
+        const keyB = `${b.storeId}-${b.orderId}`
+
+        if ((emailMatch || cuitMatch) && timeDiff <= WINDOW_48H) {
+          if (!map.has(keyA)) map.set(keyA, { order: b, confidence: 'alta' })
+          if (!map.has(keyB)) map.set(keyB, { order: a, confidence: 'alta' })
+        } else if (timeDiff <= WINDOW_24H) {
+          const normA = a.customerName?.toLowerCase().trim().replace(/\s+/g, ' ')
+          const normB = b.customerName?.toLowerCase().trim().replace(/\s+/g, ' ')
+          if (normA && normB && normA === normB && normA.length > 4) {
+            if (!map.has(keyA)) map.set(keyA, { order: b, confidence: 'media' })
+            if (!map.has(keyB)) map.set(keyB, { order: a, confidence: 'media' })
+          }
+        }
+      }
+    }
+    return map
+  }, [allRecentOrders])
+
   // Pagos de las últimas 48hs sin coincidencia con ninguna orden
   const paymentsWithoutMatch = useMemo((): Payment[] => {
     const now = Date.now()
@@ -883,7 +932,7 @@ export default function Dashboard() {
         {/* Tab content */}
         <div>
           {tab === 'manual' && <ManualMatchTab unmatchedPayments={unmatchedPayments.filter(u => !matchedPaymentIds.has(u.payment.mpPaymentId))} orders={orders.filter(o => !matchedOrderIds.has(`${o.storeId}-${o.orderId}`))} onManualMatch={handleManualMatch} onDismissPayment={handleDismissPayment} onMarkOrderPaid={handleMarkOrderPaid} loading={actionLoading} lastMPCheck={stats?.lastMPCheck ?? null} refreshKey={matchRefreshKey} />}
-          {tab === 'ordenes' && <OrdersListTab orders={allRecentOrders} matchedIds={matchedOrderIds} onMarkExternal={handleMarkOrderExternal} onMarkManual={handleMarkOrderManual} loading={actionLoading} />}
+          {tab === 'ordenes' && <OrdersListTab orders={allRecentOrders} matchedIds={matchedOrderIds} duplicateMap={duplicateMap} onMarkExternal={handleMarkOrderExternal} onMarkManual={handleMarkOrderManual} loading={actionLoading} />}
           {tab === 'pagos' && <PaymentsListTab payments={allRecentPayments} orders={allRecentOrders} matchedIds={matchedPaymentIds} externallyMarkedIds={new Set(stats?.externallyMarkedPayments ?? [])} title="Pagos · últimas 24hs" emptyText="No hay pagos en las últimas 24 horas" onMarkReceived={handleMarkPaymentReceived} onManualLog={handleManualLog} loading={actionLoading} />}
           {tab === 'sin-coincidencia' && <PaymentsListTab payments={paymentsWithoutMatch} orders={allRecentOrders} externallyMarkedIds={new Set(stats?.externallyMarkedPayments ?? [])} title="Pagos sin coincidencia · últimas 24hs" emptyText="Todos los pagos de las últimas 24hs tienen una orden asignada" onMarkReceived={handleMarkPaymentReceived} onManualLog={handleManualLog} loading={actionLoading} />}
           {tab === 'registro' && <RegistroTab entries={logEntries} onClearLog={handleClearLog} onEntryEdited={fetchLog} />}

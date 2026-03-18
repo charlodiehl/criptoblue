@@ -37,15 +37,21 @@ interface ManualPayForm {
   loading: boolean
 }
 
+interface DuplicateInfo {
+  order: Order
+  confidence: 'alta' | 'media'
+}
+
 interface Props {
   orders: Order[]
   matchedIds?: Set<string>
+  duplicateMap?: Map<string, DuplicateInfo>
   onMarkExternal?: (orderId: string, storeId: string) => Promise<void>
   onMarkManual?: (orderId: string, storeId: string, monto: number, medioPago: string, nombrePagador: string, order: Order, cuitPagador?: string) => Promise<void>
   loading?: boolean
 }
 
-export default function OrdersListTab({ orders, matchedIds, onMarkExternal, onMarkManual, loading }: Props) {
+export default function OrdersListTab({ orders, matchedIds, duplicateMap, onMarkExternal, onMarkManual, loading }: Props) {
   const [page, setPage] = useState(1)
   const [marking, setMarking] = useState<string | null>(null)
   const [manualOpen, setManualOpen] = useState<string | null>(null)
@@ -147,15 +153,21 @@ export default function OrdersListTab({ orders, matchedIds, onMarkExternal, onMa
           const key = `${o.storeId}-${o.orderId}`
           const matched = matchedIds?.has(key)
           const isMarking = marking === key
+          const dupInfo = duplicateMap?.get(key)
+          const dupAlreadyMarked = dupInfo ? matchedIds?.has(`${dupInfo.order.storeId}-${dupInfo.order.orderId}`) : false
           return (
             <div
               key={key}
               style={{
                 background: matched
                   ? 'linear-gradient(160deg, #0a1a10 0%, #0d1f14 100%)'
+                  : dupInfo
+                  ? 'linear-gradient(160deg, #1a1200 0%, #1f1800 100%)'
                   : 'linear-gradient(160deg, #0d1117 0%, #0f1824 100%)',
                 border: matched
                   ? '1px solid rgba(0,255,136,0.25)'
+                  : dupInfo
+                  ? '1px solid rgba(251,191,36,0.35)'
                   : '1px solid rgba(0,212,255,0.1)',
                 borderRadius: '14px',
                 padding: '16px 18px',
@@ -170,7 +182,19 @@ export default function OrdersListTab({ orders, matchedIds, onMarkExternal, onMa
                     ✓ MARCADO
                   </span>
                 )}
+                {!matched && dupInfo && (
+                  <span style={{ fontSize: '10px', fontWeight: 700, color: '#fbbf24', letterSpacing: '0.04em', textShadow: '0 0 8px rgba(251,191,36,0.3)' }}>
+                    ⚠ POSIBLE DUPLICADO
+                  </span>
+                )}
               </div>
+              {dupInfo && (
+                <div style={{ marginBottom: '6px', padding: '5px 9px', background: 'rgba(251,191,36,0.07)', border: '1px solid rgba(251,191,36,0.18)', borderRadius: '7px', fontSize: '11px', color: 'rgba(251,191,36,0.8)', lineHeight: 1.4 }}>
+                  Orden #{dupInfo.order.orderNumber} con mismo{' '}
+                  {dupInfo.confidence === 'alta' ? 'cliente y monto' : 'nombre y monto'}{' '}
+                  {dupAlreadyMarked && <span style={{ fontWeight: 700, color: '#fbbf24' }}>· la otra ya está MARCADA</span>}
+                </div>
+              )}
               {o.customerCuit && (
                 <p style={{ fontSize: '11px', color: 'rgba(0,212,255,0.65)', fontWeight: 600, marginBottom: '3px' }}>
                   CUIT/DNI: {o.customerCuit}
