@@ -344,12 +344,14 @@ export default function ManualMatchTab({
       result.push({ payment: p.payment, id: p.id, ranked: p.ranked, current, skipCount: assignedIdx })
     }
 
-    return result.sort((a, b) => {
-      const aGreen = a.current ? a.current.signals.filter(s => s.match).length : -1
-      const bGreen = b.current ? b.current.signals.filter(s => s.match).length : -1
-      if (bGreen !== aGreen) return bGreen - aGreen
-      return (b.current?.score ?? -1) - (a.current?.score ?? -1)
-    })
+    return result
+      .filter(p => p.current !== null && p.current.signals.some(s => s.match))
+      .sort((a, b) => {
+        const aGreen = a.current!.signals.filter(s => s.match).length
+        const bGreen = b.current!.signals.filter(s => s.match).length
+        if (bGreen !== aGreen) return bGreen - aGreen
+        return (b.current!.score) - (a.current!.score)
+      })
   }, [unmatchedPayments, orders])
 
   const filteredPairs = useMemo(() => {
