@@ -315,7 +315,7 @@ export default function ManualMatchTab({
   const pairs: Pair[] = useMemo(() => {
     // Build all scores
     const allPairs = unmatchedPayments.map(u => {
-      const id = u.mpPaymentId || ''
+      const id = u.mpPaymentId || u.payment.mpPaymentId || ''
       const skipCount = 0
       // Precomputar cantidad de órdenes con mismo monto ANTERIORES al pago (una orden siempre precede al pago)
       const payTime = u.payment.fechaPago ? new Date(u.payment.fechaPago).getTime() : null
