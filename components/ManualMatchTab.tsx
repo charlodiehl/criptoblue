@@ -11,25 +11,30 @@ export interface AutoMatchCandidate {
 }
 
 // ─── Criterios de marcado automático ────────────────────────────────────────
-// Devuelve true si el par califica para ser marcado automáticamente.
-// Verde = signal.match · Amarillo = signal.partial · Gris = signal.unavailable
-// Nombre: verde, amarillo "coincide con email", o no disponible (sin nombre en MP)
-// Email:  verde o amarillo "Nombre en email"
+// Requisitos base: Monto verde (diff ≤ $10) + Fecha verde (≤ 15 min)
+// Más al menos UN identificador positivo:
+//   • CUIT verde
+//   • Email verde o amarillo ("Nombre en email")
+//   • Nombre verde o amarillo ("coincide con email")
+//   • O todos los identificadores No disponible + "Única" orden con ese monto
 function meetsAutoCriteria(signals: Signal[]): boolean {
-  const byLabel = Object.fromEntries(signals.map(s => [s.label, s]))
-  const monto  = byLabel['Monto']
-  const cuit   = byLabel['CUIT / CUIL / DNI']
-  const nombre = byLabel['Nombre']
-  const fecha  = byLabel['Fecha / Hora']
-  const email  = byLabel['Email']
+  const by = Object.fromEntries(signals.map(s => [s.label, s]))
+  const monto  = by['Monto']
+  const cuit   = by['CUIT / CUIL / DNI']
+  const nombre = by['Nombre']
+  const fecha  = by['Fecha / Hora']
+  const email  = by['Email']
+  const unica  = by['Otras órdenes mismo monto']
 
-  if (!monto  || !monto.match) return false
-  if (!cuit   || !cuit.match) return false
-  if (!nombre || (!nombre.match && !(nombre.partial && nombre.value === 'coincide con email') && !nombre.unavailable)) return false
-  if (!fecha  || !fecha.match) return false
-  if (!email  || (!email.match && !(email.partial && email.value === 'Nombre en email'))) return false
+  if (!monto?.match) return false
+  if (!fecha?.match) return false
 
-  return true
+  const cuitOk   = cuit?.match === true
+  const emailOk  = email?.match === true || email?.partial === true
+  const nombreOk = nombre?.match === true || (nombre?.partial === true && nombre.value === 'coincide con email')
+  const allUnavailable = cuit?.unavailable && nombre?.unavailable && email?.unavailable
+
+  return cuitOk || emailOk || nombreOk || (!!allUnavailable && unica?.match === true)
 }
 
 const ARS = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 0 })
