@@ -12,7 +12,9 @@ export interface AutoMatchCandidate {
 
 // ─── Criterios de marcado automático ────────────────────────────────────────
 // Devuelve true si el par califica para ser marcado automáticamente.
-// Criterios: monto exacto + CUIT coincide + nombre (exacto o via email) + fecha ≤15min + email exacto
+// Criterios: todos los puntos en verde, con excepciones amarillas para nombre y email.
+// Verde = signal.match · Amarillo = signal.partial
+// Nombre amarillo válido: "coincide con email" · Email amarillo válido: "Nombre en email"
 function meetsAutoCriteria(signals: Signal[]): boolean {
   const byLabel = Object.fromEntries(signals.map(s => [s.label, s]))
   const monto  = byLabel['Monto']
@@ -21,11 +23,11 @@ function meetsAutoCriteria(signals: Signal[]): boolean {
   const fecha  = byLabel['Fecha / Hora']
   const email  = byLabel['Email']
 
-  if (!monto  || monto.value !== 'Exacto') return false
+  if (!monto  || !monto.match) return false
   if (!cuit   || !cuit.match) return false
   if (!nombre || (!nombre.match && !(nombre.partial && nombre.value === 'coincide con email'))) return false
   if (!fecha  || !fecha.match) return false
-  if (!email  || !email.match) return false
+  if (!email  || (!email.match && !(email.partial && email.value === 'Nombre en email'))) return false
 
   return true
 }
