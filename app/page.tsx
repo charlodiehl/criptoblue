@@ -314,6 +314,7 @@ export default function Dashboard() {
     setIsRefreshing(true)
     try {
       await fetch('/api/reevaluar', { method: 'POST' })
+      fetch('/api/enrich-names', { method: 'POST' }).catch(() => {})
       await Promise.all([fetchSync(), fetchOrders(), fetchLog()])
       setMatchRefreshKey(k => k + 1)
     } catch {
@@ -343,6 +344,8 @@ export default function Dashboard() {
         const parts = [`${data.processed} pagos nuevos`]
         if (data.cancelled > 0) parts.push(`${data.cancelled} órdenes abandonadas canceladas`)
         addToast(`Actualizado: ${parts.join(' · ')}`, 'success')
+        // Enriquecer nombres de pagadores sin nombre (bank_transfer long_name)
+        fetch('/api/enrich-names', { method: 'POST' }).catch(() => {})
         await Promise.all([fetchUnmatched(), fetchOrders(), fetchStatus(), fetchLog()])
       } else {
         addToast(`Error al reevaluar: ${data.error}`, 'error')

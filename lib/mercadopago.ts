@@ -48,6 +48,7 @@ export function normalizePayment(raw: any): Payment | null {
   const firstName = raw.payer?.first_name || ''
   const lastName = raw.payer?.last_name || ''
   const fullName = [firstName, lastName].filter(Boolean).join(' ').trim()
+    || (raw.point_of_interaction?.transaction_data?.bank_info?.payer?.long_name || '').trim()
 
   const collectorEmail = raw.collector?.email || ''
   const payerEmail = raw.payer?.email || ''
