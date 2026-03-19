@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import StatsBar from '@/components/StatsBar'
-import ManualMatchTab from '@/components/ManualMatchTab'
+import ManualMatchTab, { type AutoMatchCandidate } from '@/components/ManualMatchTab'
 import OrdersListTab from '@/components/OrdersListTab'
 import PaymentsListTab from '@/components/PaymentsListTab'
 import RegistroTab from '@/components/RegistroTab'
@@ -43,6 +43,12 @@ export default function Dashboard() {
   const [matchRefreshKey, setMatchRefreshKey] = useState(0)
   const toastIdRef = useRef(0)
   const isRefreshingRef = useRef(false)
+  const [isAutoMatching, setIsAutoMatching] = useState(false)
+  const stopAutoMatchRef = useRef(false)
+  const firstAutoMatchCandidateRef = useRef<AutoMatchCandidate | null>(null)
+  const handleFirstCandidateChange = useCallback((candidate: AutoMatchCandidate | null) => {
+    firstAutoMatchCandidateRef.current = candidate
+  }, [])
 
   // User menu
   const [userMenuOpen, setUserMenuOpen] = useState(false)
@@ -358,6 +364,54 @@ export default function Dashboard() {
     }
   }
 
+  const handleRunAutoMatch = async () => {
+    if (isAutoMatching) return
+    stopAutoMatchRef.current = false
+    setIsAutoMatching(true)
+    addToast('Marcado automático iniciado', 'success')
+    let done = 0
+    while (!stopAutoMatchRef.current) {
+      const c = firstAutoMatchCandidateRef.current
+      if (!c) {
+        addToast(`Marcado automático completado · ${done} marcado${done !== 1 ? 's' : ''}`, 'success')
+        if (done > 0) fetchLog()
+        break
+      }
+      try {
+        const res = await fetch('/api/manual-match', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mpPaymentId: c.mpPaymentId, orderId: c.orderId, storeId: c.storeId, order: c.order }),
+        })
+        const data = await res.json()
+        if (data.success) {
+          done++
+          setUnmatchedPayments(prev => prev.filter(u => (u.mpPaymentId || u.payment.mpPaymentId) !== c.mpPaymentId))
+          if (data.logEntry) setLogEntries(prev => [...prev, data.logEntry])
+          if (data.recentMatch) setRecentMatches(prev => [...prev, data.recentMatch])
+          setStats(prev => prev ? {
+            ...prev,
+            matchedCount: prev.matchedCount + 1,
+            matchedVolume: prev.matchedVolume + (data.logEntry?.amount ?? 0),
+            pendingOrders: Math.max(0, prev.pendingOrders - 1),
+          } : prev)
+          setMatchRefreshKey(k => k + 1)
+        } else {
+          break
+        }
+      } catch { break }
+      await new Promise(r => setTimeout(r, 5000))
+    }
+    if (stopAutoMatchRef.current) {
+      addToast(`Marcado automático detenido · ${done} marcado${done !== 1 ? 's' : ''}`, 'error')
+    }
+    setIsAutoMatching(false)
+  }
+
+  const handleStopAutoMatch = () => {
+    stopAutoMatchRef.current = true
+  }
+
   const handleMarkPaymentReceived = async (mpPaymentId: string) => {
     try {
       const res = await fetch('/api/mark-payment-received', {
@@ -565,6 +619,14 @@ export default function Dashboard() {
     ...(stats?.externallyMarkedOrders ?? []),
   ]), [recentMatches, stats?.externallyMarkedOrders])
 
+  // Arrays filtrados memoizados para ManualMatchTab (evitar nuevas referencias en cada render)
+  const filteredUnmatched = useMemo(() =>
+    unmatchedPayments.filter(u => !matchedPaymentIds.has(u.payment.mpPaymentId)),
+    [unmatchedPayments, matchedPaymentIds])
+  const filteredOrders = useMemo(() =>
+    orders.filter(o => !matchedOrderIds.has(`${o.storeId}-${o.orderId}`)),
+    [orders, matchedOrderIds])
+
   // Mapa de órdenes duplicadas: compara dentro de la misma tienda por email/CUIT/nombre + monto
   const duplicateMap = useMemo(() => {
     const map = new Map<string, { order: Order; confidence: 'alta' | 'media' }>()
@@ -691,7 +753,8 @@ export default function Dashboard() {
           className="mx-auto max-w-[1400px] px-6 py-3 items-center gap-4"
           style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr' }}
         >
-          {/* LEFT: User avatar */}
+          {/* LEFT: User avatar + auto-match buttons */}
+          <div className="flex items-center gap-2">
           <div ref={userMenuRef} className="relative flex items-center">
             <button
               onClick={() => setUserMenuOpen(v => !v)}
@@ -728,6 +791,23 @@ export default function Dashboard() {
                 </button>
               </div>
             )}
+          </div>
+            <button
+              onClick={handleRunAutoMatch}
+              disabled={isAutoMatching}
+              className="rounded-xl px-3 py-2 text-xs font-semibold transition-all disabled:opacity-40"
+              style={{ background: 'rgba(0,255,136,0.08)', border: '1px solid rgba(0,255,136,0.25)', color: '#00ff88', whiteSpace: 'nowrap' }}
+            >
+              {isAutoMatching ? '⟳ Marcando...' : '⚡ Auto-marcar'}
+            </button>
+            <button
+              onClick={handleStopAutoMatch}
+              disabled={!isAutoMatching}
+              className="rounded-xl px-3 py-2 text-xs font-semibold transition-all disabled:opacity-30"
+              style={{ background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.3)', color: '#f87171', whiteSpace: 'nowrap' }}
+            >
+              ✕ Detener
+            </button>
           </div>
 
           {/* CENTER: Logo + subtitle */}
@@ -935,7 +1015,7 @@ export default function Dashboard() {
 
         {/* Tab content */}
         <div>
-          {tab === 'manual' && <ManualMatchTab unmatchedPayments={unmatchedPayments.filter(u => !matchedPaymentIds.has(u.payment.mpPaymentId))} orders={orders.filter(o => !matchedOrderIds.has(`${o.storeId}-${o.orderId}`))} duplicateMap={duplicateMap} onManualMatch={handleManualMatch} onDismissPayment={handleDismissPayment} onMarkOrderPaid={handleMarkOrderPaid} loading={actionLoading} lastMPCheck={stats?.lastMPCheck ?? null} refreshKey={matchRefreshKey} />}
+          {tab === 'manual' && <ManualMatchTab unmatchedPayments={filteredUnmatched} orders={filteredOrders} duplicateMap={duplicateMap} onManualMatch={handleManualMatch} onDismissPayment={handleDismissPayment} onMarkOrderPaid={handleMarkOrderPaid} onFirstCandidateChange={handleFirstCandidateChange} loading={actionLoading} lastMPCheck={stats?.lastMPCheck ?? null} refreshKey={matchRefreshKey} />}
           {tab === 'ordenes' && <OrdersListTab orders={allRecentOrders} matchedIds={matchedOrderIds} duplicateMap={duplicateMap} onMarkExternal={handleMarkOrderExternal} onMarkManual={handleMarkOrderManual} loading={actionLoading} />}
           {tab === 'pagos' && <PaymentsListTab payments={allRecentPayments} orders={allRecentOrders} matchedIds={matchedPaymentIds} externallyMarkedIds={new Set(stats?.externallyMarkedPayments ?? [])} title="Pagos · últimas 48hs" emptyText="No hay pagos en las últimas 48 horas" onMarkReceived={handleMarkPaymentReceived} onManualLog={handleManualLog} loading={actionLoading} />}
           {tab === 'sin-coincidencia' && <PaymentsListTab payments={paymentsWithoutMatch} orders={allRecentOrders} externallyMarkedIds={new Set(stats?.externallyMarkedPayments ?? [])} title="Pagos sin coincidencia · últimas 48hs" emptyText="Todos los pagos de las últimas 48hs tienen una orden asignada" onMarkReceived={handleMarkPaymentReceived} onManualLog={handleManualLog} loading={actionLoading} />}

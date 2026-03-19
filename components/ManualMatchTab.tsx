@@ -1,7 +1,34 @@
 'use client'
 
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import type { UnmatchedPayment, Order } from '@/lib/types'
+
+export interface AutoMatchCandidate {
+  mpPaymentId: string
+  orderId: string
+  storeId: string
+  order: Order
+}
+
+// ─── Criterios de marcado automático ────────────────────────────────────────
+// Devuelve true si el par califica para ser marcado automáticamente.
+// Criterios: monto exacto + CUIT coincide + nombre (exacto o via email) + fecha ≤15min + email exacto
+function meetsAutoCriteria(signals: Signal[]): boolean {
+  const byLabel = Object.fromEntries(signals.map(s => [s.label, s]))
+  const monto  = byLabel['Monto']
+  const cuit   = byLabel['CUIT / CUIL / DNI']
+  const nombre = byLabel['Nombre']
+  const fecha  = byLabel['Fecha / Hora']
+  const email  = byLabel['Email']
+
+  if (!monto  || monto.value !== 'Exacto') return false
+  if (!cuit   || !cuit.match) return false
+  if (!nombre || (!nombre.match && !(nombre.partial && nombre.value === 'coincide con email'))) return false
+  if (!fecha  || !fecha.match) return false
+  if (!email  || !email.match) return false
+
+  return true
+}
 
 const ARS = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 0 })
 
@@ -237,6 +264,7 @@ interface Props {
   onManualMatch: (mpPaymentId: string, orderId: string, storeId: string, order: Order) => Promise<void>
   onDismissPayment: (mpPaymentId: string) => Promise<void>
   onMarkOrderPaid: (storeId: string, orderId: string) => Promise<void>
+  onFirstCandidateChange?: (candidate: AutoMatchCandidate | null) => void
   loading: boolean
   lastMPCheck: string | null
   refreshKey: number
@@ -257,6 +285,7 @@ export default function ManualMatchTab({
   duplicateMap,
   onManualMatch,
   onDismissPayment,
+  onFirstCandidateChange,
   loading,
   lastMPCheck,
   refreshKey,
@@ -354,7 +383,7 @@ export default function ManualMatchTab({
       })
   }, [unmatchedPayments, orders])
 
-  const filteredPairs = useMemo(() => {
+const filteredPairs = useMemo(() => {
     if (!search.trim()) return pairs
     return pairs.filter(pair => {
       const p = pair.payment.payment
@@ -365,6 +394,22 @@ export default function ManualMatchTab({
       ])
     })
   }, [pairs, search])
+
+  // Notificar al padre el primer candidato que cumple criterios (via ref en padre → sin re-render loop)
+  const firstCandidateIdRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!onFirstCandidateChange) return
+    const first = pairs.find(p => p.current !== null && meetsAutoCriteria(p.current.signals))
+    const newId = first ? (first.payment.mpPaymentId || first.id) : null
+    if (newId === firstCandidateIdRef.current) return
+    firstCandidateIdRef.current = newId
+    onFirstCandidateChange(first && first.current ? {
+      mpPaymentId: first.payment.mpPaymentId || first.id,
+      orderId: first.current.order.orderId,
+      storeId: first.current.order.storeId,
+      order: first.current.order,
+    } : null)
+  }, [pairs, onFirstCandidateChange])
 
   const handleConfirm = async (paymentId: string, orderId: string, storeId: string, order: Order) => {
     await onManualMatch(paymentId, orderId, storeId, order)
