@@ -58,6 +58,7 @@ export default function Dashboard() {
   const [stores, setStores] = useState<Store[]>([])
   const [storesOpen, setStoresOpen] = useState(false)
   const [platformModalOpen, setPlatformModalOpen] = useState(false)
+  const [dismissedPairs, setDismissedPairs] = useState<{ mpPaymentId: string; orderId: string; storeId: string }[]>([])
   const [storesLoading, setStoresLoading] = useState(false)
   const [deletingStore, setDeletingStore] = useState<string | null>(null)
   const storesMenuRef = useRef<HTMLDivElement>(null)
@@ -291,19 +292,19 @@ export default function Dashboard() {
     }
   }
 
-  const handleDismissPayment = async (mpPaymentId: string) => {
+  const handleDismissPayment = async (mpPaymentId: string, orderId: string, storeId: string) => {
     setActionLoading(true)
     try {
       const res = await fetch('/api/dismiss', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mpPaymentId }),
+        body: JSON.stringify({ mpPaymentId, orderId, storeId }),
       })
       const data = await res.json()
       if (data.success) {
-        addToast('Pago eliminado', 'success')
+        addToast('Par descartado — el pago y la orden siguen disponibles', 'success')
         setMatchRefreshKey(k => k + 1)
-        await fetchUnmatched()
+        setDismissedPairs(prev => [...prev, { mpPaymentId, orderId, storeId }])
       } else {
         addToast(`Error: ${data.error}`, 'error')
       }
@@ -1072,7 +1073,7 @@ export default function Dashboard() {
 
         {/* Tab content */}
         <div>
-          {tab === 'manual' && <ManualMatchTab unmatchedPayments={filteredUnmatched} orders={filteredOrders} duplicateMap={duplicateMap} onManualMatch={handleManualMatch} onDismissPayment={handleDismissPayment} onMarkOrderPaid={handleMarkOrderPaid} onFirstCandidateChange={handleFirstCandidateChange} loading={actionLoading} lastMPCheck={stats?.lastMPCheck ?? null} refreshKey={matchRefreshKey} />}
+          {tab === 'manual' && <ManualMatchTab unmatchedPayments={filteredUnmatched} orders={filteredOrders} duplicateMap={duplicateMap} onManualMatch={handleManualMatch} onDismissPayment={handleDismissPayment} onMarkOrderPaid={handleMarkOrderPaid} onFirstCandidateChange={handleFirstCandidateChange} dismissedPairs={dismissedPairs} loading={actionLoading} lastMPCheck={stats?.lastMPCheck ?? null} refreshKey={matchRefreshKey} />}
           {tab === 'ordenes' && <OrdersListTab orders={allRecentOrders} matchedIds={matchedOrderIds} duplicateMap={duplicateMap} onMarkExternal={handleMarkOrderExternal} onMarkManual={handleMarkOrderManual} loading={actionLoading} />}
           {tab === 'pagos' && <PaymentsListTab payments={allRecentPayments} orders={allRecentOrders} matchedIds={matchedPaymentIds} externallyMarkedIds={new Set(stats?.externallyMarkedPayments ?? [])} title="Pagos · últimas 48hs" emptyText="No hay pagos en las últimas 48 horas" onMarkReceived={handleMarkPaymentReceived} onManualLog={handleManualLog} loading={actionLoading} />}
           {tab === 'sin-coincidencia' && <PaymentsListTab payments={paymentsWithoutMatch} orders={allRecentOrders} externallyMarkedIds={new Set(stats?.externallyMarkedPayments ?? [])} title="Pagos sin coincidencia · últimas 48hs" emptyText="Todos los pagos de las últimas 48hs tienen una orden asignada" onMarkReceived={handleMarkPaymentReceived} onManualLog={handleManualLog} loading={actionLoading} />}

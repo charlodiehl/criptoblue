@@ -269,9 +269,10 @@ interface Props {
   orders: Order[]
   duplicateMap?: Map<string, DuplicateInfo>
   onManualMatch: (mpPaymentId: string, orderId: string, storeId: string, order: Order) => Promise<void>
-  onDismissPayment: (mpPaymentId: string) => Promise<void>
+  onDismissPayment: (mpPaymentId: string, orderId: string, storeId: string) => Promise<void>
   onMarkOrderPaid: (storeId: string, orderId: string) => Promise<void>
   onFirstCandidateChange?: (candidate: AutoMatchCandidate | null) => void
+  dismissedPairs?: { mpPaymentId: string; orderId: string; storeId: string }[]
   loading: boolean
   lastMPCheck: string | null
   refreshKey: number
@@ -293,10 +294,16 @@ export default function ManualMatchTab({
   onManualMatch,
   onDismissPayment,
   onFirstCandidateChange,
+  dismissedPairs = [],
   loading,
   lastMPCheck,
   refreshKey,
 }: Props) {
+  // Set de pares bloqueados para lookup O(1): "mpPaymentId|orderId|storeId"
+  const dismissedSet = useMemo(
+    () => new Set(dismissedPairs.map(p => `${p.mpPaymentId}|${p.orderId}|${p.storeId}`)),
+    [dismissedPairs]
+  )
   const PAGE_SIZE = 5
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
   const [search, setSearch] = useState('')
@@ -325,6 +332,7 @@ export default function ManualMatchTab({
           // Nunca emparejar un pago con una orden que no existía cuando llegó el pago
           return payTime >= ordTime
         })
+        .filter(o => !dismissedSet.has(`${id}|${o.orderId}|${o.storeId}`))
         .map(o => {
           const signals = computeSignals(u.payment, o)
           const sameMontoCount = totalSameMonto - (o.total === u.payment.monto ? 1 : 0)
@@ -523,7 +531,7 @@ function PairRow({
 }: {
   pair: Pair
   onConfirm: (paymentId: string, orderId: string, storeId: string, order: Order) => void
-  onDismissPayment: (paymentId: string) => void
+  onDismissPayment: (paymentId: string, orderId: string, storeId: string) => void
   loading: boolean
   duplicateMap?: Map<string, { order: Order; confidence: 'alta' | 'media' }>
 }) {
@@ -614,8 +622,8 @@ function PairRow({
                 ✓ Confirmar pago
               </button>
               <button
-                onClick={() => onDismissPayment(id)}
-                disabled={loading}
+                onClick={() => current && onDismissPayment(id, current.order.orderId, current.order.storeId)}
+                disabled={loading || !current}
                 style={{
                   padding: '9px 0',
                   borderRadius: '10px',
@@ -640,22 +648,6 @@ function PairRow({
             <p style={{ fontSize: '13px', color: 'rgba(148,163,184,0.3)', textAlign: 'center', lineHeight: '1.6' }}>
               Sin más<br />órdenes disponibles
             </p>
-            <button
-              onClick={() => onDismissPayment(id)}
-              disabled={loading}
-              style={{
-                fontSize: '13px',
-                padding: '8px 16px',
-                borderRadius: '9px',
-                border: '1px solid rgba(248,113,113,0.2)',
-                color: 'rgba(248,113,113,0.6)',
-                background: 'transparent',
-                cursor: 'pointer',
-                transition: 'all 0.15s',
-              }}
-            >
-              Eliminar pago
-            </button>
           </div>
         )}
       </div>

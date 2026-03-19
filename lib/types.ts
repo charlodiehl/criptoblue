@@ -108,6 +108,14 @@ export interface ExternalPaymentMark {
   markedAt: string  // ISO timestamp — usado para expirar a las 48h igual que el resto
 }
 
+// Par pago+orden bloqueado (click en "No corresponde") — expira a las 48hs
+export interface DismissedPair {
+  mpPaymentId: string
+  orderId: string
+  storeId: string
+  dismissedAt: string  // ISO timestamp — se elimina automáticamente a las 48hs
+}
+
 export interface AppState {
   processedPayments: string[]
   matchLog: LogEntry[]
@@ -131,6 +139,8 @@ export interface AppState {
   // Stats de las 4 tarjetas persistidas por mes — NO se borran con el registro
   // Clave: "YYYY-MM". Se acumulan en DELETE /api/log antes de vaciar el matchLog.
   persistedMonthStats: Record<string, PersistedMonthStats>
+  // Pares pago+orden bloqueados por "No corresponde" — expiran a las 48hs automáticamente
+  dismissedPairs: DismissedPair[]
   // Log de errores del sistema (persiste en Supabase, auto-limpia a 30 días)
   errorLog: ErrorEntry[]
   // Log de actividad interno: todas las acciones de las últimas 24hs (humano o sistema)

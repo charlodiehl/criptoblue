@@ -57,6 +57,7 @@ const DEFAULT_STATE: AppState = {
   settings: {},
   monthlyStats: {},
   persistedMonthStats: {},
+  dismissedPairs: [],
   errorLog: [],
   activityLog: [],
 }
@@ -115,6 +116,7 @@ export async function loadState(): Promise<AppState> {
     cachedOrdersAt: state.cachedOrdersAt || '',
     monthlyStats: state.monthlyStats || {},
     persistedMonthStats: state.persistedMonthStats || {},
+    dismissedPairs: state.dismissedPairs || [],
     errorLog: state.errorLog || [],
     activityLog: state.activityLog || [],
   }
@@ -189,6 +191,11 @@ export async function saveState(state: AppState): Promise<void> {
   state.activityLog = (state.activityLog || [])
     .filter(e => new Date(e.timestamp).getTime() >= cutoff48hMs)
     .slice(-1000)
+
+  // dismissedPairs: expirar pares con más de 48hs (el pago y la orden ya no estarán en la app)
+  state.dismissedPairs = (state.dismissedPairs || []).filter(
+    p => new Date(p.dismissedAt).getTime() >= cutoff48hMs
+  )
   // Strip rawData from all Payment objects to prevent state bloat
   // (raw MP payment JSON is ~5-10KB per payment; with thousands of payments this would exceed Supabase limits)
   const clean: AppState = {
