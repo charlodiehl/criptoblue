@@ -3,6 +3,10 @@
     {
       "path": "/api/reevaluar",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/auto-match-run",
+      "schedule": "1-56/5 * * * *"
     }
   ]
 }
