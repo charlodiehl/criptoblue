@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { loadState, saveState, getStores, getMatchId, incrementMonthlyStats, appendError, appendActivity } from '@/lib/storage'
-import { markOrderAsPaid, getPendingOrders } from '@/lib/tiendanube'
+import { markOrderAsPaid as markTNOrderAsPaid, getPendingOrders as getTNOrders } from '@/lib/tiendanube'
+import { markOrderAsPaid as markShopifyOrderAsPaid, getPendingOrders as getShopifyOrders } from '@/lib/shopify'
 import { HARD_CUTOFF } from '@/lib/config'
 import type { LogEntry } from '@/lib/types'
 
@@ -25,36 +26,50 @@ export async function POST(req: NextRequest) {
 
     // Usar la orden enviada por el cliente (ya la tiene en memoria).
     // Solo re-fetchear de TN si por algún motivo no vino en el body.
+    const platform = store.platform ?? 'tiendanube'
+
     let order = orderFromClient || null
     if (!order) {
       try {
         const since = new Date(Math.max(Date.now() - 48 * 3600000, HARD_CUTOFF.getTime()))
-        const orders = await getPendingOrders(storeId, store.accessToken, store.storeName, since)
+        const fetchOrders = platform === 'shopify' ? getShopifyOrders : getTNOrders
+        const orders = await fetchOrders(storeId, store.accessToken, store.storeName, since)
         order = orders.find(o => o.orderId === orderId) || null
       } catch {
         // Si falla el fetch igual continuamos; el log quedará sin datos de orden
       }
     }
 
-    const tnResult = await markOrderAsPaid(storeId, store.accessToken, orderId)
+    let markSuccess: boolean
+    let markError: string | undefined
 
-    console.log('[manual-match] TN result:', JSON.stringify(tnResult))
-
-    if (!tnResult.success) {
-      appendError(state, 'manual-match', 'error',
-        `Error al marcar orden como pagada en TiendaNube`,
-        { orderId, storeId, storeName: store.storeName, orderNumber: order?.orderNumber, error: tnResult.error }
-      )
-      await saveState(state)
-      return NextResponse.json({ error: tnResult.error }, { status: 500 })
+    if (platform === 'shopify') {
+      const amount = order?.total ?? payment.monto
+      const result = await markShopifyOrderAsPaid(storeId, store.accessToken, orderId, amount)
+      markSuccess = result.success
+      markError = result.error
+    } else {
+      const result = await markTNOrderAsPaid(storeId, store.accessToken, orderId)
+      markSuccess = result.success
+      markError = result.error
+      if (result.success && result.method === 'note') {
+        console.warn('[manual-match] WARNING: TN returned 403/422 for payment_status change. Only a note was added. Order may NOT be marked paid in TiendaNube.')
+        appendError(state, 'manual-match', 'warning',
+          `TiendaNube no permitió cambiar el estado de la orden (403/422) — solo se agregó una nota. Marcala manualmente en TN.`,
+          { orderId, storeId, storeName: store.storeName, orderNumber: order?.orderNumber }
+        )
+      }
     }
 
-    if (tnResult.method === 'note') {
-      console.warn('[manual-match] WARNING: TN returned 403/422 for payment_status change. Only a note was added. Order may NOT be marked paid in TiendaNube.')
-      appendError(state, 'manual-match', 'warning',
-        `TiendaNube no permitió cambiar el estado de la orden (403/422) — solo se agregó una nota. Marcala manualmente en TN.`,
-        { orderId, storeId, storeName: store.storeName, orderNumber: order?.orderNumber }
+    console.log('[manual-match] result:', { platform, success: markSuccess, error: markError })
+
+    if (!markSuccess) {
+      appendError(state, 'manual-match', 'error',
+        `Error al marcar orden como pagada en ${platform}`,
+        { orderId, storeId, storeName: store.storeName, orderNumber: order?.orderNumber, error: markError }
       )
+      await saveState(state)
+      return NextResponse.json({ error: markError }, { status: 500 })
     }
 
     state.unmatchedPayments.splice(unmatchedIndex, 1)
@@ -93,7 +108,7 @@ export async function POST(req: NextRequest) {
     await saveState(state)
 
     const recentMatch = { mpPaymentId: payment.mpPaymentId, matchedAt: logEntry.timestamp, orderId, storeId, order: order || undefined, payment }
-    return NextResponse.json({ success: true, method: tnResult.method, logEntry, recentMatch })
+    return NextResponse.json({ success: true, logEntry, recentMatch })
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 })
   }

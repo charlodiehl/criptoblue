@@ -19,6 +19,12 @@ export const CONFIG = {
     accessToken: process.env.CRIPTOBLUE_MP_ACCESS_TOKEN || '',
     apiBase: 'https://api.mercadopago.com',
   },
+  shopify: {
+    clientId: process.env.CRIPTOBLUE_SHOPIFY_CLIENT_ID || '',
+    clientSecret: process.env.CRIPTOBLUE_SHOPIFY_CLIENT_SECRET || '',
+    apiVersion: '2026-01',
+    scopes: 'read_orders,write_orders,read_customers',
+  },
   matching: {
     autoThreshold: 90,
     reviewThreshold: 60,

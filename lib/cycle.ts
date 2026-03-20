@@ -1,17 +1,19 @@
 import { fetchAllPaymentsSince } from './mercadopago'
-import { getPendingOrders, cancelAbandonedOrders } from './tiendanube'
+import { getPendingOrders as getTNOrders, cancelAbandonedOrders } from './tiendanube'
+import { getPendingOrders as getShopifyOrders } from './shopify'
 import { loadState, saveState, getStores, appendError } from './storage'
 import { HARD_CUTOFF } from './config'
 import type { UnmatchedPayment } from './types'
 
 interface CycleResult {
-  processed: number
+  processed: number   // total pagos vistos en MP (puede incluir ya conocidos)
+  newUnmatched: number // pagos verdaderamente nuevos agregados a la cola
   cancelled: number
   errors: string[]
 }
 
 export async function processMPPayments(): Promise<CycleResult> {
-  const result: CycleResult = { processed: 0, cancelled: 0, errors: [] }
+  const result: CycleResult = { processed: 0, newUnmatched: 0, cancelled: 0, errors: [] }
 
   const [state, stores] = await Promise.all([loadState(), getStores()])
 
@@ -76,15 +78,22 @@ export async function processMPPayments(): Promise<CycleResult> {
     })
   }
 
-  // Traer órdenes pendientes de TiendaNube y cachearlas (todos los clientes leen de este cache)
+  // Traer órdenes pendientes de todas las tiendas (TiendaNube y Shopify)
   // Usa el mismo cutoff efectivo que los pagos: max(48h_ago, HARD_CUTOFF)
   const allOrdersPerStore = await Promise.allSettled(
-    storeEntries.map(s => getPendingOrders(s.storeId, s.accessToken, s.storeName, since))
+    storeEntries.map(s => {
+      const platform = s.platform ?? 'tiendanube'
+      if (platform === 'shopify') {
+        return getShopifyOrders(s.storeId, s.accessToken, s.storeName, since)
+      }
+      return getTNOrders(s.storeId, s.accessToken, s.storeName, since)
+    })
   )
   allOrdersPerStore.forEach((r, i) => {
     if (r.status === 'rejected') {
-      result.errors.push(`TN fetch error store ${storeEntries[i].storeId}: ${r.reason}`)
-      appendError(state, 'tiendanube', 'warning',
+      const platform = storeEntries[i].platform ?? 'tiendanube'
+      result.errors.push(`${platform} fetch error store ${storeEntries[i].storeId}: ${r.reason}`)
+      appendError(state, platform, 'warning',
         `Error al traer órdenes de tienda "${storeEntries[i].storeName}"`,
         { storeId: storeEntries[i].storeId, storeName: storeEntries[i].storeName, error: String(r.reason) }
       )
@@ -102,6 +111,7 @@ export async function processMPPayments(): Promise<CycleResult> {
       timestamp: new Date().toISOString(),
       mpPaymentId: payment.mpPaymentId,
     })
+    result.newUnmatched++
   }
 
   // ─── Re-cargar estado fresco antes de guardar ──────────────────────────────

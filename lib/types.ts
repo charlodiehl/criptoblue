@@ -32,6 +32,7 @@ export interface Store {
   storeName: string
   accessToken: string
   connectedAt: string
+  platform?: 'tiendanube' | 'shopify'
 }
 
 export interface PendingMatch {

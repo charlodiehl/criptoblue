@@ -59,6 +59,8 @@ export default function Dashboard() {
   const [stores, setStores] = useState<Store[]>([])
   const [storesOpen, setStoresOpen] = useState(false)
   const [platformModalOpen, setPlatformModalOpen] = useState(false)
+  const [shopifyDomainStep, setShopifyDomainStep] = useState(false)
+  const [shopifyDomain, setShopifyDomain] = useState('')
   const [dismissedPairs, setDismissedPairs] = useState<{ mpPaymentId: string; orderId: string; storeId: string }[]>([])
   const [storesLoading, setStoresLoading] = useState(false)
   const [deletingStore, setDeletingStore] = useState<string | null>(null)
@@ -234,13 +236,13 @@ export default function Dashboard() {
     }
   }
 
-  const handleMarkOrderPaid = async (storeId: string, orderId: string) => {
+  const handleMarkOrderPaid = async (storeId: string, orderId: string, total?: number) => {
     setActionLoading(true)
     try {
       const res = await fetch('/api/mark-order-paid', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ storeId, orderId }),
+        body: JSON.stringify({ storeId, orderId, total }),
       })
       const data = await res.json()
       if (data.success) {
@@ -350,7 +352,8 @@ export default function Dashboard() {
       const res = await fetch('/api/reevaluar', { method: 'POST' })
       const data = await res.json()
       if (data.success) {
-        const parts = [`${data.processed} pagos nuevos`]
+        const newCount = data.newUnmatched ?? data.processed
+        const parts = [`${newCount} ${newCount === 1 ? 'pago nuevo' : 'pagos nuevos'}`]
         if (data.cancelled > 0) parts.push(`${data.cancelled} órdenes abandonadas canceladas`)
         addToast(`Actualizado: ${parts.join(' · ')}`, 'success')
         // Enriquecer nombres de pagadores sin nombre (bank_transfer long_name)
@@ -1016,58 +1019,107 @@ export default function Dashboard() {
         {/* Modal selección de plataforma */}
         {platformModalOpen && (
           <div
-            onClick={() => setPlatformModalOpen(false)}
+            onClick={() => { setPlatformModalOpen(false); setShopifyDomainStep(false); setShopifyDomain('') }}
             style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
           >
             <div
               onClick={e => e.stopPropagation()}
               style={{ background: '#0f1923', border: '1px solid rgba(0,212,255,0.15)', borderRadius: '16px', padding: '32px', width: '360px', boxShadow: '0 24px 64px rgba(0,0,0,0.5)' }}
             >
-              <h2 style={{ color: 'white', fontSize: '18px', fontWeight: 700, marginBottom: '6px', textAlign: 'center' }}>Agregar tienda</h2>
-              <p style={{ color: 'rgba(148,163,184,0.6)', fontSize: '13px', textAlign: 'center', marginBottom: '28px' }}>¿Desde qué plataforma querés conectar?</p>
+              {!shopifyDomainStep ? (
+                <>
+                  <h2 style={{ color: 'white', fontSize: '18px', fontWeight: 700, marginBottom: '6px', textAlign: 'center' }}>Agregar tienda</h2>
+                  <p style={{ color: 'rgba(148,163,184,0.6)', fontSize: '13px', textAlign: 'center', marginBottom: '28px' }}>¿Desde qué plataforma querés conectar?</p>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                {/* Tienda Nube */}
-                <button
-                  onClick={() => { setPlatformModalOpen(false); window.open('/api/tn/connect', '_blank', 'noopener,noreferrer') }}
-                  style={{ display: 'flex', alignItems: 'center', gap: '14px', padding: '16px 20px', borderRadius: '12px', border: '1px solid rgba(0,100,255,0.3)', background: 'rgba(0,100,255,0.06)', cursor: 'pointer', transition: 'all 0.2s', width: '100%' }}
-                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(0,100,255,0.14)'; (e.currentTarget as HTMLElement).style.borderColor = 'rgba(0,100,255,0.5)' }}
-                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(0,100,255,0.06)'; (e.currentTarget as HTMLElement).style.borderColor = 'rgba(0,100,255,0.3)' }}
-                >
-                  {/* Logo Tienda Nube */}
-                  <svg width="36" height="36" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <rect width="36" height="36" rx="8" fill="#1F5CFF"/>
-                    <path d="M27.5 20.5C27.5 23.26 25.26 25.5 22.5 25.5H11C8.79 25.5 7 23.71 7 21.5C7 19.57 8.38 17.96 10.22 17.58C10.08 17.08 10 16.55 10 16C10 12.69 12.69 10 16 10C18.7 10 20.99 11.71 21.75 14.13C22.0 14.04 22.24 14 22.5 14C25.26 14 27.5 16.24 27.5 19C27.5 19.18 27.49 19.35 27.47 19.52C27.49 19.68 27.5 19.84 27.5 20C27.5 20.17 27.5 20.33 27.5 20.5Z" fill="white"/>
-                  </svg>
-                  <div style={{ textAlign: 'left' }}>
-                    <div style={{ color: 'white', fontWeight: 700, fontSize: '15px' }}>Tienda Nube</div>
-                    <div style={{ color: 'rgba(148,163,184,0.6)', fontSize: '12px' }}>Conectar via OAuth</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    {/* Tienda Nube */}
+                    <button
+                      onClick={() => { setPlatformModalOpen(false); window.open('/api/tn/connect', '_blank', 'noopener,noreferrer') }}
+                      style={{ display: 'flex', alignItems: 'center', gap: '14px', padding: '16px 20px', borderRadius: '12px', border: '1px solid rgba(0,100,255,0.3)', background: 'rgba(0,100,255,0.06)', cursor: 'pointer', transition: 'all 0.2s', width: '100%' }}
+                      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(0,100,255,0.14)'; (e.currentTarget as HTMLElement).style.borderColor = 'rgba(0,100,255,0.5)' }}
+                      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(0,100,255,0.06)'; (e.currentTarget as HTMLElement).style.borderColor = 'rgba(0,100,255,0.3)' }}
+                    >
+                      <svg width="36" height="36" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <rect width="36" height="36" rx="8" fill="#1F5CFF"/>
+                        <path d="M27.5 20.5C27.5 23.26 25.26 25.5 22.5 25.5H11C8.79 25.5 7 23.71 7 21.5C7 19.57 8.38 17.96 10.22 17.58C10.08 17.08 10 16.55 10 16C10 12.69 12.69 10 16 10C18.7 10 20.99 11.71 21.75 14.13C22.0 14.04 22.24 14 22.5 14C25.26 14 27.5 16.24 27.5 19C27.5 19.18 27.49 19.35 27.47 19.52C27.49 19.68 27.5 19.84 27.5 20C27.5 20.17 27.5 20.33 27.5 20.5Z" fill="white"/>
+                      </svg>
+                      <div style={{ textAlign: 'left' }}>
+                        <div style={{ color: 'white', fontWeight: 700, fontSize: '15px' }}>Tienda Nube</div>
+                        <div style={{ color: 'rgba(148,163,184,0.6)', fontSize: '12px' }}>Conectar via OAuth</div>
+                      </div>
+                    </button>
+
+                    {/* Shopify */}
+                    <button
+                      onClick={() => setShopifyDomainStep(true)}
+                      style={{ display: 'flex', alignItems: 'center', gap: '14px', padding: '16px 20px', borderRadius: '12px', border: '1px solid rgba(150,191,72,0.3)', background: 'rgba(150,191,72,0.06)', cursor: 'pointer', transition: 'all 0.2s', width: '100%' }}
+                      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(150,191,72,0.14)'; (e.currentTarget as HTMLElement).style.borderColor = 'rgba(150,191,72,0.5)' }}
+                      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(150,191,72,0.06)'; (e.currentTarget as HTMLElement).style.borderColor = 'rgba(150,191,72,0.3)' }}
+                    >
+                      <svg width="36" height="36" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <rect width="36" height="36" rx="8" fill="#96BF48"/>
+                        <path d="M24.18 10.44C24.16 10.3 24.04 10.22 23.92 10.21C23.8 10.2 21.6 10.16 21.6 10.16C21.6 10.16 19.74 8.36 19.56 8.18C19.38 8 19.02 8.06 18.88 8.1C18.86 8.1 18.5 8.21 17.9 8.4C17.64 7.64 17.2 6.96 16.4 6.96H16.28C16.04 6.64 15.74 6.5 15.48 6.5C13.38 6.5 12.36 9.04 12.04 10.32C11.14 10.6 10.5 10.8 10.42 10.82C9.9 10.98 9.88 11 9.82 11.48C9.78 11.84 8.5 21.56 8.5 21.56L19.34 23.5L27.5 21.72C27.5 21.72 24.2 10.58 24.18 10.44ZM17.2 8.78C16.74 8.92 16.22 9.08 15.66 9.26C15.82 8.58 16.18 7.9 16.8 7.64C17.06 8 17.16 8.44 17.2 8.78ZM15.46 7.08C15.56 7.08 15.64 7.1 15.72 7.14C14.98 7.5 14.22 8.36 13.9 10.04C13.44 10.18 13 10.32 12.58 10.44C12.96 9.1 13.86 7.08 15.46 7.08ZM17.96 19.84C17.96 19.84 17.24 19.44 16.36 19.44C15.06 19.44 15 20.28 15 20.48C15 21.74 17.9 22.22 17.9 24.86C17.9 26.94 16.6 28.3 14.84 28.3C12.72 28.3 11.64 27 11.64 27L12.22 25.14C12.22 25.14 13.34 26 14.26 26C14.86 26 15.1 25.52 15.1 25.18C15.1 23.54 12.76 23.48 12.76 21.06C12.76 19 14.18 17 17 17C18.08 17 18.54 17.28 18.54 17.28L17.96 19.84Z" fill="white"/>
+                      </svg>
+                      <div style={{ textAlign: 'left' }}>
+                        <div style={{ color: 'white', fontWeight: 700, fontSize: '15px' }}>Shopify</div>
+                        <div style={{ color: 'rgba(148,163,184,0.6)', fontSize: '12px' }}>Conectar via OAuth</div>
+                      </div>
+                    </button>
                   </div>
-                </button>
 
-                {/* Shopify */}
-                <button
-                  disabled
-                  style={{ display: 'flex', alignItems: 'center', gap: '14px', padding: '16px 20px', borderRadius: '12px', border: '1px solid rgba(148,163,184,0.1)', background: 'rgba(255,255,255,0.02)', cursor: 'not-allowed', opacity: 0.5, width: '100%' }}
-                >
-                  {/* Logo Shopify */}
-                  <svg width="36" height="36" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <rect width="36" height="36" rx="8" fill="#96BF48"/>
-                    <path d="M24.18 10.44C24.16 10.3 24.04 10.22 23.92 10.21C23.8 10.2 21.6 10.16 21.6 10.16C21.6 10.16 19.74 8.36 19.56 8.18C19.38 8 19.02 8.06 18.88 8.1C18.86 8.1 18.5 8.21 17.9 8.4C17.64 7.64 17.2 6.96 16.4 6.96H16.28C16.04 6.64 15.74 6.5 15.48 6.5C13.38 6.5 12.36 9.04 12.04 10.32C11.14 10.6 10.5 10.8 10.42 10.82C9.9 10.98 9.88 11 9.82 11.48C9.78 11.84 8.5 21.56 8.5 21.56L19.34 23.5L27.5 21.72C27.5 21.72 24.2 10.58 24.18 10.44ZM17.2 8.78C16.74 8.92 16.22 9.08 15.66 9.26C15.82 8.58 16.18 7.9 16.8 7.64C17.06 8 17.16 8.44 17.2 8.78ZM15.46 7.08C15.56 7.08 15.64 7.1 15.72 7.14C14.98 7.5 14.22 8.36 13.9 10.04C13.44 10.18 13 10.32 12.58 10.44C12.96 9.1 13.86 7.08 15.46 7.08ZM17.96 19.84C17.96 19.84 17.24 19.44 16.36 19.44C15.06 19.44 15 20.28 15 20.48C15 21.74 17.9 22.22 17.9 24.86C17.9 26.94 16.6 28.3 14.84 28.3C12.72 28.3 11.64 27 11.64 27L12.22 25.14C12.22 25.14 13.34 26 14.26 26C14.86 26 15.1 25.52 15.1 25.18C15.1 23.54 12.76 23.48 12.76 21.06C12.76 19 14.18 17 17 17C18.08 17 18.54 17.28 18.54 17.28L17.96 19.84Z" fill="white"/>
-                  </svg>
-                  <div style={{ textAlign: 'left' }}>
-                    <div style={{ color: 'white', fontWeight: 700, fontSize: '15px' }}>Shopify</div>
-                    <div style={{ color: 'rgba(148,163,184,0.6)', fontSize: '12px' }}>Próximamente</div>
+                  <button
+                    onClick={() => { setPlatformModalOpen(false); setShopifyDomainStep(false); setShopifyDomain('') }}
+                    style={{ marginTop: '20px', width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid rgba(148,163,184,0.15)', background: 'transparent', color: 'rgba(148,163,184,0.5)', fontSize: '13px', cursor: 'pointer' }}
+                  >
+                    Cancelar
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    onClick={() => { setShopifyDomainStep(false); setShopifyDomain('') }}
+                    style={{ background: 'none', border: 'none', color: 'rgba(148,163,184,0.6)', fontSize: '13px', cursor: 'pointer', marginBottom: '16px', padding: 0 }}
+                  >
+                    ← Volver
+                  </button>
+                  <h2 style={{ color: 'white', fontSize: '18px', fontWeight: 700, marginBottom: '6px', textAlign: 'center' }}>Conectar Shopify</h2>
+                  <p style={{ color: 'rgba(148,163,184,0.6)', fontSize: '13px', textAlign: 'center', marginBottom: '24px' }}>Ingresá el dominio de tu tienda</p>
+                  <div style={{ marginBottom: '16px' }}>
+                    <input
+                      type="text"
+                      autoFocus
+                      value={shopifyDomain}
+                      onChange={e => setShopifyDomain(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter' && shopifyDomain.trim()) {
+                          setPlatformModalOpen(false)
+                          setShopifyDomainStep(false)
+                          window.open(`/api/shopify/connect?shop=${encodeURIComponent(shopifyDomain.trim())}`, '_blank', 'noopener,noreferrer')
+                          setShopifyDomain('')
+                        }
+                      }}
+                      placeholder="mitienda.myshopify.com"
+                      style={{ width: '100%', padding: '10px 14px', borderRadius: '10px', border: '1px solid rgba(150,191,72,0.3)', background: 'rgba(255,255,255,0.05)', color: 'white', fontSize: '14px', outline: 'none', boxSizing: 'border-box' }}
+                    />
+                    <p style={{ color: 'rgba(148,163,184,0.4)', fontSize: '11px', marginTop: '6px' }}>
+                      Podés poner solo &quot;mitienda&quot; o el dominio completo
+                    </p>
                   </div>
-                </button>
-              </div>
-
-              <button
-                onClick={() => setPlatformModalOpen(false)}
-                style={{ marginTop: '20px', width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid rgba(148,163,184,0.15)', background: 'transparent', color: 'rgba(148,163,184,0.5)', fontSize: '13px', cursor: 'pointer' }}
-              >
-                Cancelar
-              </button>
+                  <button
+                    onClick={() => {
+                      if (!shopifyDomain.trim()) return
+                      setPlatformModalOpen(false)
+                      setShopifyDomainStep(false)
+                      window.open(`/api/shopify/connect?shop=${encodeURIComponent(shopifyDomain.trim())}`, '_blank', 'noopener,noreferrer')
+                      setShopifyDomain('')
+                    }}
+                    disabled={!shopifyDomain.trim()}
+                    style={{ width: '100%', padding: '11px', borderRadius: '10px', border: 'none', background: shopifyDomain.trim() ? 'linear-gradient(135deg, #96BF48, #7a9e38)' : 'rgba(255,255,255,0.1)', color: 'white', fontSize: '15px', fontWeight: 700, cursor: shopifyDomain.trim() ? 'pointer' : 'not-allowed' }}
+                  >
+                    Conectar con Shopify
+                  </button>
+                </>
+              )}
             </div>
           </div>
         )}
