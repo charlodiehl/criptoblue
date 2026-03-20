@@ -61,6 +61,8 @@ export async function GET() {
       manualVolume,
       pendingOrders,
       lastMPCheck: state.lastMPCheck || null,
+      lastAutoMatchAt: state.lastAutoMatchAt || null,
+      lastAutoMatchMatched: state.lastAutoMatchMatched ?? 0,
       externallyMarkedOrders: state.externallyMarkedOrders || [],
       externallyMarkedPayments: (state.externallyMarkedPayments || []).map(e => e.id),
       recentMatches,

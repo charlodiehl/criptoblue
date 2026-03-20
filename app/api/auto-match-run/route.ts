@@ -137,6 +137,7 @@ async function runAutoMatch() {
   }
 
   state.lastAutoMatchAt = new Date().toISOString()
+  state.lastAutoMatchMatched = matched
   await saveState(state)
 
   console.log(`[auto-match-run] matched: ${matched}, errors: ${errors.length}`)

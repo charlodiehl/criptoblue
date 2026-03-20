@@ -19,6 +19,8 @@ interface Stats {
   manualVolume: number        // volumen de marcados manualmente
   pendingOrders: number
   lastMPCheck: string | null
+  lastAutoMatchAt?: string | null
+  lastAutoMatchMatched?: number
   externallyMarkedOrders: string[]
   externallyMarkedPayments: string[]
   recentMatches?: RecentMatch[]
@@ -111,6 +113,8 @@ export default function Dashboard() {
   }, [])
 
   // fetchSync: reemplaza fetchStatus + fetchUnmatched en el polling — 1 lectura a Supabase en vez de 2
+  const lastAutoMatchAtRef = useRef<string | null>(null)
+
   const fetchSync = useCallback(async () => {
     try {
       const res = await fetch('/api/sync')
@@ -123,15 +127,30 @@ export default function Dashboard() {
           manualVolume: data.manualVolume,
           pendingOrders: data.pendingOrders,
           lastMPCheck: data.lastMPCheck,
+          lastAutoMatchAt: data.lastAutoMatchAt,
+          lastAutoMatchMatched: data.lastAutoMatchMatched,
           externallyMarkedOrders: data.externallyMarkedOrders,
           externallyMarkedPayments: data.externallyMarkedPayments,
           recentMatches: data.recentMatches,
         })
         if (data.recentMatches) setRecentMatches(data.recentMatches)
         setUnmatchedPayments(data.unmatchedPayments)
+
+        // Detectar si el cron de auto-match marcó nuevos pares desde el último poll
+        const prevAt = lastAutoMatchAtRef.current
+        const newAt  = data.lastAutoMatchAt
+        if (newAt && newAt !== prevAt && prevAt !== null) {
+          const n = data.lastAutoMatchMatched ?? 0
+          if (n > 0) {
+            addToast(`⚡ Auto-marcado completado · ${n} pago${n !== 1 ? 's' : ''} marcado${n !== 1 ? 's' : ''}`, 'success')
+            setMatchRefreshKey(k => k + 1)
+            fetchLog()
+          }
+        }
+        lastAutoMatchAtRef.current = newAt ?? prevAt
       }
     } catch { /* ignore */ }
-  }, [])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const fetchOrders = useCallback(async () => {
     try {

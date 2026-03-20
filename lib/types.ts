@@ -134,7 +134,8 @@ export interface AppState {
   cachedOrders: Order[]
   cachedOrdersAt: string  // ISO timestamp del último cache exitoso
   lastMPCheck: string
-  lastAutoMatchAt?: string  // ISO — última vez que corrió auto-match-run (evita doble ejecución)
+  lastAutoMatchAt?: string     // ISO — última vez que corrió auto-match-run
+  lastAutoMatchMatched?: number // cuántos pares marcó el último auto-match (para notificar al frontend)
   settings: Record<string, unknown>
   // Acumulador mensual legacy (no se usa en tarjetas nuevas)
   monthlyStats: Record<string, MonthlyStats>
