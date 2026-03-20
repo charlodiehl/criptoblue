@@ -80,5 +80,5 @@ export async function GET(req: NextRequest) {
     connectedAt: new Date().toISOString(),
   })
 
-  return NextResponse.redirect(new URL('/tn-success', req.nextUrl.origin))
+  return NextResponse.redirect(new URL(`/tn-success?storeId=${storeId}`, req.nextUrl.origin))
 }
