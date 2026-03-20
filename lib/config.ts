@@ -1,6 +1,6 @@
 // Fecha de reset — nada anterior a este momento debe aparecer en ningún lado
-// 17/03/2026 12:42 hs Argentina (ART = UTC-3) → 15:42 UTC
-export const HARD_CUTOFF = new Date('2026-03-17T15:42:00.000Z')
+// 19/03/2026 23:25 hs Argentina (ART = UTC-3) → 02:25 UTC del 20/03
+export const HARD_CUTOFF = new Date('2026-03-20T02:25:00.000Z')
 
 // Mapeo de fuente de pago → nombre amigable para el Registro
 // Para agregar un nuevo medio de pago, solo agregar una entrada acá
