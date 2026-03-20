@@ -8,6 +8,7 @@ import OrdersListTab from '@/components/OrdersListTab'
 import PaymentsListTab from '@/components/PaymentsListTab'
 import RegistroTab from '@/components/RegistroTab'
 import type { Order, UnmatchedPayment, Store, LogEntry, Payment, RecentMatch } from '@/lib/types'
+import { HARD_CUTOFF } from '@/lib/config'
 
 type Tab = 'manual' | 'ordenes' | 'pagos' | 'sin-coincidencia' | 'registro'
 
@@ -530,7 +531,7 @@ export default function Dashboard() {
   const HOURS_24 = 24 * 60 * 60 * 1000
   const HOURS_48 = 48 * 60 * 60 * 1000
   // Cutoff efectivo: el más reciente entre rolling window y la fecha de inicio de la app
-  const HARD_CUTOFF_MS = 1773762120000 // 2026-03-17T15:42:00.000Z en ms
+  const HARD_CUTOFF_MS = HARD_CUTOFF.getTime()
   const cutoff24 = Math.max(Date.now() - HOURS_24, HARD_CUTOFF_MS)
   const cutoff48 = Math.max(Date.now() - HOURS_48, HARD_CUTOFF_MS)
 
