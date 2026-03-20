@@ -18,11 +18,19 @@ function isAuthorized(req: Request): boolean {
 async function runAutoMatch() {
   const [state, stores] = await Promise.all([loadState(), getStores()])
 
-  // Anti-duplicado: si ya corrió en los últimos 3 minutos, saltar
-  const lastRun = state.lastAutoMatchAt ? new Date(state.lastAutoMatchAt).getTime() : 0
-  const msSinceLastRun = Date.now() - lastRun
-  if (msSinceLastRun < 3 * 60 * 1000) {
-    return NextResponse.json({ skipped: true, reason: 'ran_recently', msSinceLastRun })
+  // Verificar que el sync corrió ANTES que este auto-match y que hayan pasado ≥30s
+  // (garantiza que los datos están frescos antes de buscar candidatos)
+  const lastSync = state.lastMPCheck ? new Date(state.lastMPCheck).getTime() : 0
+  const lastRun  = state.lastAutoMatchAt ? new Date(state.lastAutoMatchAt).getTime() : 0
+  const now = Date.now()
+
+  // Si ya corrió después del último sync, no volver a correr
+  if (lastRun > lastSync) {
+    return NextResponse.json({ skipped: true, reason: 'already_ran_after_sync', lastRun: state.lastAutoMatchAt, lastSync: state.lastMPCheck })
+  }
+  // El sync debe haber terminado hace al menos 30s para que los datos estén guardados
+  if (lastSync === 0 || (now - lastSync) < 30 * 1000) {
+    return NextResponse.json({ skipped: true, reason: 'sync_too_recent_or_never', msSinceSync: now - lastSync })
   }
 
   // IDs de pagos ya procesados (no volver a procesar)
