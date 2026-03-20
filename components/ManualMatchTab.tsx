@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useEffect, useRef } from 'react'
 import type { UnmatchedPayment, Order } from '@/lib/types'
+import { ARS, fmtDate } from '@/lib/utils'
 
 export interface AutoMatchCandidate {
   mpPaymentId: string
@@ -37,20 +38,6 @@ function meetsAutoCriteria(signals: Signal[]): boolean {
   return cuitOk || emailOk || nombreOk || (!!allUnavailable && unica?.match === true)
 }
 
-const ARS = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 0 })
-
-function fmtDate(iso: string) {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  const fmt = new Intl.DateTimeFormat('es-AR', {
-    timeZone: 'America/Argentina/Buenos_Aires',
-    day: '2-digit', month: '2-digit', year: 'numeric',
-    hour: '2-digit', minute: '2-digit', hour12: false,
-  })
-  const parts = fmt.formatToParts(d)
-  const get = (t: string) => parts.find(p => p.type === t)?.value ?? '00'
-  return `${get('day')}/${get('month')}/${get('year')} ${get('hour')}:${get('minute')}`
-}
 
 function nameSim(a: string, b: string): number {
   if (!a || !b) return 0

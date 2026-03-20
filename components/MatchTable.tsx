@@ -2,8 +2,7 @@
 
 import { motion, AnimatePresence } from 'framer-motion'
 import type { PendingMatch } from '@/lib/types'
-
-const ARS = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 0 })
+import { ARS } from '@/lib/utils'
 
 function fmtDate(iso: string) {
   if (!iso) return '—'

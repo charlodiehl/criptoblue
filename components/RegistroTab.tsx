@@ -3,19 +3,7 @@
 import { useState, useMemo } from 'react'
 import type { LogEntry } from '@/lib/types'
 import { PAYMENT_SOURCE_NAMES } from '@/lib/config'
-
-function fmtDate(iso: string) {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  const fmt = new Intl.DateTimeFormat('es-AR', {
-    timeZone: 'America/Argentina/Buenos_Aires',
-    day: '2-digit', month: '2-digit', year: 'numeric',
-    hour: '2-digit', minute: '2-digit', hour12: false,
-  })
-  const parts = fmt.formatToParts(d)
-  const get = (t: string) => parts.find(p => p.type === t)?.value ?? '00'
-  return `${get('day')}/${get('month')}/${get('year')} ${get('hour')}:${get('minute')}`
-}
+import { fmtDate } from '@/lib/utils'
 
 function fmtMontoDisplay(n: number) {
   // Sin separador de miles, punto decimal (igual que el export TSV)

@@ -2,8 +2,7 @@
 
 import { useEffect, useRef } from 'react'
 import { motion, useMotionValue, useSpring, useTransform } from 'framer-motion'
-
-const ARS = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 0 })
+import { ARS } from '@/lib/utils'
 
 interface Stats {
   matchedCount: number
