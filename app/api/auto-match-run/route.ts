@@ -111,7 +111,7 @@ async function runAutoMatch() {
 
     const logEntry: LogEntry = {
       timestamp: new Date().toISOString(),
-      action: 'manual_paid',
+      action: 'auto_paid',
       source: 'emparejamiento',
       payment: candidate.payment,
       order: candidate.order,
