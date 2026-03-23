@@ -29,7 +29,7 @@ function nombrePagador(entry: LogEntry): string {
   return entry.payment?.nombrePagador || entry.order?.customerName || entry.customerName || ''
 }
 
-type SortKey = 'fecha' | 'monto' | 'cuit' | 'nombre' | 'tienda' | 'orden' | 'billetera' | 'origen'
+type SortKey = 'fecha' | 'monto' | 'cuit' | 'nombre' | 'tienda' | 'orden' | 'billetera'
 type SortDir = 'asc' | 'desc'
 
 const PAGE_SIZE = 25
@@ -48,7 +48,6 @@ const COLUMNS: { label: string; key: SortKey }[] = [
   { label: 'Tienda',            key: 'tienda'    },
   { label: 'Número de orden',   key: 'orden'     },
   { label: 'Billetera',         key: 'billetera' },
-  { label: 'Origen',            key: 'origen'    },
 ]
 
 const HEADERS = COLUMNS.map(c => c.label)
@@ -62,7 +61,6 @@ function getSortValue(e: LogEntry, key: SortKey): string | number {
     case 'tienda':    return (e.storeName || e.order?.storeName || '').toLowerCase()
     case 'orden':     return Number((e.orderNumber || e.order?.orderNumber || '').replace(/\D/g, '')) || 0
     case 'billetera': return billetera(e).toLowerCase()
-    case 'origen':    return e.action === 'auto_paid' ? 'auto' : 'manual'
   }
 }
 
@@ -75,7 +73,6 @@ const DEFAULT_DIR: Record<SortKey, SortDir> = {
   tienda:    'asc',
   orden:     'desc',
   billetera: 'asc',
-  origen:    'asc',
 }
 
 const inputStyle: React.CSSProperties = {
@@ -151,7 +148,6 @@ export default function RegistroTab({ entries, onClearLog, onEntryEdited }: Prop
       e.storeName || e.order?.storeName || '',
       e.orderNumber || e.order?.orderNumber || '',
       billetera(e),
-      e.action === 'auto_paid' ? 'Auto' : 'Manual',
     ])
 
     const tsv = rows.map(r => r.join('\t')).join('\n')
@@ -387,15 +383,6 @@ export default function RegistroTab({ entries, onClearLog, onEntryEdited }: Prop
 
                     {/* Billetera — siempre readonly */}
                     <td style={{ padding: '12px 14px', color: 'rgba(148,163,184,0.4)', whiteSpace: 'nowrap' }}>{bill}</td>
-
-                    {/* Origen — auto o manual */}
-                    <td style={{ padding: '12px 14px', whiteSpace: 'nowrap' }}>
-                      {e.action === 'auto_paid' ? (
-                        <span style={{ fontSize: '11px', fontWeight: 600, padding: '2px 8px', borderRadius: '4px', background: 'rgba(0,212,255,0.08)', color: 'rgba(0,212,255,0.7)', border: '1px solid rgba(0,212,255,0.2)' }}>Auto</span>
-                      ) : e.action === 'manual_paid' ? (
-                        <span style={{ fontSize: '11px', fontWeight: 600, padding: '2px 8px', borderRadius: '4px', background: 'rgba(148,163,184,0.06)', color: 'rgba(148,163,184,0.5)', border: '1px solid rgba(148,163,184,0.15)' }}>Manual</span>
-                      ) : null}
-                    </td>
 
                     {/* Botones de acción */}
                     <td style={{ padding: '6px 8px', textAlign: 'center', whiteSpace: 'nowrap' }}>
