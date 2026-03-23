@@ -37,6 +37,7 @@ export async function getPendingOrders(storeId: string, accessToken: string, sto
 
     if (!res.ok) {
       const text = await res.text()
+      if (res.status === 404 && text.includes('Last page is 0')) break
       throw new Error(`TN API error ${res.status} for store ${storeId}: ${text}`)
     }
 
