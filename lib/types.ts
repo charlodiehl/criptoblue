@@ -155,6 +155,8 @@ export interface AppState {
   errorLog: ErrorEntry[]
   // Log de actividad interno: todas las acciones de las últimas 24hs (humano o sistema)
   activityLog: ActivityEntry[]
+  // Timestamp del último borrado manual del Registro — el GET /api/log filtra entradas anteriores a esto
+  registroClearedAt?: string
 }
 
 export interface ActivityEntry {

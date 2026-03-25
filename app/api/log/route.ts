@@ -40,11 +40,16 @@ export async function PATCH(request: Request) {
 }
 
 // GET: devuelve matchLog + recentMatches para el frontend
+// Filtra entradas anteriores a registroClearedAt para que el Registro aparezca vacío tras un borrado
 export async function GET() {
   try {
     const state = await loadState()
+    const clearedAt = state.registroClearedAt ? new Date(state.registroClearedAt).getTime() : 0
+    const entries = clearedAt
+      ? (state.matchLog || []).filter(e => new Date(e.timestamp).getTime() > clearedAt)
+      : (state.matchLog || [])
     return NextResponse.json({
-      entries: state.matchLog,
+      entries,
       recentMatches: state.recentMatches || [],
     })
   } catch (err) {
@@ -126,7 +131,7 @@ export async function DELETE() {
     }
 
     const entryCount = state.matchLog.length
-    state.matchLog = []
+    state.registroClearedAt = nowISO  // el matchLog persiste en backend — solo ocultamos entradas anteriores en la UI
 
     appendActivity(state, 'human', 'registro_borrado', { entradasEliminadas: entryCount })
 
