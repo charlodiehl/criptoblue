@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { loadState, saveState, getStores } from '@/lib/storage'
+import { loadState, saveState, getStores, incrementPersistedMonthStats } from '@/lib/storage'
 import { markOrderAsPaid as markTNOrderAsPaid } from '@/lib/tiendanube'
 import { markOrderAsPaid as markShopifyOrderAsPaid } from '@/lib/shopify'
 import type { LogEntry } from '@/lib/types'
@@ -40,11 +40,16 @@ export async function POST(req: NextRequest) {
     const logEntry: LogEntry = {
       timestamp: new Date().toISOString(),
       action: 'manual_paid',
+      source: 'manual_ordenes',
+      triggeredBy: 'human',
       orderId,
       storeId,
       storeName: store.storeName,
+      amount: total || undefined,
     }
+    state.registroLog.push(logEntry)
     state.matchLog.push(logEntry)
+    if (total) incrementPersistedMonthStats(state, total, 'manual_ordenes')
     await saveState(state)
 
     return NextResponse.json({ success: true })

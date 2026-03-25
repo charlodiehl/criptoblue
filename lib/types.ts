@@ -126,6 +126,11 @@ export interface DismissedPair {
 
 export interface AppState {
   processedPayments: string[]
+  // registroLog: Registro visible en la UI — nunca expira automáticamente, solo se borra con el botón "Borrar Registro"
+  // Incluye: todos los emparejamientos (manuales y automáticos) + pagos vencidos sin emparejar
+  registroLog: LogEntry[]
+  // matchLog: log de backend para consultas del sistema — se borra automáticamente a las 48hs
+  // Solo incluye emparejamientos (NO no_match). Independiente del Registro.
   matchLog: LogEntry[]
   recentMatches: RecentMatch[]
   pendingMatches: PendingMatch[]
@@ -146,17 +151,15 @@ export interface AppState {
   settings: Record<string, unknown>
   // Acumulador mensual legacy (no se usa en tarjetas nuevas)
   monthlyStats: Record<string, MonthlyStats>
-  // Stats de las 4 tarjetas persistidas por mes — NO se borran con el registro
-  // Clave: "YYYY-MM". Se acumulan en DELETE /api/log antes de vaciar el matchLog.
+  // Stats de las 4 tarjetas — se acumulan en tiempo real con cada match, nunca se tocan por otro proceso
+  // Clave: "YYYY-MM". Se resetean naturalmente al cambiar de mes.
   persistedMonthStats: Record<string, PersistedMonthStats>
   // Pares pago+orden bloqueados por "No corresponde" — expiran a las 48hs automáticamente
   dismissedPairs: DismissedPair[]
-  // Log de errores del sistema (persiste en Supabase, auto-limpia a 30 días)
+  // Log de errores del sistema (persiste en Supabase, auto-limpia a 7 días)
   errorLog: ErrorEntry[]
-  // Log de actividad interno: todas las acciones de las últimas 24hs (humano o sistema)
+  // Log de actividad interno: todas las acciones de las últimas 48hs (humano o sistema)
   activityLog: ActivityEntry[]
-  // Timestamp del último borrado manual del Registro — el GET /api/log filtra entradas anteriores a esto
-  registroClearedAt?: string
 }
 
 export interface ActivityEntry {

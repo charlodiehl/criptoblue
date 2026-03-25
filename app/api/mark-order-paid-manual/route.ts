@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { loadState, saveState, getStores, incrementMonthlyStats, appendActivity } from '@/lib/storage'
+import { loadState, saveState, getStores, incrementMonthlyStats, incrementPersistedMonthStats, appendActivity } from '@/lib/storage'
 import { markOrderAsPaid } from '@/lib/tiendanube'
 import type { LogEntry, Payment } from '@/lib/types'
 
@@ -41,8 +41,8 @@ export async function POST(req: NextRequest) {
 
     const order = orderFromClient || null
 
-    // Acumulador mensual
     incrementMonthlyStats(state, Number(monto))
+    incrementPersistedMonthStats(state, Number(monto), 'manual_ordenes')
 
     // recentMatches: para que la orden quede verde en la pestaña Órdenes
     state.recentMatches = state.recentMatches || []
@@ -72,6 +72,7 @@ export async function POST(req: NextRequest) {
       cuitPagador: cuitPagador || undefined,
       orderCreatedAt: order?.createdAt,
     }
+    state.registroLog.push(logEntry)
     state.matchLog.push(logEntry)
 
     appendActivity(state, 'human', 'orden_pagada_manual', {

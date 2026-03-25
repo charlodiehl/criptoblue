@@ -44,6 +44,7 @@ async function kvSet(key: string, value: unknown): Promise<void> {
 
 const DEFAULT_STATE: AppState = {
   processedPayments: [],
+  registroLog: [],
   matchLog: [],
   recentMatches: [],
   pendingMatches: [],
@@ -105,6 +106,7 @@ export async function loadState(): Promise<AppState> {
     ...DEFAULT_STATE,
     ...state,
     processedPayments: state.processedPayments || [],
+    registroLog: state.registroLog || [],
     matchLog: state.matchLog || [],
     recentMatches: state.recentMatches || [],
     pendingMatches: state.pendingMatches || [],
@@ -127,23 +129,25 @@ export async function saveState(state: AppState): Promise<void> {
   // Efectivo: el más reciente entre rolling 48h y el hard cutoff (comparación numérica, evita bugs de timezone en strings)
   const effectiveCutoffMs = Math.max(cutoff48hMs, HARD_CUTOFF.getTime())
 
-  // matchLog: auto-limpia entradas con más de 48h (mismo criterio que el resto del estado)
+  // matchLog (backend): auto-expira a 48hs — solo para consultas del sistema, no toca persistedMonthStats
   state.matchLog = (state.matchLog || []).filter(e => new Date(e.timestamp).getTime() >= effectiveCutoffMs)
+
+  // registroLog (UI): NUNCA expira automáticamente — solo se borra con el botón "Borrar Registro"
 
   // recentMatches: auto-cleanup al cutoff efectivo (solo se usa para resaltado verde en pestañas)
   state.recentMatches = (state.recentMatches || []).filter(m => new Date(m.matchedAt).getTime() >= effectiveCutoffMs)
 
-  // unmatchedPayments: antes de eliminar los vencidos, registrarlos en el matchLog
+  // unmatchedPayments: antes de eliminar los vencidos, registrarlos en registroLog (solo UI, no en matchLog)
   const expiredPayments = state.unmatchedPayments.filter(
     u => u.payment.fechaPago && new Date(u.payment.fechaPago).getTime() < effectiveCutoffMs
   )
   const alreadyLoggedIds = new Set(
-    (state.matchLog || []).filter(e => e.action === 'no_match').map(e => e.mpPaymentId).filter(Boolean)
+    (state.registroLog || []).filter(e => e.action === 'no_match').map(e => e.mpPaymentId).filter(Boolean)
   )
   for (const u of expiredPayments) {
     if (!alreadyLoggedIds.has(u.payment.mpPaymentId)) {
-      state.matchLog = state.matchLog || []
-      state.matchLog.push({
+      state.registroLog = state.registroLog || []
+      state.registroLog.push({
         timestamp: u.payment.fechaPago,
         action: 'no_match',
         payment: u.payment,
@@ -206,6 +210,10 @@ export async function saveState(state: AppState): Promise<void> {
       ...m,
       payment: stripRawData(m.payment),
     })),
+    registroLog: state.registroLog.map(e => ({
+      ...e,
+      payment: e.payment ? stripRawData(e.payment) : undefined,
+    })),
     matchLog: state.matchLog.map(e => ({
       ...e,
       payment: e.payment ? stripRawData(e.payment) : undefined,
@@ -242,6 +250,24 @@ export function incrementMonthlyStats(state: AppState, amount: number): void {
   const key = new Date().toISOString().slice(0, 7) // "YYYY-MM"
   const prev = state.monthlyStats[key] || { count: 0, volume: 0 }
   state.monthlyStats[key] = { count: prev.count + 1, volume: prev.volume + amount }
+}
+
+export function incrementPersistedMonthStats(
+  state: AppState,
+  amount: number,
+  source: 'emparejamiento' | 'manual_pagos' | 'manual_ordenes'
+): void {
+  const key = new Date().toISOString().slice(0, 7) // "YYYY-MM"
+  state.persistedMonthStats = state.persistedMonthStats || {}
+  const base = state.persistedMonthStats[key] || { matchedCount: 0, matchedVolume: 0, manualCount: 0, manualVolume: 0 }
+  const isMatched = source === 'emparejamiento'
+  const isManual = source === 'manual_pagos' || source === 'manual_ordenes'
+  state.persistedMonthStats[key] = {
+    matchedCount:  base.matchedCount  + (isMatched ? 1 : 0),
+    matchedVolume: base.matchedVolume + (isMatched ? amount : 0),
+    manualCount:   base.manualCount   + (isManual  ? 1 : 0),
+    manualVolume:  base.manualVolume  + (isManual  ? amount : 0),
+  }
 }
 
 export function appendActivity(

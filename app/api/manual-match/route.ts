@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { loadState, saveState, getStores, getMatchId, incrementMonthlyStats, appendError, appendActivity } from '@/lib/storage'
+import { loadState, saveState, getStores, getMatchId, incrementMonthlyStats, incrementPersistedMonthStats, appendError, appendActivity } from '@/lib/storage'
 import { markOrderAsPaid as markTNOrderAsPaid, getPendingOrders as getTNOrders } from '@/lib/tiendanube'
 import { markOrderAsPaid as markShopifyOrderAsPaid, getPendingOrders as getShopifyOrders } from '@/lib/shopify'
 import { HARD_CUTOFF } from '@/lib/config'
@@ -74,8 +74,8 @@ export async function POST(req: NextRequest) {
 
     state.unmatchedPayments.splice(unmatchedIndex, 1)
 
-    // Acumulador mensual: persiste aunque se borre el registro
     incrementMonthlyStats(state, payment.monto)
+    incrementPersistedMonthStats(state, payment.monto, 'emparejamiento')
 
     // recentMatches: para resaltado verde en pestañas (auto-limpia a las 24h, independiente del Registro)
     state.recentMatches = state.recentMatches || []
@@ -98,6 +98,7 @@ export async function POST(req: NextRequest) {
       paymentReceivedAt: payment.fechaPago,
       orderCreatedAt: order?.createdAt,
     }
+    state.registroLog.push(logEntry)
     state.matchLog.push(logEntry)
 
     appendActivity(state, 'human', 'pago_emparejado', {

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { loadState, saveState, getStores, getMatchId, incrementMonthlyStats, appendError, appendActivity } from '@/lib/storage'
+import { loadState, saveState, getStores, getMatchId, incrementMonthlyStats, incrementPersistedMonthStats, appendError, appendActivity } from '@/lib/storage'
 import { markOrderAsPaid as markTNOrderAsPaid } from '@/lib/tiendanube'
 import { markOrderAsPaid as markShopifyOrderAsPaid } from '@/lib/shopify'
 import { findAutoMatchCandidates } from '@/lib/auto-match'
@@ -33,9 +33,9 @@ async function runAutoMatch(triggeredBy: 'cron' | 'manual_button') {
     return NextResponse.json({ skipped: true, reason: 'sync_too_recent_or_never', msSinceSync: now - lastSync })
   }
 
-  // IDs de pagos ya procesados (no volver a procesar)
+  // IDs de pagos ya procesados (no volver a procesar) — usa registroLog que nunca expira
   const confirmedIds = new Set<string>(
-    state.matchLog
+    state.registroLog
       .filter(e => e.action === 'manual_paid' || e.action === 'auto_paid' || e.action === 'dismissed')
       .map(e => e.mpPaymentId)
       .filter(Boolean) as string[]
@@ -98,6 +98,7 @@ async function runAutoMatch(triggeredBy: 'cron' | 'manual_button') {
     if (idx >= 0) state.unmatchedPayments.splice(idx, 1)
 
     incrementMonthlyStats(state, candidate.payment.monto)
+    incrementPersistedMonthStats(state, candidate.payment.monto, 'emparejamiento')
 
     state.recentMatches = state.recentMatches || []
     state.recentMatches.push({
@@ -126,6 +127,7 @@ async function runAutoMatch(triggeredBy: 'cron' | 'manual_button') {
       paymentReceivedAt: candidate.payment.fechaPago,
       orderCreatedAt: candidate.order.createdAt,
     }
+    state.registroLog.push(logEntry)
     state.matchLog.push(logEntry)
 
     appendActivity(state, 'system', 'pago_auto_emparejado', {

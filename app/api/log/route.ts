@@ -8,10 +8,10 @@ export async function PATCH(request: Request) {
     if (!timestamp) return NextResponse.json({ error: 'timestamp requerido' }, { status: 400 })
 
     const state = await loadState()
-    const idx = state.matchLog.findIndex(e => e.timestamp === timestamp)
+    const idx = state.registroLog.findIndex(e => e.timestamp === timestamp)
     if (idx === -1) return NextResponse.json({ error: 'Entrada no encontrada' }, { status: 404 })
 
-    const entry = state.matchLog[idx]
+    const entry = state.registroLog[idx]
 
     if (customerName !== undefined) {
       entry.customerName = customerName
@@ -29,7 +29,7 @@ export async function PATCH(request: Request) {
       if (entry.order) entry.order.storeName = storeName
     }
 
-    state.matchLog[idx] = entry
+    state.registroLog[idx] = entry
     appendActivity(state, 'human', 'registro_editado', { timestamp, customerName, cuit, orderNumber, storeName })
     await saveState(state)
 
@@ -39,17 +39,12 @@ export async function PATCH(request: Request) {
   }
 }
 
-// GET: devuelve matchLog + recentMatches para el frontend
-// Filtra entradas anteriores a registroClearedAt para que el Registro aparezca vacío tras un borrado
+// GET: devuelve registroLog + recentMatches para el frontend
 export async function GET() {
   try {
     const state = await loadState()
-    const clearedAt = state.registroClearedAt ? new Date(state.registroClearedAt).getTime() : 0
-    const entries = clearedAt
-      ? (state.matchLog || []).filter(e => new Date(e.timestamp).getTime() > clearedAt)
-      : (state.matchLog || [])
     return NextResponse.json({
-      entries,
+      entries: state.registroLog,
       recentMatches: state.recentMatches || [],
     })
   } catch (err) {
@@ -57,18 +52,19 @@ export async function GET() {
   }
 }
 
-// DELETE: borra el registro manualmente (no toca recentMatches ni pagos)
-// IMPORTANTE: antes de borrar, preservar IDs en las listas correctas para que cycle.ts
-// no los re-agregue a la cola de emparejamiento tras un reevaluar.
-// - manual_paid / auto_paid → retainedPaymentIds (protección en backend, sin efecto en badges)
-// - dismissed → externallyMarkedPayments (protección en backend; mantiene semántica "No es de tiendas")
-// También acumula los stats de las 4 tarjetas en persistedMonthStats antes de vaciar el log.
+// DELETE: borra el registro visualmente (limpia registroLog)
+// IMPORTANTE: NO toca persistedMonthStats (las tarjetas son independientes)
+// Preserva IDs en retainedPaymentIds y externallyMarkedPayments para que cycle.ts
+// no re-agregue esos pagos a la cola de emparejamiento.
 export async function DELETE() {
   try {
     const state = await loadState()
 
-    // Pagos confirmados (matched): van a retainedPaymentIds, no tocan el badge del frontend
-    const matchedIds = state.matchLog
+    const now = new Date()
+    const nowISO = now.toISOString()
+
+    // Pagos confirmados (matched): van a retainedPaymentIds para protección en backend
+    const matchedIds = state.registroLog
       .filter(e => e.action === 'manual_paid' || e.action === 'auto_paid')
       .map(e => e.mpPaymentId)
       .filter((id): id is string => !!id)
@@ -79,59 +75,20 @@ export async function DELETE() {
     }
     state.retainedPaymentIds = Array.from(existingRetained)
 
-    // Pagos descartados: van a externallyMarkedPayments (su semántica original)
-    const dismissedIds = state.matchLog
+    // Pagos descartados: van a externallyMarkedPayments
+    const dismissedIds = state.registroLog
       .filter(e => e.action === 'dismissed')
       .map(e => e.mpPaymentId)
       .filter((id): id is string => !!id)
 
-    const now = new Date()
-    const nowISO = now.toISOString()
     for (const id of dismissedIds) {
       if (!state.externallyMarkedPayments.some(e => e.id === id)) {
         state.externallyMarkedPayments.push({ id, markedAt: nowISO })
       }
     }
 
-    // Acumular stats de las 4 tarjetas por mes en persistedMonthStats
-    // para que no se pierdan al borrar el log
-    const currentMonth = now.getMonth()
-    const currentYear = now.getFullYear()
-    const isThisMonth = (ts: string) => {
-      const d = new Date(ts)
-      return d.getMonth() === currentMonth && d.getFullYear() === currentYear
-    }
-    const monthKey = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`
-
-    const matchedLogs = state.matchLog.filter(e =>
-      (e.action === 'manual_paid' || e.action === 'auto_paid') &&
-      isThisMonth(e.timestamp) &&
-      (
-        e.source === 'emparejamiento' ||
-        (!e.source && e.mpPaymentId && !e.mpPaymentId.startsWith('manual_'))
-      )
-    )
-    const manualLogs = state.matchLog.filter(e =>
-      e.action === 'manual_paid' &&
-      isThisMonth(e.timestamp) &&
-      (
-        e.source === 'manual_pagos' ||
-        e.source === 'manual_ordenes' ||
-        (!e.source && e.mpPaymentId?.startsWith('manual_'))
-      )
-    )
-
-    state.persistedMonthStats = state.persistedMonthStats || {}
-    const base = state.persistedMonthStats[monthKey] || { matchedCount: 0, matchedVolume: 0, manualCount: 0, manualVolume: 0 }
-    state.persistedMonthStats[monthKey] = {
-      matchedCount: base.matchedCount + matchedLogs.length,
-      matchedVolume: base.matchedVolume + matchedLogs.reduce((s, e) => s + (e.amount || 0), 0),
-      manualCount:   base.manualCount   + manualLogs.length,
-      manualVolume:  base.manualVolume  + manualLogs.reduce((s, e) => s + (e.amount || 0), 0),
-    }
-
-    const entryCount = state.matchLog.length
-    state.registroClearedAt = nowISO  // el matchLog persiste en backend — solo ocultamos entradas anteriores en la UI
+    const entryCount = state.registroLog.length
+    state.registroLog = []
 
     appendActivity(state, 'human', 'registro_borrado', { entradasEliminadas: entryCount })
 

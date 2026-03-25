@@ -50,7 +50,7 @@ export async function processMPPayments(): Promise<CycleResult> {
   // deben seguir en unmatchedPayments para que la pestaña Pagos los muestre en amarillo,
   // y el frontend los filtra de emparejamiento/sin-coincidencias via matchedPaymentIds.
   const confirmedIds = new Set<string>([
-    ...state.matchLog
+    ...state.registroLog
       .filter(e => e.action === 'manual_paid' || e.action === 'auto_paid' || e.action === 'dismissed')
       .map(e => e.mpPaymentId)
       .filter((id): id is string => !!id),

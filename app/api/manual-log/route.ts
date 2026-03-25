@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { loadState, saveState, getStores, getMatchId, incrementMonthlyStats, appendActivity } from '@/lib/storage'
+import { loadState, saveState, getStores, getMatchId, incrementMonthlyStats, incrementPersistedMonthStats, appendActivity } from '@/lib/storage'
 import { markOrderAsPaid } from '@/lib/tiendanube'
 import type { LogEntry, Order } from '@/lib/types'
 
@@ -34,6 +34,7 @@ export async function POST(req: NextRequest) {
     state.unmatchedPayments.splice(unmatchedIndex, 1)
 
     incrementMonthlyStats(state, payment.monto)
+    incrementPersistedMonthStats(state, payment.monto, 'manual_pagos')
 
     const order: Order | undefined = matchedOrder || undefined
 
@@ -64,6 +65,7 @@ export async function POST(req: NextRequest) {
       paymentReceivedAt: payment.fechaPago,
       orderCreatedAt: order?.createdAt,
     }
+    state.registroLog.push(logEntry)
     state.matchLog.push(logEntry)
 
     appendActivity(state, 'human', 'pago_registrado_manual', {
