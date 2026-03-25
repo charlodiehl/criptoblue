@@ -51,6 +51,7 @@ export async function POST(req: NextRequest) {
       timestamp: new Date().toISOString(),
       action: 'manual_paid',
       source: 'manual_pagos',
+      triggeredBy: 'human',
       payment,
       order,
       mpPaymentId: payment.mpPaymentId,

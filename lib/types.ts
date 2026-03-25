@@ -55,6 +55,11 @@ export interface LogEntry {
   // 'manual_pagos'   → tarjeta 2 (Marcados manualmente) — desde pestaña Pagos/Sin coincidencia
   // 'manual_ordenes' → tarjeta 2 (Marcados manualmente) — desde pestaña Órdenes
   source?: 'emparejamiento' | 'manual_pagos' | 'manual_ordenes'
+  // Quién disparó el match:
+  // 'cron'          → el cron automático de Vercel
+  // 'manual_button' → botón ⚡ tocado por un humano
+  // 'human'         → acción manual en la UI (confirmar, marcar orden, etc.)
+  triggeredBy?: 'cron' | 'manual_button' | 'human'
   payment?: Payment
   order?: Order
   score?: number

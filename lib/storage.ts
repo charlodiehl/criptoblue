@@ -127,10 +127,8 @@ export async function saveState(state: AppState): Promise<void> {
   // Efectivo: el más reciente entre rolling 48h y el hard cutoff (comparación numérica, evita bugs de timezone en strings)
   const effectiveCutoffMs = Math.max(cutoff48hMs, HARD_CUTOFF.getTime())
 
-  // matchLog: sin límite de tiempo — se limpia solo manualmente desde el Registro
-  // Pero sí filtramos entradas anteriores al hard cutoff (datos de antes de la app)
-  const hardCutoffMs = HARD_CUTOFF.getTime()
-  state.matchLog = (state.matchLog || []).filter(e => new Date(e.timestamp).getTime() >= hardCutoffMs)
+  // matchLog: auto-limpia entradas con más de 48h (mismo criterio que el resto del estado)
+  state.matchLog = (state.matchLog || []).filter(e => new Date(e.timestamp).getTime() >= effectiveCutoffMs)
 
   // recentMatches: auto-cleanup al cutoff efectivo (solo se usa para resaltado verde en pestañas)
   state.recentMatches = (state.recentMatches || []).filter(m => new Date(m.matchedAt).getTime() >= effectiveCutoffMs)

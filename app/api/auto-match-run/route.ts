@@ -15,7 +15,7 @@ function isAuthorized(req: Request): boolean {
   return bearer === `Bearer ${cronSecret}` || custom === cronSecret
 }
 
-async function runAutoMatch() {
+async function runAutoMatch(triggeredBy: 'cron' | 'manual_button') {
   const [state, stores] = await Promise.all([loadState(), getStores()])
 
   // Verificar que el sync corrió ANTES que este auto-match y que hayan pasado ≥30s
@@ -113,6 +113,7 @@ async function runAutoMatch() {
       timestamp: new Date().toISOString(),
       action: 'auto_paid',
       source: 'emparejamiento',
+      triggeredBy,
       payment: candidate.payment,
       order: candidate.order,
       mpPaymentId: candidate.mpPaymentId,
@@ -150,7 +151,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
   try {
-    return await runAutoMatch()
+    return await runAutoMatch('cron')
   } catch (err) {
     console.error('[auto-match-run] fatal error:', err)
     return NextResponse.json({ error: String(err) }, { status: 500 })
@@ -163,7 +164,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
   try {
-    return await runAutoMatch()
+    return await runAutoMatch('manual_button')
   } catch (err) {
     console.error('[auto-match-run] fatal error:', err)
     return NextResponse.json({ error: String(err) }, { status: 500 })

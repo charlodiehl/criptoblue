@@ -59,6 +59,7 @@ export async function POST(req: NextRequest) {
       timestamp: now,
       action: 'manual_paid',
       source: 'manual_ordenes',
+      triggeredBy: 'human',
       payment: fakePayment,
       order: order || undefined,
       mpPaymentId: fakeMpPaymentId,
