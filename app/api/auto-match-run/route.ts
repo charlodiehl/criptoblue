@@ -123,6 +123,8 @@ async function runAutoMatch(triggeredBy: 'cron' | 'manual_button') {
       storeId: candidate.storeId,
       storeName: store.storeName,
       customerName: candidate.order.customerName,
+      paymentReceivedAt: candidate.payment.fechaPago,
+      orderCreatedAt: candidate.order.createdAt,
     }
     state.matchLog.push(logEntry)
 

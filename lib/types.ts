@@ -71,6 +71,8 @@ export interface LogEntry {
   customerName?: string
   cuitPagador?: string
   mpPaymentId?: string
+  paymentReceivedAt?: string  // Cuándo llegó el pago a MercadoPago (payment.fechaPago)
+  orderCreatedAt?: string     // Cuándo se creó la orden en la tienda (order.createdAt)
 }
 
 export interface UnmatchedPayment {

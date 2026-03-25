@@ -61,6 +61,8 @@ export async function POST(req: NextRequest) {
       storeId: order?.storeId,
       storeName: order?.storeName || storeName || '',
       customerName: order?.customerName,
+      paymentReceivedAt: payment.fechaPago,
+      orderCreatedAt: order?.createdAt,
     }
     state.matchLog.push(logEntry)
 

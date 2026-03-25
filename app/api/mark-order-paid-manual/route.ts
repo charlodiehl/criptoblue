@@ -70,6 +70,7 @@ export async function POST(req: NextRequest) {
       storeName: store.storeName,
       customerName: nombrePagador || order?.customerName,
       cuitPagador: cuitPagador || undefined,
+      orderCreatedAt: order?.createdAt,
     }
     state.matchLog.push(logEntry)
 
