@@ -187,14 +187,17 @@ export function findAutoMatchCandidates(
 
     let bestOrder: Order | null = null
     let bestGreenCount = -1
+    let bestMontoDiff = Infinity  // desempate: menor diferencia de monto gana
 
     for (const order of orders) {
       if (dismissedSet.has(`${mpId}|${order.orderId}|${order.storeId}`)) continue
       const signals = computeSignals(u.payment, order, sameMontoCount)
       if (!meetsAutoCriteria(signals)) continue
       const greenCount = signals.filter(s => s.match).length
-      if (greenCount > bestGreenCount) {
+      const montoDiff = Math.abs(u.payment.monto - order.total)
+      if (greenCount > bestGreenCount || (greenCount === bestGreenCount && montoDiff < bestMontoDiff)) {
         bestGreenCount = greenCount
+        bestMontoDiff = montoDiff
         bestOrder = order
       }
     }

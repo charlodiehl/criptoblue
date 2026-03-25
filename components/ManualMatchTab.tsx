@@ -57,12 +57,11 @@ type Payment = UnmatchedPayment['payment']
 function computeScore(payment: Payment, order: Order, sameMontoCount = -1): number {
   let score = 0
 
-  // Monto
+  // Monto — dentro de ±$10 es "mismo monto", pero cuanto más cerca del exacto, mejor score
   const diff = Math.abs(payment.monto - order.total)
-  if (diff === 0) score += 20
-  else if (diff <= 10) score += 19
-  else if (diff <= 1000) score += 17
-  else score += 15
+  if (diff <= 10) score += 20 - diff  // exacto=20, diff 1=19, diff 10=10
+  else if (diff <= 1000) score += 9
+  else score += 5
 
   // CUIT / CUIL / DNI
   if (payment.cuitPagador && order.customerCuit) {
@@ -304,10 +303,10 @@ export default function ManualMatchTab({
     const allPairs = unmatchedPayments.map(u => {
       const id = u.mpPaymentId || u.payment.mpPaymentId || ''
       const skipCount = 0
-      // Precomputar cantidad de órdenes con mismo monto ANTERIORES al pago (una orden siempre precede al pago)
+      // Precomputar cantidad de órdenes con mismo monto (±$10) ANTERIORES al pago
       const payTime = u.payment.fechaPago ? new Date(u.payment.fechaPago).getTime() : null
       const totalSameMonto = orders.filter(x =>
-        x.total === u.payment.monto &&
+        Math.abs(x.total - u.payment.monto) <= 10 &&
         (!payTime || !x.createdAt || new Date(x.createdAt).getTime() <= payTime)
       ).length
 
@@ -322,7 +321,7 @@ export default function ManualMatchTab({
         .filter(o => !dismissedSet.has(`${id}|${o.orderId}|${o.storeId}`))
         .map(o => {
           const signals = computeSignals(u.payment, o)
-          const sameMontoCount = totalSameMonto - (o.total === u.payment.monto ? 1 : 0)
+          const sameMontoCount = totalSameMonto - (Math.abs(o.total - u.payment.monto) <= 10 ? 1 : 0)
           // Mostrar señal cuando:
           // Caso 1: monto es el único verde (sin importar parciales)
           // Caso 2: monto + fecha son verdes pero CUIT/Nombre/Email no tienen verde ni parcial
