@@ -17,11 +17,13 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
   try {
+    // No borrar lastMPCheck aquí — processMPPayments() lo actualiza al terminar.
+    // Borrarlo antes causaba race condition: si auto-match-run corría mientras
+    // processMPPayments() aún no terminaba, veía lastMPCheck='' y se skippeaba.
     const state = await loadState()
     state.pendingMatches = []
     state.unmatchedPayments = []
     state.processedPayments = []
-    state.lastMPCheck = ''
     appendActivity(state, 'system', 'reevaluar_automatico')
     await saveState(state)
 
@@ -47,7 +49,6 @@ export async function POST(_req: Request) {
     state.pendingMatches = []
     state.unmatchedPayments = []
     state.processedPayments = []
-    state.lastMPCheck = ''
     appendActivity(state, 'human', 'reevaluar_manual')
     await saveState(state)
 
