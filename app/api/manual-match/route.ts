@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { loadState, saveState, getStores, getMatchId, incrementMonthlyStats, incrementPersistedMonthStats, appendError, appendActivity } from '@/lib/storage'
 import { markOrderAsPaid as markTNOrderAsPaid, getPendingOrders as getTNOrders } from '@/lib/tiendanube'
 import { markOrderAsPaid as markShopifyOrderAsPaid, getPendingOrders as getShopifyOrders } from '@/lib/shopify'
-import { HARD_CUTOFF } from '@/lib/config'
+import { HARD_CUTOFF_ORDERS } from '@/lib/config'
 import type { LogEntry } from '@/lib/types'
 
 export async function POST(req: NextRequest) {
@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
     let order = orderFromClient || null
     if (!order) {
       try {
-        const since = new Date(Math.max(Date.now() - 48 * 3600000, HARD_CUTOFF.getTime()))
+        const since = new Date(Math.max(Date.now() - 48 * 3600000, HARD_CUTOFF_ORDERS.getTime()))
         const fetchOrders = platform === 'shopify' ? getShopifyOrders : getTNOrders
         const orders = await fetchOrders(storeId, store.accessToken, store.storeName, since)
         order = orders.find(o => o.orderId === orderId) || null

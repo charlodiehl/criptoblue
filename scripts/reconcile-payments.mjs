@@ -27,7 +27,8 @@ for (const line of envLines) {
 const SUPABASE_URL = process.env.SUPABASE_URL
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY
 const MP_ACCESS_TOKEN = process.env.CRIPTOBLUE_MP_ACCESS_TOKEN
-const HARD_CUTOFF = new Date('2026-03-16T18:51:00.000Z')
+// 25/03/2026 15:30 ART → 18:30 UTC
+const HARD_CUTOFF = new Date('2026-03-25T18:30:00.000Z')
 const STATE_KEY = 'criptoblue:state'
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY || !MP_ACCESS_TOKEN) {

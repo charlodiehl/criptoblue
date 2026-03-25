@@ -2,7 +2,7 @@ import { fetchAllPaymentsSince } from './mercadopago'
 import { getPendingOrders as getTNOrders, cancelAbandonedOrders } from './tiendanube'
 import { getPendingOrders as getShopifyOrders } from './shopify'
 import { loadState, saveState, getStores, appendError } from './storage'
-import { HARD_CUTOFF } from './config'
+import { HARD_CUTOFF_PAYMENTS, HARD_CUTOFF_ORDERS } from './config'
 import type { UnmatchedPayment } from './types'
 
 interface CycleResult {
@@ -19,12 +19,12 @@ export async function processMPPayments(): Promise<CycleResult> {
 
   const now = new Date()
   const cutoff48h = new Date(now.getTime() - 48 * 60 * 60 * 1000)
-  // Usar el más reciente entre el rolling 48h y el hard cutoff
-  const since = cutoff48h > HARD_CUTOFF ? cutoff48h : HARD_CUTOFF
+  // Cutoffs separados para pagos y órdenes
+  const sincePayments = cutoff48h > HARD_CUTOFF_PAYMENTS ? cutoff48h : HARD_CUTOFF_PAYMENTS
+  const sinceOrders = cutoff48h > HARD_CUTOFF_ORDERS ? cutoff48h : HARD_CUTOFF_ORDERS
 
-  // Purge pagos anteriores al cutoff efectivo
-  const purge48h = new Date(now.getTime() - 48 * 60 * 60 * 1000)
-  const purgeCutoff = purge48h > HARD_CUTOFF ? purge48h : HARD_CUTOFF
+  // Purge pagos anteriores al cutoff efectivo de pagos
+  const purgeCutoff = cutoff48h > HARD_CUTOFF_PAYMENTS ? cutoff48h : HARD_CUTOFF_PAYMENTS
 
   // Limpiar pendingMatches (ya no se usa en el flujo manual)
   state.pendingMatches = []
@@ -32,7 +32,7 @@ export async function processMPPayments(): Promise<CycleResult> {
   // Traer pagos aprobados desde el cutoff efectivo
   let payments
   try {
-    payments = await fetchAllPaymentsSince(since)
+    payments = await fetchAllPaymentsSince(sincePayments)
   } catch (err) {
     result.errors.push(`MP fetch error: ${String(err)}`)
     appendError(state, 'mercadopago', 'error', `Error al traer pagos de MercadoPago: ${String(err)}`)
@@ -49,8 +49,16 @@ export async function processMPPayments(): Promise<CycleResult> {
   // Los externallyMarkedPayments ("no es de tiendas") se excluyen a propósito:
   // deben seguir en unmatchedPayments para que la pestaña Pagos los muestre en amarillo,
   // y el frontend los filtra de emparejamiento/sin-coincidencias via matchedPaymentIds.
+  // Leer IDs confirmados de AMBOS logs (registroLog + matchLog) + retainedPaymentIds
+  // registroLog: log permanente del UI
+  // matchLog: log backend con expiración 48h (puede contener entradas que aún no están en registroLog)
+  // retainedPaymentIds: backup de IDs preservados al borrar registro
   const confirmedIds = new Set<string>([
     ...state.registroLog
+      .filter(e => e.action === 'manual_paid' || e.action === 'auto_paid' || e.action === 'dismissed')
+      .map(e => e.mpPaymentId)
+      .filter((id): id is string => !!id),
+    ...state.matchLog
       .filter(e => e.action === 'manual_paid' || e.action === 'auto_paid' || e.action === 'dismissed')
       .map(e => e.mpPaymentId)
       .filter((id): id is string => !!id),
@@ -79,14 +87,14 @@ export async function processMPPayments(): Promise<CycleResult> {
   }
 
   // Traer órdenes pendientes de todas las tiendas (TiendaNube y Shopify)
-  // Usa el mismo cutoff efectivo que los pagos: max(48h_ago, HARD_CUTOFF)
+  // Usa cutoff de ÓRDENES: max(48h_ago, HARD_CUTOFF_ORDERS)
   const allOrdersPerStore = await Promise.allSettled(
     storeEntries.map(s => {
       const platform = s.platform ?? 'tiendanube'
       if (platform === 'shopify') {
-        return getShopifyOrders(s.storeId, s.accessToken, s.storeName, since)
+        return getShopifyOrders(s.storeId, s.accessToken, s.storeName, sinceOrders)
       }
-      return getTNOrders(s.storeId, s.accessToken, s.storeName, since)
+      return getTNOrders(s.storeId, s.accessToken, s.storeName, sinceOrders)
     })
   )
   allOrdersPerStore.forEach((r, i) => {

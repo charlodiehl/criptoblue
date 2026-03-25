@@ -33,13 +33,19 @@ async function runAutoMatch(triggeredBy: 'cron' | 'manual_button') {
     return NextResponse.json({ skipped: true, reason: 'sync_too_recent_or_never', msSinceSync: now - lastSync })
   }
 
-  // IDs de pagos ya procesados (no volver a procesar) — usa registroLog que nunca expira
-  const confirmedIds = new Set<string>(
-    state.registroLog
+  // IDs de pagos ya procesados (no volver a procesar)
+  // Lee de AMBOS logs + retainedPaymentIds para máxima protección
+  const confirmedIds = new Set<string>([
+    ...state.registroLog
       .filter(e => e.action === 'manual_paid' || e.action === 'auto_paid' || e.action === 'dismissed')
       .map(e => e.mpPaymentId)
-      .filter(Boolean) as string[]
-  )
+      .filter(Boolean) as string[],
+    ...state.matchLog
+      .filter(e => e.action === 'manual_paid' || e.action === 'auto_paid' || e.action === 'dismissed')
+      .map(e => e.mpPaymentId)
+      .filter(Boolean) as string[],
+    ...(state.retainedPaymentIds || []),
+  ])
 
   const candidates = findAutoMatchCandidates(
     state.unmatchedPayments,

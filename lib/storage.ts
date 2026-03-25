@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import type { AppState, Store, Payment, ErrorEntry, ActivityEntry } from './types'
-import { HARD_CUTOFF } from './config'
+import { HARD_CUTOFF_PAYMENTS, HARD_CUTOFF_ORDERS } from './config'
 
 function stripRawData(payment: Payment): Payment {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -126,20 +126,23 @@ export async function loadState(): Promise<AppState> {
 
 export async function saveState(state: AppState): Promise<void> {
   const cutoff48hMs = Date.now() - 48 * 60 * 60 * 1000
-  // Efectivo: el más reciente entre rolling 48h y el hard cutoff (comparación numérica, evita bugs de timezone en strings)
-  const effectiveCutoffMs = Math.max(cutoff48hMs, HARD_CUTOFF.getTime())
+  // Cutoffs efectivos separados para pagos y órdenes
+  const effectiveCutoffPaymentsMs = Math.max(cutoff48hMs, HARD_CUTOFF_PAYMENTS.getTime())
+  const effectiveCutoffOrdersMs = Math.max(cutoff48hMs, HARD_CUTOFF_ORDERS.getTime())
+  // Para datos mixtos (matchLog, recentMatches) usar el más permisivo (órdenes, que es más antiguo)
+  const effectiveCutoffMinMs = Math.min(effectiveCutoffPaymentsMs, effectiveCutoffOrdersMs)
 
   // matchLog (backend): auto-expira a 48hs — solo para consultas del sistema, no toca persistedMonthStats
-  state.matchLog = (state.matchLog || []).filter(e => new Date(e.timestamp).getTime() >= effectiveCutoffMs)
+  state.matchLog = (state.matchLog || []).filter(e => new Date(e.timestamp).getTime() >= effectiveCutoffMinMs)
 
   // registroLog (UI): NUNCA expira automáticamente — solo se borra con el botón "Borrar Registro"
 
   // recentMatches: auto-cleanup al cutoff efectivo (solo se usa para resaltado verde en pestañas)
-  state.recentMatches = (state.recentMatches || []).filter(m => new Date(m.matchedAt).getTime() >= effectiveCutoffMs)
+  state.recentMatches = (state.recentMatches || []).filter(m => new Date(m.matchedAt).getTime() >= effectiveCutoffMinMs)
 
   // unmatchedPayments: antes de eliminar los vencidos, registrarlos en registroLog (solo UI, no en matchLog)
   const expiredPayments = state.unmatchedPayments.filter(
-    u => u.payment.fechaPago && new Date(u.payment.fechaPago).getTime() < effectiveCutoffMs
+    u => u.payment.fechaPago && new Date(u.payment.fechaPago).getTime() < effectiveCutoffPaymentsMs
   )
   const alreadyLoggedIds = new Set(
     (state.registroLog || []).filter(e => e.action === 'no_match').map(e => e.mpPaymentId).filter(Boolean)
@@ -157,20 +160,20 @@ export async function saveState(state: AppState): Promise<void> {
     }
   }
 
-  // unmatchedPayments: eliminar los anteriores al cutoff efectivo
+  // unmatchedPayments: eliminar los anteriores al cutoff efectivo de PAGOS
   // IMPORTANTE: usar getTime() para comparar correctamente fechas con distintos offsets de timezone
   state.unmatchedPayments = state.unmatchedPayments.filter(
-    u => !u.payment.fechaPago || new Date(u.payment.fechaPago).getTime() >= effectiveCutoffMs
+    u => !u.payment.fechaPago || new Date(u.payment.fechaPago).getTime() >= effectiveCutoffPaymentsMs
   )
 
   if (state.processedPayments.length > 5000) {
     state.processedPayments = state.processedPayments.slice(-5000)
   }
 
-  // Limpiar externallyMarkedPayments: eliminar entradas anteriores al cutoff efectivo (48h / hard cutoff)
+  // Limpiar externallyMarkedPayments: eliminar entradas anteriores al cutoff efectivo de pagos
   // Se limpia SIEMPRE (no solo cuando >500) para que los pagos expiren igual que el resto
   state.externallyMarkedPayments = (state.externallyMarkedPayments || []).filter(
-    e => new Date(e.markedAt).getTime() >= effectiveCutoffMs
+    e => new Date(e.markedAt).getTime() >= effectiveCutoffPaymentsMs
   )
 
   // Limpiar externallyMarkedOrders: mantener solo los últimos 500

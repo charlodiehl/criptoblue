@@ -8,7 +8,7 @@ import OrdersListTab from '@/components/OrdersListTab'
 import PaymentsListTab from '@/components/PaymentsListTab'
 import RegistroTab from '@/components/RegistroTab'
 import type { Order, UnmatchedPayment, Store, LogEntry, Payment, RecentMatch } from '@/lib/types'
-import { HARD_CUTOFF } from '@/lib/config'
+import { HARD_CUTOFF_PAYMENTS, HARD_CUTOFF_ORDERS } from '@/lib/config'
 
 type Tab = 'manual' | 'ordenes' | 'pagos' | 'sin-coincidencia' | 'registro'
 
@@ -552,10 +552,11 @@ export default function Dashboard() {
 
   const HOURS_24 = 24 * 60 * 60 * 1000
   const HOURS_48 = 48 * 60 * 60 * 1000
-  // Cutoff efectivo: el más reciente entre rolling window y la fecha de inicio de la app
-  const HARD_CUTOFF_MS = HARD_CUTOFF.getTime()
-  const cutoff24 = Math.max(Date.now() - HOURS_24, HARD_CUTOFF_MS)
-  const cutoff48 = Math.max(Date.now() - HOURS_48, HARD_CUTOFF_MS)
+  // Cutoffs separados para pagos y órdenes
+  const HARD_CUTOFF_PAYMENTS_MS = HARD_CUTOFF_PAYMENTS.getTime()
+  const HARD_CUTOFF_ORDERS_MS = HARD_CUTOFF_ORDERS.getTime()
+  const cutoff24 = Math.max(Date.now() - HOURS_24, Math.min(HARD_CUTOFF_PAYMENTS_MS, HARD_CUTOFF_ORDERS_MS))
+  const cutoff48 = Math.max(Date.now() - HOURS_48, Math.min(HARD_CUTOFF_PAYMENTS_MS, HARD_CUTOFF_ORDERS_MS))
 
   // Todas las órdenes de las últimas 48hs (pendientes + pagadas desde log + fallback desde recentMatches)
   const allRecentOrders = useMemo((): Order[] => {
@@ -601,9 +602,9 @@ export default function Dashboard() {
       })
 
     return [...orders, ...fromLog, ...fromRecent]
-      .filter(o => new Date(o.createdAt).getTime() >= HARD_CUTOFF_MS)
+      .filter(o => new Date(o.createdAt).getTime() >= HARD_CUTOFF_ORDERS_MS)
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-  }, [orders, logEntries, recentMatches, cutoff48, HARD_CUTOFF_MS])
+  }, [orders, logEntries, recentMatches, cutoff48, HARD_CUTOFF_ORDERS_MS])
 
   // Todos los pagos de las últimas 48hs (macheados + no macheados)
   const allRecentPayments = useMemo((): Payment[] => {
@@ -629,8 +630,8 @@ export default function Dashboard() {
       .filter(p => !seenIds.has(p.mpPaymentId))
 
     return [...fromLog, ...fromRecent, ...unmatched]
-      .filter(p => new Date(p.fechaPago).getTime() >= HARD_CUTOFF_MS)
-  }, [unmatchedPayments, logEntries, recentMatches, cutoff48, HARD_CUTOFF_MS])
+      .filter(p => new Date(p.fechaPago).getTime() >= HARD_CUTOFF_PAYMENTS_MS)
+  }, [unmatchedPayments, logEntries, recentMatches, cutoff48, HARD_CUTOFF_PAYMENTS_MS])
 
   // IDs de pagos y órdenes ya macheados (para resaltar en verde en las pestañas)
   // Usan recentMatches (auto-limpia a 24h) para ser independientes del borrado manual del Registro
