@@ -35,18 +35,6 @@ export interface Store {
   platform?: 'tiendanube' | 'shopify'
 }
 
-export interface PendingMatch {
-  payment: Payment
-  order: Order
-  score: number
-  scores: Record<string, number>
-  matchType: string
-  thirdParty: boolean
-  matchedAt: string
-  mpPaymentId?: string
-  storeName?: string
-}
-
 export interface LogEntry {
   timestamp: string
   action: 'auto_paid' | 'manual_paid' | 'needs_review' | 'no_match' | 'dismissed' | 'cancelled'
@@ -82,13 +70,6 @@ export interface UnmatchedPayment {
   storeName?: string
 }
 
-export interface Stats {
-  paidThisMonth: number
-  paidVolumeThisMonth: number
-  pendingOrders: number
-  pendingPayments: number
-}
-
 export interface RecentMatch {
   mpPaymentId: string
   matchedAt: string
@@ -96,11 +77,6 @@ export interface RecentMatch {
   storeId?: string
   order?: Order
   payment?: Payment
-}
-
-export interface MonthlyStats {
-  count: number
-  volume: number
 }
 
 // Stats mensuales persistentes por mes — sobreviven al borrado del registro
@@ -133,7 +109,6 @@ export interface AppState {
   // Solo incluye emparejamientos (NO no_match). Independiente del Registro.
   matchLog: LogEntry[]
   recentMatches: RecentMatch[]
-  pendingMatches: PendingMatch[]
   unmatchedPayments: UnmatchedPayment[]
   // Órdenes y pagos marcados manualmente como gestionados por fuera de la app
   externallyMarkedOrders: string[]          // claves "storeId-orderId"
@@ -149,8 +124,6 @@ export interface AppState {
   lastAutoMatchAt?: string     // ISO — última vez que corrió auto-match-run
   lastAutoMatchMatched?: number // cuántos pares marcó el último auto-match (para notificar al frontend)
   settings: Record<string, unknown>
-  // Acumulador mensual legacy (no se usa en tarjetas nuevas)
-  monthlyStats: Record<string, MonthlyStats>
   // Stats de las 4 tarjetas — se acumulan en tiempo real con cada match, nunca se tocan por otro proceso
   // Clave: "YYYY-MM". Se resetean naturalmente al cambiar de mes.
   persistedMonthStats: Record<string, PersistedMonthStats>
@@ -168,15 +141,6 @@ export interface ActivityEntry {
   actor: 'human' | 'system'
   action: string
   details?: Record<string, unknown>
-}
-
-export interface MatchResult {
-  order: Order
-  score: number
-  scores: Record<string, number>
-  matchType: string
-  decision: 'auto_paid' | 'needs_review' | 'no_match'
-  thirdParty: boolean
 }
 
 export interface ErrorEntry {

@@ -69,7 +69,6 @@ export async function DELETE(req: NextRequest) {
 
     // Clean up all state records associated with this store
     const state = await loadState()
-    state.pendingMatches = state.pendingMatches.filter(m => m.order?.storeId !== storeId)
     state.unmatchedPayments = state.unmatchedPayments.filter(p => (p as any).storeId !== storeId)
     await saveState(state)
 

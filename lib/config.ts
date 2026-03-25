@@ -30,11 +30,4 @@ export const CONFIG = {
     apiVersion: '2026-01',
     scopes: 'read_orders,write_orders,read_customers',
   },
-  matching: {
-    autoThreshold: 90,
-    reviewThreshold: 60,
-    amountTolerancePct: 1,
-    timingWindowHours: 48,
-  },
-
 }

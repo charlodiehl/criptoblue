@@ -1,5 +1,5 @@
 import { fetchAllPaymentsSince } from './mercadopago'
-import { getPendingOrders as getTNOrders, cancelAbandonedOrders } from './tiendanube'
+import { getPendingOrders as getTNOrders } from './tiendanube'
 import { getPendingOrders as getShopifyOrders } from './shopify'
 import { loadState, saveState, getStores, appendError } from './storage'
 import { HARD_CUTOFF_PAYMENTS, HARD_CUTOFF_ORDERS } from './config'
@@ -8,12 +8,11 @@ import type { UnmatchedPayment } from './types'
 interface CycleResult {
   processed: number   // total pagos vistos en MP (puede incluir ya conocidos)
   newUnmatched: number // pagos verdaderamente nuevos agregados a la cola
-  cancelled: number
   errors: string[]
 }
 
 export async function processMPPayments(): Promise<CycleResult> {
-  const result: CycleResult = { processed: 0, newUnmatched: 0, cancelled: 0, errors: [] }
+  const result: CycleResult = { processed: 0, newUnmatched: 0, errors: [] }
 
   const [state, stores] = await Promise.all([loadState(), getStores()])
 
@@ -25,9 +24,6 @@ export async function processMPPayments(): Promise<CycleResult> {
 
   // Purge pagos anteriores al cutoff efectivo de pagos
   const purgeCutoff = cutoff48h > HARD_CUTOFF_PAYMENTS ? cutoff48h : HARD_CUTOFF_PAYMENTS
-
-  // Limpiar pendingMatches (ya no se usa en el flujo manual)
-  state.pendingMatches = []
 
   // Traer pagos aprobados desde el cutoff efectivo
   let payments
@@ -66,25 +62,6 @@ export async function processMPPayments(): Promise<CycleResult> {
   ])
 
   const storeEntries = Object.values(stores)
-
-  // Cancelación automática de órdenes abandonadas — PAUSADA
-  // Para reactivar: cambiar AUTO_CANCEL_ENABLED a true
-  const AUTO_CANCEL_ENABLED = false
-  if (AUTO_CANCEL_ENABLED) {
-    const cancelResults = await Promise.allSettled(
-      storeEntries.map(s => cancelAbandonedOrders(s.storeId, s.accessToken))
-    )
-    cancelResults.forEach((r, i) => {
-      if (r.status === 'fulfilled') {
-        result.cancelled += r.value.cancelled
-        if (r.value.errors > 0) {
-          result.errors.push(`Cancel errors in store ${storeEntries[i].storeId}: ${r.value.errors}`)
-        }
-      } else {
-        result.errors.push(`Cancel fetch error store ${storeEntries[i].storeId}: ${r.reason}`)
-      }
-    })
-  }
 
   // Traer órdenes pendientes de todas las tiendas (TiendaNube y Shopify)
   // Usa cutoff de ÓRDENES: max(48h_ago, HARD_CUTOFF_ORDERS)
@@ -148,7 +125,6 @@ export async function processMPPayments(): Promise<CycleResult> {
 
   // 4. Campos exclusivos del ciclo
   freshState.lastMPCheck = now.toISOString()
-  freshState.pendingMatches = []
 
   // 5. Actualizar cache de órdenes (si al menos una tienda respondió)
   const anyFulfilled = allOrdersPerStore.some(r => r.status === 'fulfilled')

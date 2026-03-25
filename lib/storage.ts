@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
-import type { AppState, Store, Payment, ErrorEntry, ActivityEntry } from './types'
+import type { AppState, Store, Payment, ErrorEntry, ActivityEntry, UnmatchedPayment } from './types'
 import { HARD_CUTOFF_PAYMENTS, HARD_CUTOFF_ORDERS } from './config'
 
 function stripRawData(payment: Payment): Payment {
@@ -47,7 +47,6 @@ const DEFAULT_STATE: AppState = {
   registroLog: [],
   matchLog: [],
   recentMatches: [],
-  pendingMatches: [],
   unmatchedPayments: [],
   externallyMarkedOrders: [],
   externallyMarkedPayments: [],
@@ -56,7 +55,6 @@ const DEFAULT_STATE: AppState = {
   cachedOrdersAt: '',
   lastMPCheck: '',
   settings: {},
-  monthlyStats: {},
   persistedMonthStats: {},
   dismissedPairs: [],
   errorLog: [],
@@ -109,14 +107,12 @@ export async function loadState(): Promise<AppState> {
     registroLog: state.registroLog || [],
     matchLog: state.matchLog || [],
     recentMatches: state.recentMatches || [],
-    pendingMatches: state.pendingMatches || [],
     unmatchedPayments: state.unmatchedPayments || [],
     externallyMarkedOrders: state.externallyMarkedOrders || [],
     externallyMarkedPayments: state.externallyMarkedPayments || [],
     retainedPaymentIds: state.retainedPaymentIds || [],
     cachedOrders: state.cachedOrders || [],
     cachedOrdersAt: state.cachedOrdersAt || '',
-    monthlyStats: state.monthlyStats || {},
     persistedMonthStats: state.persistedMonthStats || {},
     dismissedPairs: state.dismissedPairs || [],
     errorLog: state.errorLog || [],
@@ -209,10 +205,6 @@ export async function saveState(state: AppState): Promise<void> {
       ...u,
       payment: stripRawData(u.payment),
     })),
-    pendingMatches: state.pendingMatches.map(m => ({
-      ...m,
-      payment: stripRawData(m.payment),
-    })),
     registroLog: state.registroLog.map(e => ({
       ...e,
       payment: e.payment ? stripRawData(e.payment) : undefined,
@@ -223,10 +215,6 @@ export async function saveState(state: AppState): Promise<void> {
     })),
   }
   await kvSet(STATE_KEY, clean)
-}
-
-export function getMatchId(entry: { mpPaymentId?: string }): string {
-  return entry.mpPaymentId || ''
 }
 
 export function appendError(
@@ -247,12 +235,6 @@ export function appendError(
     resolved: false,
   }
   state.errorLog.push(entry)
-}
-
-export function incrementMonthlyStats(state: AppState, amount: number): void {
-  const key = new Date().toISOString().slice(0, 7) // "YYYY-MM"
-  const prev = state.monthlyStats[key] || { count: 0, volume: 0 }
-  state.monthlyStats[key] = { count: prev.count + 1, volume: prev.volume + amount }
 }
 
 export function incrementPersistedMonthStats(

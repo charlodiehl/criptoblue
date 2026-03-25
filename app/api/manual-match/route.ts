@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { loadState, saveState, getStores, getMatchId, incrementMonthlyStats, incrementPersistedMonthStats, appendError, appendActivity } from '@/lib/storage'
+import { loadState, saveState, getStores, incrementPersistedMonthStats, appendError, appendActivity } from '@/lib/storage'
 import { markOrderAsPaid as markTNOrderAsPaid, getPendingOrders as getTNOrders } from '@/lib/tiendanube'
 import { markOrderAsPaid as markShopifyOrderAsPaid, getPendingOrders as getShopifyOrders } from '@/lib/shopify'
 import { HARD_CUTOFF_ORDERS } from '@/lib/config'
@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
     if (!store) return NextResponse.json({ error: 'Store not found' }, { status: 404 })
 
     const unmatchedIndex = state.unmatchedPayments.findIndex(
-      u => getMatchId(u) === mpPaymentId
+      u => (u.mpPaymentId || u.payment?.mpPaymentId || '') === mpPaymentId
     )
     if (unmatchedIndex < 0) return NextResponse.json({ error: 'Payment not found' }, { status: 404 })
 
@@ -74,7 +74,6 @@ export async function POST(req: NextRequest) {
 
     state.unmatchedPayments.splice(unmatchedIndex, 1)
 
-    incrementMonthlyStats(state, payment.monto)
     incrementPersistedMonthStats(state, payment.monto, 'emparejamiento')
 
     // recentMatches: para resaltado verde en pestañas (auto-limpia a las 24h, independiente del Registro)

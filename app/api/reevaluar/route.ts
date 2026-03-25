@@ -21,7 +21,6 @@ export async function GET(req: Request) {
     // Borrarlo antes causaba race condition: si auto-match-run corría mientras
     // processMPPayments() aún no terminaba, veía lastMPCheck='' y se skippeaba.
     const state = await loadState()
-    state.pendingMatches = []
     state.unmatchedPayments = []
     state.processedPayments = []
     appendActivity(state, 'system', 'reevaluar_automatico')
@@ -46,7 +45,6 @@ export async function POST(_req: Request) {
     // Re-sincroniza las últimas 48h desde cero.
     // Los manual_paid se preservan siempre (son el historial del usuario).
     // El contador mensual se reinicia solo el 1ro de cada mes via isThisMonth() en /api/status.
-    state.pendingMatches = []
     state.unmatchedPayments = []
     state.processedPayments = []
     appendActivity(state, 'human', 'reevaluar_manual')

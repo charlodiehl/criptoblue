@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { loadState, saveState, getStores, getMatchId, incrementMonthlyStats, incrementPersistedMonthStats, appendError, appendActivity } from '@/lib/storage'
+import { loadState, saveState, getStores, incrementPersistedMonthStats, appendError, appendActivity } from '@/lib/storage'
 import { markOrderAsPaid as markTNOrderAsPaid } from '@/lib/tiendanube'
 import { markOrderAsPaid as markShopifyOrderAsPaid } from '@/lib/shopify'
 import { findAutoMatchCandidates } from '@/lib/auto-match'
@@ -100,10 +100,9 @@ async function runAutoMatch(triggeredBy: 'cron' | 'manual_button') {
       continue
     }
 
-    const idx = state.unmatchedPayments.findIndex(u => getMatchId(u) === candidate.mpPaymentId)
+    const idx = state.unmatchedPayments.findIndex(u => (u.mpPaymentId || u.payment?.mpPaymentId || '') === candidate.mpPaymentId)
     if (idx >= 0) state.unmatchedPayments.splice(idx, 1)
 
-    incrementMonthlyStats(state, candidate.payment.monto)
     incrementPersistedMonthStats(state, candidate.payment.monto, 'emparejamiento')
 
     state.recentMatches = state.recentMatches || []

@@ -19,27 +19,6 @@ async function mpFetch(path: string, params?: Record<string, string>) {
   return res.json()
 }
 
-interface SearchOptions {
-  hours?: number
-  limit?: number
-  status?: string
-}
-
-export async function searchPayments({ hours = 48, limit = 50, status = 'approved' }: SearchOptions = {}) {
-  const endDate = new Date()
-  const beginDate = new Date(endDate.getTime() - hours * 60 * 60 * 1000)
-  const data = await mpFetch('/v1/payments/search', {
-    sort: 'date_created',
-    criteria: 'desc',
-    range: 'date_created',
-    begin_date: beginDate.toISOString(),
-    end_date: endDate.toISOString(),
-    limit: String(limit),
-    status,
-  })
-  return data as { results: unknown[]; paging: { total: number; limit: number; offset: number } }
-}
-
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function normalizePayment(raw: any): Payment | null {
   const OWNER_EMAIL = 'compubairestore@gmail.com'

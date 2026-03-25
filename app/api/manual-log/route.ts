@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { loadState, saveState, getStores, getMatchId, incrementMonthlyStats, incrementPersistedMonthStats, appendActivity } from '@/lib/storage'
+import { loadState, saveState, getStores, incrementPersistedMonthStats, appendActivity } from '@/lib/storage'
 import { markOrderAsPaid } from '@/lib/tiendanube'
 import type { LogEntry, Order } from '@/lib/types'
 
@@ -11,7 +11,7 @@ export async function POST(req: NextRequest) {
     const state = await loadState()
 
     const unmatchedIndex = state.unmatchedPayments.findIndex(
-      u => getMatchId(u) === mpPaymentId
+      u => (u.mpPaymentId || u.payment?.mpPaymentId || '') === mpPaymentId
     )
     if (unmatchedIndex < 0) return NextResponse.json({ error: 'Payment not found' }, { status: 404 })
 
@@ -33,7 +33,6 @@ export async function POST(req: NextRequest) {
 
     state.unmatchedPayments.splice(unmatchedIndex, 1)
 
-    incrementMonthlyStats(state, payment.monto)
     incrementPersistedMonthStats(state, payment.monto, 'manual_pagos')
 
     const order: Order | undefined = matchedOrder || undefined
