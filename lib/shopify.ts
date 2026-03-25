@@ -12,6 +12,39 @@ function apiBase(shop: string) {
   return `https://${shop}/admin/api/${CONFIG.shopify.apiVersion}`
 }
 
+// Busca el CUIT/DNI del cliente en todos los campos donde Shopify Argentina suele guardarlo
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function extractCuit(order: any): string {
+  // 1. billing_address.company — campo más común en tiendas AR (ej: "24632075" o "20-24632075-3")
+  const fromCompany = order.billing_address?.company?.trim()
+  if (fromCompany && /^\d{7,11}$/.test(fromCompany.replace(/[-\s]/g, ''))) {
+    return fromCompany
+  }
+
+  // 2. note_attributes — algunas apps/checkouts lo guardan como atributo de la orden
+  const noteAttrs: { name: string; value: string }[] = order.note_attributes || []
+  const cuitAttr = noteAttrs.find(a =>
+    /cuit|cuil|dni|documento|nro_doc|numero_doc|identification/i.test(a.name)
+  )
+  if (cuitAttr?.value?.trim()) return cuitAttr.value.trim()
+
+  // 3. customer.note — algunos admins lo cargan manualmente en la ficha del cliente
+  const customerNote = order.customer?.note?.trim()
+  if (customerNote) {
+    const match = customerNote.match(/\b\d{7,11}\b/)
+    if (match) return match[0]
+  }
+
+  // 4. order.note — nota libre de la orden
+  const orderNote = order.note?.trim()
+  if (orderNote) {
+    const match = orderNote.match(/\b\d{7,11}\b/)
+    if (match) return match[0]
+  }
+
+  return ''
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function normalizeOrder(order: any, storeId: string, storeName: string): Order {
   const customer = order.customer
@@ -28,7 +61,7 @@ function normalizeOrder(order: any, storeId: string, storeName: string): Order {
     total: parseFloat(order.total_price || '0'),
     customerName,
     customerEmail: order.email || customer?.email || '',
-    customerCuit: customer?.tax_exemptions?.[0] || '',
+    customerCuit: extractCuit(order),
     createdAt: order.created_at,
     gateway: order.payment_gateway || '',
     storeId,
