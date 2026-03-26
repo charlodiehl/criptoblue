@@ -39,12 +39,12 @@ export async function PATCH(request: Request) {
   }
 }
 
-// GET: devuelve registroLog + recentMatches para el frontend
+// GET: devuelve registroLog + recentMatches para el frontend (excluye entradas ocultas)
 export async function GET() {
   try {
     const state = await loadState()
     return NextResponse.json({
-      entries: state.registroLog,
+      entries: (state.registroLog || []).filter(e => !e.hidden),
       recentMatches: state.recentMatches || [],
     })
   } catch (err) {
@@ -87,8 +87,10 @@ export async function DELETE() {
       }
     }
 
-    const entryCount = state.registroLog.length
-    state.registroLog = []
+    // Marcar como ocultas en lugar de borrar — se conservan en Supabase por 30 días
+    const visibleEntries = state.registroLog.filter(e => !e.hidden)
+    const entryCount = visibleEntries.length
+    state.registroLog = state.registroLog.map(e => ({ ...e, hidden: true }))
 
     appendActivity(state, 'human', 'registro_borrado', { entradasEliminadas: entryCount })
 

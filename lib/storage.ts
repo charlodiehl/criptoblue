@@ -207,9 +207,9 @@ export async function saveState(state: AppState): Promise<void> {
     .filter(e => !e.resolved || new Date(e.timestamp).getTime() >= cutoff7dMs)
     .slice(-500)
 
-  // activityLog: mantener solo las últimas 48hs, límite de 1000 entradas
+  // activityLog: mantener 30 días, límite de 1000 entradas
   state.activityLog = (state.activityLog || [])
-    .filter(e => new Date(e.timestamp).getTime() >= cutoff48hMs)
+    .filter(e => new Date(e.timestamp).getTime() >= cutoff30dMs)
     .slice(-1000)
 
   // dismissedPairs: expirar pares con más de 48hs (el pago y la orden ya no estarán en la app)

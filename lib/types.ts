@@ -61,6 +61,7 @@ export interface LogEntry {
   mpPaymentId?: string
   paymentReceivedAt?: string  // Cuándo llegó el pago a MercadoPago (payment.fechaPago)
   orderCreatedAt?: string     // Cuándo se creó la orden en la tienda (order.createdAt)
+  hidden?: boolean            // true = oculto en la UI (botón "Borrar registro"), pero se conserva en Supabase
 }
 
 export interface UnmatchedPayment {
