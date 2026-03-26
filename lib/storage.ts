@@ -55,6 +55,7 @@ const DEFAULT_STATE: AppState = {
   cachedOrdersAt: '',
   lastMPCheck: '',
   currentPhase: 'idle',
+  paymentOverrides: {},
   settings: {},
   persistedMonthStats: {},
   dismissedPairs: [],
@@ -118,6 +119,7 @@ export async function loadState(): Promise<AppState> {
     dismissedPairs: state.dismissedPairs || [],
     errorLog: state.errorLog || [],
     activityLog: state.activityLog || [],
+    paymentOverrides: state.paymentOverrides || {},
   }
 }
 
@@ -162,6 +164,14 @@ export async function saveState(state: AppState): Promise<void> {
   state.unmatchedPayments = state.unmatchedPayments.filter(
     u => !u.payment.fechaPago || new Date(u.payment.fechaPago).getTime() >= effectiveCutoffPaymentsMs
   )
+
+  // paymentOverrides: limpiar overrides cuyos pagos ya no están en unmatchedPayments
+  if (state.paymentOverrides && Object.keys(state.paymentOverrides).length > 0) {
+    const activeIds = new Set(state.unmatchedPayments.map(u => u.payment.mpPaymentId))
+    for (const id of Object.keys(state.paymentOverrides)) {
+      if (!activeIds.has(id)) delete state.paymentOverrides[id]
+    }
+  }
 
   if (state.processedPayments.length > 5000) {
     state.processedPayments = state.processedPayments.slice(-5000)

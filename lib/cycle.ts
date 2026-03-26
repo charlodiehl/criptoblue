@@ -119,11 +119,24 @@ export async function processMPPayments(): Promise<CycleResult> {
     }
   }
 
-  // 3. Merge de processedPayments (unión de ambos sets)
+  // 3. Aplicar paymentOverrides — solo sobre campos que MP trae vacíos
+  const overrides = freshState.paymentOverrides || {}
+  for (const u of freshState.unmatchedPayments) {
+    const override = overrides[u.payment.mpPaymentId]
+    if (!override) continue
+    for (const [key, value] of Object.entries(override)) {
+      const current = u.payment[key as keyof typeof u.payment]
+      if ((!current || current === '') && value) {
+        ;(u.payment as unknown as Record<string, unknown>)[key] = value
+      }
+    }
+  }
+
+  // 4. Merge de processedPayments (unión de ambos sets)
   const mergedProcessed = new Set([...freshState.processedPayments, ...Array.from(processedSet)])
   freshState.processedPayments = Array.from(mergedProcessed)
 
-  // 4. Campos exclusivos del ciclo
+  // 5. Campos exclusivos del ciclo
   freshState.lastMPCheck = now.toISOString()
 
   // 5. Actualizar cache de órdenes (si al menos una tienda respondió)

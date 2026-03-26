@@ -124,6 +124,9 @@ export interface AppState {
   lastAutoMatchAt?: string     // ISO — última vez que corrió auto-match-run
   lastAutoMatchMatched?: number // cuántos pares marcó el último auto-match (para notificar al frontend)
   currentPhase?: 'idle' | 'syncing' | 'auto-matching' // fase actual del ciclo (para indicador visual en UI)
+  // Datos enriquecidos manualmente para pagos — persisten entre reevaluaciones
+  // Solo aplican sobre campos que MP trae vacíos. Expiran cuando el pago vence (48hs).
+  paymentOverrides: Record<string, Partial<Payment>>
   settings: Record<string, unknown>
   // Stats de las 4 tarjetas — se acumulan en tiempo real con cada match, nunca se tocan por otro proceso
   // Clave: "YYYY-MM". Se resetean naturalmente al cambiar de mes.
