@@ -165,13 +165,6 @@ export async function saveState(state: AppState): Promise<void> {
     u => !u.payment.fechaPago || new Date(u.payment.fechaPago).getTime() >= effectiveCutoffPaymentsMs
   )
 
-  // paymentOverrides: limpiar overrides cuyos pagos ya no están en unmatchedPayments
-  if (state.paymentOverrides && Object.keys(state.paymentOverrides).length > 0) {
-    const activeIds = new Set(state.unmatchedPayments.map(u => u.payment.mpPaymentId))
-    for (const id of Object.keys(state.paymentOverrides)) {
-      if (!activeIds.has(id)) delete state.paymentOverrides[id]
-    }
-  }
 
   if (state.processedPayments.length > 5000) {
     state.processedPayments = state.processedPayments.slice(-5000)

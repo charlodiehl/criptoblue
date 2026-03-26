@@ -132,11 +132,19 @@ export async function processMPPayments(): Promise<CycleResult> {
     }
   }
 
-  // 4. Merge de processedPayments (unión de ambos sets)
+  // 4. Limpiar overrides cuyos pagos ya vencieron (hacer acá, no en saveState, para no borrarlos durante el reset)
+  if (freshState.paymentOverrides && Object.keys(freshState.paymentOverrides).length > 0) {
+    const activeIds = new Set(freshState.unmatchedPayments.map(u => u.payment.mpPaymentId))
+    for (const id of Object.keys(freshState.paymentOverrides)) {
+      if (!activeIds.has(id)) delete freshState.paymentOverrides[id]
+    }
+  }
+
+  // 5. Merge de processedPayments (unión de ambos sets)
   const mergedProcessed = new Set([...freshState.processedPayments, ...Array.from(processedSet)])
   freshState.processedPayments = Array.from(mergedProcessed)
 
-  // 5. Campos exclusivos del ciclo
+  // 6. Campos exclusivos del ciclo
   freshState.lastMPCheck = now.toISOString()
 
   // 5. Actualizar cache de órdenes (si al menos una tienda respondió)
