@@ -183,7 +183,12 @@ export function findAutoMatchCandidates(
     const mpId = u.payment.mpPaymentId || u.mpPaymentId || ''
     if (!mpId || confirmedIds.has(mpId)) continue
 
-    const sameMontoCount = Math.max(0, orders.filter(o => Math.abs(o.total - u.payment.monto) <= 10).length - 1)
+    // Excluir órdenes dismisseadas del conteo — ya fueron descartadas
+    // intencionalmente y no deben inflar la ambigüedad del match
+    const sameMontoCount = Math.max(0, orders.filter(o =>
+      Math.abs(o.total - u.payment.monto) <= 10 &&
+      !dismissedSet.has(`${mpId}|${o.orderId}|${o.storeId}`)
+    ).length - 1)
 
     let bestOrder: Order | null = null
     let bestGreenCount = -1
