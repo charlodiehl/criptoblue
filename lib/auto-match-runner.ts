@@ -1,5 +1,5 @@
 // Lógica central del auto-match — compartida por el cron (reevaluar) y el botón manual
-import { saveState, getStores, incrementPersistedMonthStats, appendError, appendActivity } from './storage'
+import { loadState, saveState, getStores, incrementPersistedMonthStats, appendError, appendActivity } from './storage'
 import { markOrderAsPaid as markTNOrderAsPaid } from './tiendanube'
 import { markOrderAsPaid as markShopifyOrderAsPaid } from './shopify'
 import { findAutoMatchCandidates } from './auto-match'
@@ -74,14 +74,18 @@ export async function runAutoMatchCore(
       continue
     }
 
-    // Eliminar el pago de la cola de pendientes
-    const idx = state.unmatchedPayments.findIndex(u => (u.mpPaymentId || u.payment?.mpPaymentId || '') === candidate.mpPaymentId)
-    if (idx >= 0) state.unmatchedPayments.splice(idx, 1)
+    // Recargar state fresco antes de guardar para no pisar cambios concurrentes
+    // (ej: el usuario hizo un match manual mientras el runner corría)
+    const freshState = await loadState()
 
-    incrementPersistedMonthStats(state, candidate.payment.monto, 'emparejamiento')
+    // Aplicar los cambios de este match sobre el state fresco
+    const idx = freshState.unmatchedPayments.findIndex(u => (u.mpPaymentId || u.payment?.mpPaymentId || '') === candidate.mpPaymentId)
+    if (idx >= 0) freshState.unmatchedPayments.splice(idx, 1)
 
-    state.recentMatches = state.recentMatches || []
-    state.recentMatches.push({
+    incrementPersistedMonthStats(freshState, candidate.payment.monto, 'emparejamiento')
+
+    freshState.recentMatches = freshState.recentMatches || []
+    freshState.recentMatches.push({
       mpPaymentId: candidate.mpPaymentId,
       matchedAt: new Date().toISOString(),
       orderId: candidate.orderId,
@@ -107,10 +111,10 @@ export async function runAutoMatchCore(
       paymentReceivedAt: candidate.payment.fechaPago,
       orderCreatedAt: candidate.order.createdAt,
     }
-    state.registroLog.push(logEntry)
-    state.matchLog.push(logEntry)
+    freshState.registroLog.push(logEntry)
+    freshState.matchLog.push(logEntry)
 
-    appendActivity(state, 'system', 'pago_auto_emparejado', {
+    appendActivity(freshState, 'system', 'pago_auto_emparejado', {
       mpPaymentId: candidate.mpPaymentId,
       monto: candidate.payment.monto,
       orderNumber: candidate.order.orderNumber,
@@ -120,8 +124,10 @@ export async function runAutoMatchCore(
 
     matched++
 
-    // Guardar después de cada match para que el frontend lo vea en tiempo real
-    await saveState(state)
+    // Guardar el state fresco con los cambios de este match
+    await saveState(freshState)
+    // Actualizar state local para la próxima iteración
+    state = freshState
 
     // 5s entre marcados para respetar rate limits de TiendaNube/Shopify
     if (candidates.indexOf(candidate) < candidates.length - 1) {
@@ -129,10 +135,12 @@ export async function runAutoMatchCore(
     }
   }
 
-  state.lastAutoMatchAt = new Date().toISOString()
-  state.lastAutoMatchMatched = matched
-  state.currentPhase = 'idle'
-  await saveState(state)
+  // Recargar una última vez antes del save final
+  const finalState = await loadState()
+  finalState.lastAutoMatchAt = new Date().toISOString()
+  finalState.lastAutoMatchMatched = matched
+  finalState.currentPhase = 'idle'
+  await saveState(finalState)
 
   console.log(`[auto-match] matched: ${matched}, errors: ${errors.length}`)
   return { matched, errors }
