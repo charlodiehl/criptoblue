@@ -1,4 +1,5 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
+import { createHmac } from 'crypto'
 import { processMPPayments } from '@/lib/cycle'
 import { loadState, saveState, getStores, appendError, appendActivity } from '@/lib/storage'
 import { runAutoMatchCore } from '@/lib/auto-match-runner'
@@ -6,12 +7,23 @@ import { runAutoMatchCore } from '@/lib/auto-match-runner'
 // maxDuration aumentado para cubrir sync + auto-match (con delays de 5s entre marcados)
 export const maxDuration = 300
 
-function isAuthorized(req: Request): boolean {
+// Auth para cron de Vercel (usa CRON_SECRET en header)
+function isCronAuthorized(req: Request): boolean {
   const cronSecret = process.env.CRON_SECRET
   if (!cronSecret) return true
   const bearer = req.headers.get('authorization')
   const custom = req.headers.get('x-cron-secret')
   return bearer === `Bearer ${cronSecret}` || custom === cronSecret
+}
+
+// Auth para botón manual del browser (usa cookie de sesión)
+function isSessionAuthorized(req: NextRequest): boolean {
+  const token = req.cookies.get('cb_session')?.value
+  if (!token) return false
+  const secret = process.env.AUTH_SECRET || 'criptoblue-secret'
+  const username = process.env.AUTH_USERNAME || 'Benancio'
+  const expected = createHmac('sha256', secret).update(username).digest('hex')
+  return token === expected
 }
 
 async function runFullCycle(triggeredBy: 'cron' | 'manual_button') {
@@ -37,7 +49,7 @@ async function runFullCycle(triggeredBy: 'cron' | 'manual_button') {
 }
 
 export async function GET(req: Request) {
-  if (!isAuthorized(req)) {
+  if (!isCronAuthorized(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
   try {
@@ -53,8 +65,8 @@ export async function GET(req: Request) {
   }
 }
 
-export async function POST(req: Request) {
-  if (!isAuthorized(req)) {
+export async function POST(req: NextRequest) {
+  if (!isSessionAuthorized(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
   try {

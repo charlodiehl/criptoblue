@@ -1,4 +1,5 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
+import { createHmac } from 'crypto'
 import { loadState, saveState, getStores, incrementPersistedMonthStats, appendError, appendActivity } from '@/lib/storage'
 import { markOrderAsPaid as markTNOrderAsPaid } from '@/lib/tiendanube'
 import { markOrderAsPaid as markShopifyOrderAsPaid } from '@/lib/shopify'
@@ -7,12 +8,23 @@ import type { LogEntry } from '@/lib/types'
 
 export const maxDuration = 60
 
-function isAuthorized(req: Request): boolean {
+// Auth para cron de Vercel (usa CRON_SECRET en header)
+function isCronAuthorized(req: Request): boolean {
   const cronSecret = process.env.CRON_SECRET
   if (!cronSecret) return true
   const bearer = req.headers.get('authorization')
   const custom = req.headers.get('x-cron-secret')
   return bearer === `Bearer ${cronSecret}` || custom === cronSecret
+}
+
+// Auth para botón manual del browser (usa cookie de sesión)
+function isSessionAuthorized(req: NextRequest): boolean {
+  const token = req.cookies.get('cb_session')?.value
+  if (!token) return false
+  const secret = process.env.AUTH_SECRET || 'criptoblue-secret'
+  const username = process.env.AUTH_USERNAME || 'Benancio'
+  const expected = createHmac('sha256', secret).update(username).digest('hex')
+  return token === expected
 }
 
 async function runAutoMatch(triggeredBy: 'cron' | 'manual_button') {
@@ -161,7 +173,7 @@ async function runAutoMatch(triggeredBy: 'cron' | 'manual_button') {
 
 // GET — disparado por el cron de Vercel (1 min después del sync)
 export async function GET(req: Request) {
-  if (!isAuthorized(req)) {
+  if (!isCronAuthorized(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
   try {
@@ -173,8 +185,8 @@ export async function GET(req: Request) {
 }
 
 // POST — disparo manual desde el botón ⚡ del browser
-export async function POST(req: Request) {
-  if (!isAuthorized(req)) {
+export async function POST(req: NextRequest) {
+  if (!isSessionAuthorized(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
   try {
