@@ -253,7 +253,12 @@ export function incrementPersistedMonthStats(
   amount: number,
   source: 'emparejamiento' | 'manual_pagos' | 'manual_ordenes'
 ): void {
-  const key = new Date().toISOString().slice(0, 7) // "YYYY-MM"
+  // Usar hora de Argentina (UTC-3) para que los pagos entre 21:00 y 00:00
+  // se atribuyan al mes correcto y no al siguiente (que ya empezó en UTC)
+  const now = new Date()
+  const argOffset = -3 * 60 // ART = UTC-3, sin DST
+  const argTime = new Date(now.getTime() + argOffset * 60 * 1000)
+  const key = argTime.toISOString().slice(0, 7) // "YYYY-MM"
   state.persistedMonthStats = state.persistedMonthStats || {}
   const base = state.persistedMonthStats[key] || { matchedCount: 0, matchedVolume: 0, manualCount: 0, manualVolume: 0 }
   const isMatched = source === 'emparejamiento'
