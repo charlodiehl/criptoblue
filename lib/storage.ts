@@ -27,19 +27,26 @@ const STATE_KEY = 'criptoblue:state'
 
 async function kvGet<T>(key: string): Promise<T | null> {
   const supabase = getClient()
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('kv_store')
     .select('value')
     .eq('key', key)
     .single()
+  // PGRST116 = "no rows found" — es válido, significa que no hay data guardada aún
+  if (error && error.code !== 'PGRST116') {
+    throw new Error(`kvGet("${key}") falló: ${error.message} [${error.code}]`)
+  }
   return (data?.value as T) ?? null
 }
 
 async function kvSet(key: string, value: unknown): Promise<void> {
   const supabase = getClient()
-  await supabase
+  const { error } = await supabase
     .from('kv_store')
     .upsert({ key, value, updated_at: new Date().toISOString() })
+  if (error) {
+    throw new Error(`kvSet("${key}") falló: ${error.message} [${error.code}]`)
+  }
 }
 
 const DEFAULT_STATE: AppState = {
