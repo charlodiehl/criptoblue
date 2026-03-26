@@ -4,8 +4,8 @@
 // Pagos: 25/03/2026 15:30 ART → 18:30 UTC
 export const HARD_CUTOFF_PAYMENTS = new Date('2026-03-25T18:30:00.000Z')
 
-// Órdenes: 24/03/2026 15:30 ART → 18:30 UTC
-export const HARD_CUTOFF_ORDERS = new Date('2026-03-24T18:30:00.000Z')
+// Órdenes: igual que pagos — 25/03/2026 15:30 ART → 18:30 UTC
+export const HARD_CUTOFF_ORDERS = new Date('2026-03-25T18:30:00.000Z')
 
 // Mapeo de fuente de pago → nombre amigable para el Registro
 // Para agregar un nuevo medio de pago, solo agregar una entrada acá
