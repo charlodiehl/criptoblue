@@ -45,6 +45,7 @@ export async function GET() {
       externallyMarkedPayments: (state.externallyMarkedPayments || []).map(e => e.id),
       recentMatches,
       unmatchedPayments: state.unmatchedPayments,
+      currentPhase: state.currentPhase || 'idle',
     })
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 })

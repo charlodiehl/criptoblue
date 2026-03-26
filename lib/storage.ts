@@ -54,6 +54,7 @@ const DEFAULT_STATE: AppState = {
   cachedOrders: [],
   cachedOrdersAt: '',
   lastMPCheck: '',
+  currentPhase: 'idle',
   settings: {},
   persistedMonthStats: {},
   dismissedPairs: [],

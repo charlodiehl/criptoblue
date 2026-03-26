@@ -1,40 +1,20 @@
-import { NextResponse } from 'next/server'
-import { loadState, saveState, getStores, incrementPersistedMonthStats, appendError, appendActivity } from '@/lib/storage'
-import { markOrderAsPaid as markTNOrderAsPaid } from '@/lib/tiendanube'
-import { markOrderAsPaid as markShopifyOrderAsPaid } from '@/lib/shopify'
-import { findAutoMatchCandidates } from '@/lib/auto-match'
-import type { LogEntry } from '@/lib/types'
+// Lógica central del auto-match — compartida por el cron (reevaluar) y el botón manual
+import { saveState, getStores, incrementPersistedMonthStats, appendError, appendActivity } from './storage'
+import { markOrderAsPaid as markTNOrderAsPaid } from './tiendanube'
+import { markOrderAsPaid as markShopifyOrderAsPaid } from './shopify'
+import { findAutoMatchCandidates } from './auto-match'
+import type { AppState, Store, LogEntry } from './types'
 
-export const maxDuration = 60
-
-function isAuthorized(req: Request): boolean {
-  const cronSecret = process.env.CRON_SECRET
-  if (!cronSecret) return true
-  const bearer = req.headers.get('authorization')
-  const custom = req.headers.get('x-cron-secret')
-  return bearer === `Bearer ${cronSecret}` || custom === cronSecret
+interface AutoMatchResult {
+  matched: number
+  errors: string[]
 }
 
-async function runAutoMatch(triggeredBy: 'cron' | 'manual_button') {
-  const [state, stores] = await Promise.all([loadState(), getStores()])
-
-  // Verificar que el sync corrió ANTES que este auto-match y que hayan pasado ≥30s
-  // (garantiza que los datos están frescos antes de buscar candidatos)
-  const lastSync = state.lastMPCheck ? new Date(state.lastMPCheck).getTime() : 0
-  const lastRun  = state.lastAutoMatchAt ? new Date(state.lastAutoMatchAt).getTime() : 0
-  const now = Date.now()
-
-  // Si ya corrió después del último sync, no volver a correr
-  if (lastRun > lastSync) {
-    return NextResponse.json({ skipped: true, reason: 'already_ran_after_sync', lastRun: state.lastAutoMatchAt, lastSync: state.lastMPCheck })
-  }
-  // El sync debe haber terminado hace al menos 30s para que los datos estén guardados
-  if (lastSync === 0 || (now - lastSync) < 30 * 1000) {
-    return NextResponse.json({ skipped: true, reason: 'sync_too_recent_or_never', msSinceSync: now - lastSync })
-  }
-
-  // IDs de pagos ya procesados (no volver a procesar)
-  // Lee de AMBOS logs + retainedPaymentIds para máxima protección
+export async function runAutoMatchCore(
+  state: AppState,
+  stores: Record<string, Store>,
+  triggeredBy: 'cron' | 'manual_button',
+): Promise<AutoMatchResult> {
   const confirmedIds = new Set<string>([
     ...state.registroLog
       .filter(e => e.action === 'manual_paid' || e.action === 'auto_paid' || e.action === 'dismissed')
@@ -53,12 +33,6 @@ async function runAutoMatch(triggeredBy: 'cron' | 'manual_button') {
     state.dismissedPairs || [],
     confirmedIds,
   )
-
-  if (candidates.length === 0) {
-    state.lastAutoMatchAt = new Date().toISOString()
-    await saveState(state)
-    return NextResponse.json({ success: true, matched: 0 })
-  }
 
   let matched = 0
   const errors: string[] = []
@@ -100,6 +74,7 @@ async function runAutoMatch(triggeredBy: 'cron' | 'manual_button') {
       continue
     }
 
+    // Eliminar el pago de la cola de pendientes
     const idx = state.unmatchedPayments.findIndex(u => (u.mpPaymentId || u.payment?.mpPaymentId || '') === candidate.mpPaymentId)
     if (idx >= 0) state.unmatchedPayments.splice(idx, 1)
 
@@ -145,7 +120,10 @@ async function runAutoMatch(triggeredBy: 'cron' | 'manual_button') {
 
     matched++
 
-    // Esperar 5 segundos antes del próximo marcado para respetar rate limits de TiendaNube/Shopify
+    // Guardar después de cada match para que el frontend lo vea en tiempo real
+    await saveState(state)
+
+    // 5s entre marcados para respetar rate limits de TiendaNube/Shopify
     if (candidates.indexOf(candidate) < candidates.length - 1) {
       await new Promise(resolve => setTimeout(resolve, 5000))
     }
@@ -153,34 +131,9 @@ async function runAutoMatch(triggeredBy: 'cron' | 'manual_button') {
 
   state.lastAutoMatchAt = new Date().toISOString()
   state.lastAutoMatchMatched = matched
+  state.currentPhase = 'idle'
   await saveState(state)
 
-  console.log(`[auto-match-run] matched: ${matched}, errors: ${errors.length}`)
-  return NextResponse.json({ success: true, matched, errors: errors.length > 0 ? errors : undefined })
-}
-
-// GET — disparado por el cron de Vercel (1 min después del sync)
-export async function GET(req: Request) {
-  if (!isAuthorized(req)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-  try {
-    return await runAutoMatch('cron')
-  } catch (err) {
-    console.error('[auto-match-run] fatal error:', err)
-    return NextResponse.json({ error: String(err) }, { status: 500 })
-  }
-}
-
-// POST — disparo manual desde el botón ⚡ del browser
-export async function POST(req: Request) {
-  if (!isAuthorized(req)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-  try {
-    return await runAutoMatch('manual_button')
-  } catch (err) {
-    console.error('[auto-match-run] fatal error:', err)
-    return NextResponse.json({ error: String(err) }, { status: 500 })
-  }
+  console.log(`[auto-match] matched: ${matched}, errors: ${errors.length}`)
+  return { matched, errors }
 }

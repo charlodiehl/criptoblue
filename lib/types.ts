@@ -123,6 +123,7 @@ export interface AppState {
   lastMPCheck: string
   lastAutoMatchAt?: string     // ISO — última vez que corrió auto-match-run
   lastAutoMatchMatched?: number // cuántos pares marcó el último auto-match (para notificar al frontend)
+  currentPhase?: 'idle' | 'syncing' | 'auto-matching' // fase actual del ciclo (para indicador visual en UI)
   settings: Record<string, unknown>
   // Stats de las 4 tarjetas — se acumulan en tiempo real con cada match, nunca se tocan por otro proceso
   // Clave: "YYYY-MM". Se resetean naturalmente al cambiar de mes.

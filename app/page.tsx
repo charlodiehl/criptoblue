@@ -24,6 +24,7 @@ interface Stats {
   externallyMarkedOrders: string[]
   externallyMarkedPayments: string[]
   recentMatches?: RecentMatch[]
+  currentPhase?: 'idle' | 'syncing' | 'auto-matching'
 }
 
 interface Toast {
@@ -191,14 +192,15 @@ export default function Dashboard() {
     fetchStores()
   }, [fetchSync, fetchStores])
 
-  // Poll sync every 5 seconds — reemplaza los polls separados de status y unmatchedPayments
-  // 1 lectura a Supabase cada 5s en vez de 2 (ahorro del 50% de reads de polling)
+  // Poll sync — 2s durante auto-matching para ver matches en tiempo real, 5s en idle/syncing
   useEffect(() => {
+    const phase = stats?.currentPhase
+    const delay = phase === 'auto-matching' ? 2000 : 5000
     const interval = setInterval(() => {
       fetchSync()
-    }, 5000)
+    }, delay)
     return () => clearInterval(interval)
-  }, [fetchSync])
+  }, [fetchSync, stats?.currentPhase])
 
   // Poll registro every 5 seconds mientras la pestaña está activa
   useEffect(() => {
@@ -854,9 +856,13 @@ export default function Dashboard() {
 
           {/* RIGHT: Sync info + Actualizar + Tiendas dropdown */}
           <div className="flex items-center justify-end gap-2">
-            {isRefreshing ? (
-              <span style={{ fontSize: '11px', color: '#00d4ff', whiteSpace: 'nowrap', opacity: 0.85 }}>
-                ⟳ Actualizando información...
+            {isRefreshing || stats?.currentPhase === 'syncing' ? (
+              <span style={{ fontSize: '11px', color: '#00d4ff', whiteSpace: 'nowrap', opacity: 0.85, display: 'flex', alignItems: 'center', gap: '5px' }}>
+                <span style={{ display: 'inline-block', animation: 'spin 1s linear infinite' }}>⟳</span> Actualizando...
+              </span>
+            ) : stats?.currentPhase === 'auto-matching' ? (
+              <span style={{ fontSize: '11px', color: '#00ff88', whiteSpace: 'nowrap', opacity: 0.9, display: 'flex', alignItems: 'center', gap: '5px' }}>
+                <span style={{ display: 'inline-block', animation: 'spin 1s linear infinite' }}>⚡</span> Marcando automáticamente...
               </span>
             ) : stats?.lastMPCheck ? (
               <span style={{ fontSize: '11px', color: 'rgba(148,163,184,0.4)', whiteSpace: 'nowrap' }}>
