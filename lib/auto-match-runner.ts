@@ -36,10 +36,18 @@ export async function runAutoMatchCore(
 
   let matched = 0
   const errors: string[] = []
+  // Rastrear órdenes ya usadas en esta corrida para evitar doble-emparejamiento
+  const usedOrderIds = new Set<string>()
 
   for (const candidate of candidates) {
     const store = stores[candidate.storeId]
     if (!store) continue
+
+    // Si esta orden ya fue tomada por otro pago en esta misma corrida, salteamos
+    if (usedOrderIds.has(candidate.orderId)) {
+      console.log(`[auto-match] Orden #${candidate.order.orderNumber} ya emparejada en esta corrida — saltando pago ${candidate.mpPaymentId}`)
+      continue
+    }
 
     const platform = store.platform ?? 'tiendanube'
     let markSuccess = false
@@ -123,6 +131,8 @@ export async function runAutoMatchCore(
     })
 
     matched++
+    // Registrar esta orden como usada para prevenir doble-emparejamiento
+    usedOrderIds.add(candidate.orderId)
 
     // Guardar el state fresco con los cambios de este match
     await saveState(freshState)
