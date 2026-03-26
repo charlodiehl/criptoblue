@@ -141,7 +141,11 @@ export async function saveState(state: AppState): Promise<void> {
   // matchLog (backend): auto-expira a 48hs — solo para consultas del sistema, no toca persistedMonthStats
   state.matchLog = (state.matchLog || []).filter(e => new Date(e.timestamp).getTime() >= effectiveCutoffMinMs)
 
-  // registroLog (UI): NUNCA expira automáticamente — solo se borra con el botón "Borrar Registro"
+  // registroLog (UI): cap en 30 días para historial visible
+  const cutoff30dMs = Date.now() - 30 * 24 * 60 * 60 * 1000
+  state.registroLog = (state.registroLog || []).filter(
+    e => new Date(e.timestamp).getTime() >= cutoff30dMs
+  )
 
   // recentMatches: auto-cleanup al cutoff efectivo (solo se usa para resaltado verde en pestañas)
   state.recentMatches = (state.recentMatches || []).filter(m => new Date(m.matchedAt).getTime() >= effectiveCutoffMinMs)
@@ -150,8 +154,12 @@ export async function saveState(state: AppState): Promise<void> {
   const expiredPayments = state.unmatchedPayments.filter(
     u => u.payment.fechaPago && new Date(u.payment.fechaPago).getTime() < effectiveCutoffPaymentsMs
   )
+  // Para prevención de duplicados solo miramos las últimas 72h — ningún pago activo vive más de 48h
+  const cutoff72hMs = Date.now() - 72 * 60 * 60 * 1000
   const alreadyLoggedIds = new Set(
-    (state.registroLog || []).map(e => e.mpPaymentId).filter(Boolean)
+    (state.registroLog || [])
+      .filter(e => new Date(e.timestamp).getTime() >= cutoff72hMs)
+      .map(e => e.mpPaymentId).filter(Boolean)
   )
   for (const u of expiredPayments) {
     if (!alreadyLoggedIds.has(u.payment.mpPaymentId)) {
