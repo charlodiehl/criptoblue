@@ -144,7 +144,7 @@ export async function saveState(state: AppState): Promise<void> {
     u => u.payment.fechaPago && new Date(u.payment.fechaPago).getTime() < effectiveCutoffPaymentsMs
   )
   const alreadyLoggedIds = new Set(
-    (state.registroLog || []).filter(e => e.action === 'no_match').map(e => e.mpPaymentId).filter(Boolean)
+    (state.registroLog || []).map(e => e.mpPaymentId).filter(Boolean)
   )
   for (const u of expiredPayments) {
     if (!alreadyLoggedIds.has(u.payment.mpPaymentId)) {
