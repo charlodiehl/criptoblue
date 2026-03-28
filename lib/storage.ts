@@ -325,7 +325,24 @@ export async function loadOrdersCache(): Promise<OrdersCacheState> {
 // ─────────────────────────────────────────────
 
 export async function saveHotState(state: HotState): Promise<void> {
-  await kvSetConRetry(HOT_KEY, cleanHotData(state))
+  const cleaned = cleanHotData(state)
+
+  // Merge paymentOverrides — proteger PATCHes manuales contra race condition con el cron.
+  // Si alguien hizo un PATCH directo a Supabase mientras este ciclo corría, el estado
+  // que teníamos en memoria puede estar desactualizado y pisaría esos cambios.
+  // Cargamos el valor actual de HOT_KEY y mergeamos los overrides que no tenemos,
+  // descartando los que ya no tienen un pago activo.
+  const current = await kvGet<HotState>(HOT_KEY)
+  if (current?.paymentOverrides && Object.keys(current.paymentOverrides).length > 0) {
+    const activeIds = new Set(cleaned.unmatchedPayments.map(u => u.payment.mpPaymentId))
+    for (const [id, override] of Object.entries(current.paymentOverrides)) {
+      if (activeIds.has(id) && !cleaned.paymentOverrides[id]) {
+        cleaned.paymentOverrides[id] = override
+      }
+    }
+  }
+
+  await kvSetConRetry(HOT_KEY, cleaned)
 }
 
 export async function saveLogs(state: LogsState): Promise<void> {
@@ -394,8 +411,8 @@ export async function saveState(state: AppState): Promise<void> {
     }
   }
 
-  // Limpiar con funciones compartidas (#8)
-  const hot = cleanHotData({
+  // HOT_KEY: usar saveHotState para aprovechar el merge de paymentOverrides (#race-condition)
+  const hotInput: HotState = {
     unmatchedPayments: state.unmatchedPayments ?? [],
     recentMatches: state.recentMatches ?? [],
     externallyMarkedOrders: state.externallyMarkedOrders ?? [],
@@ -409,7 +426,7 @@ export async function saveState(state: AppState): Promise<void> {
     settings: state.settings ?? {},
     persistedMonthStats: state.persistedMonthStats ?? {},
     dismissedPairs: state.dismissedPairs ?? [],
-  })
+  }
 
   const logs = cleanLogsData({
     registroLog,
@@ -426,7 +443,7 @@ export async function saveState(state: AppState): Promise<void> {
   }
 
   await Promise.all([
-    kvSetConRetry(HOT_KEY, hot),
+    saveHotState(hotInput), // incluye cleanHotData + merge de paymentOverrides
     kvSetConRetry(LOGS_KEY, logs),
     kvSetConRetry(MATCH_LOG_KEY, matchLogData),
     kvSetConRetry(PROCESSED_KEY, processed),
