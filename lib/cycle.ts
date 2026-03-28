@@ -3,12 +3,13 @@ import { getPendingOrders as getTNOrders } from './tiendanube'
 import { getPendingOrders as getShopifyOrders } from './shopify'
 import { loadState, saveState, getStores, appendError } from './storage'
 import { HARD_CUTOFF_PAYMENTS, HARD_CUTOFF_ORDERS } from './config'
-import type { UnmatchedPayment } from './types'
+import type { UnmatchedPayment, Store } from './types'
 
 interface CycleResult {
   processed: number   // total pagos vistos en MP (puede incluir ya conocidos)
   newUnmatched: number // pagos verdaderamente nuevos agregados a la cola
   errors: string[]
+  stores: Record<string, Store>
 }
 
 export async function processMPPayments(): Promise<CycleResult> {
@@ -168,5 +169,6 @@ export async function processMPPayments(): Promise<CycleResult> {
 
   await saveState(freshState)
 
+  result.stores = stores
   return result
 }
