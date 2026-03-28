@@ -21,6 +21,9 @@ async function mpFetch(path: string, params?: Record<string, string>) {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function normalizePayment(raw: any): Payment | null {
+  // Solo transferencias bancarias (CBU / alias / CVU) — excluir tarjetas, efectivo, wallet, etc.
+  if (raw.payment_type_id !== 'bank_transfer') return null
+
   const OWNER_EMAIL = 'compubairestore@gmail.com'
   const OWNER_CUIT = '20190997252'
 
