@@ -5,9 +5,9 @@ import { runAutoMatchCore } from '@/lib/auto-match-runner'
 
 export const maxDuration = 300
 
-// Auth manejada por middleware.ts — GET requiere CRON_SECRET, POST requiere sesión
+// Auth manejada por proxy.ts — GET requiere CRON_SECRET, POST requiere sesión
 
-// #1: Arreglada race condition — usa solo cargas parciales, nunca mezcla loadState con saveLogs
+// Ciclo completo: sync + auto-match (solo desde botón manual)
 async function runFullCycle(triggeredBy: 'cron' | 'manual_button') {
   // Fase 1: resetear estado para reevaluación fresca
   const [hot, processed, logs] = await Promise.all([loadHotState(), loadProcessed(), loadLogs()])
@@ -41,16 +41,25 @@ async function runFullCycle(triggeredBy: 'cron' | 'manual_button') {
     throw err
   }
 
-  // Fase 3: auto-matching
-  const [freshHot, stores] = await Promise.all([loadHotState(), getStores()])
-  freshHot.currentPhase = 'auto-matching'
+  // Fase 3: auto-matching (solo si triggeredBy es manual_button)
+  if (triggeredBy === 'manual_button') {
+    const [freshHot, stores] = await Promise.all([loadHotState(), getStores()])
+    freshHot.currentPhase = 'auto-matching'
+    await saveHotState(freshHot)
+
+    const { matched, errors } = await runAutoMatchCore(stores, triggeredBy)
+    return NextResponse.json({ success: true, ...cycleResult, autoMatched: matched, autoMatchErrors: errors.length })
+  }
+
+  // Cron: solo sync, sin auto-match
+  const freshHot = await loadHotState()
+  freshHot.currentPhase = 'idle'
   await saveHotState(freshHot)
 
-  const { matched, errors } = await runAutoMatchCore(stores, triggeredBy)
-
-  return NextResponse.json({ success: true, ...cycleResult, autoMatched: matched, autoMatchErrors: errors.length })
+  return NextResponse.json({ success: true, ...cycleResult })
 }
 
+// GET — cron de Vercel: solo sync de pagos y órdenes, sin auto-match
 export async function GET() {
   try {
     return await runFullCycle('cron')
@@ -65,6 +74,7 @@ export async function GET() {
   }
 }
 
+// POST — botón manual: sync + auto-match completo
 export async function POST() {
   try {
     return await runFullCycle('manual_button')

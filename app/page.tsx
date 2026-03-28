@@ -7,6 +7,7 @@ import ManualMatchTab, { type AutoMatchCandidate } from '@/components/ManualMatc
 import OrdersListTab from '@/components/OrdersListTab'
 import PaymentsListTab from '@/components/PaymentsListTab'
 import RegistroTab from '@/components/RegistroTab'
+import { useRealtimeSync } from '@/hooks/useRealtimeSync'
 import type { Order, UnmatchedPayment, Store, LogEntry, Payment, RecentMatch } from '@/lib/types'
 import { HARD_CUTOFF_PAYMENTS, HARD_CUTOFF_ORDERS } from '@/lib/config'
 
@@ -46,7 +47,7 @@ export default function Dashboard() {
   const [recentMatches, setRecentMatches] = useState<RecentMatch[]>([])
   const [matchRefreshKey, setMatchRefreshKey] = useState(0)
   const toastIdRef = useRef(0)
-  const isRefreshingRef = useRef(false)
+  // isRefreshingRef eliminado — ya no hay silentRefresh
   const [isAutoMatching, setIsAutoMatching] = useState(false)
   const stopAutoMatchRef = useRef(false)
   const firstAutoMatchCandidateRef = useRef<AutoMatchCandidate | null>(null)
@@ -186,41 +187,32 @@ export default function Dashboard() {
     }
   }, [])
 
-  // Initial loads — fetchSync reemplaza fetchStatus + fetchUnmatched (1 lectura a Supabase)
+  // Carga inicial al montar
   useEffect(() => {
     fetchSync()
+    fetchOrders()
+    fetchLog()
     fetchStores()
-  }, [fetchSync, fetchStores])
+  }, [fetchSync, fetchOrders, fetchLog, fetchStores])
 
-  // Poll sync — 2s durante auto-matching para ver matches en tiempo real, 5s en idle/syncing
-  useEffect(() => {
-    const phase = stats?.currentPhase
-    const delay = phase === 'auto-matching' ? 2000 : 5000
-    const interval = setInterval(() => {
+  // Supabase Realtime — reemplaza todo el polling
+  // Cuando una key cambia en Supabase, solo recarga los datos afectados
+  useRealtimeSync({
+    onHotChange: () => {
       fetchSync()
-    }, delay)
-    return () => clearInterval(interval)
-  }, [fetchSync, stats?.currentPhase])
-
-  // Poll registro every 5 seconds mientras la pestaña está activa
-  useEffect(() => {
-    if (tab !== 'registro') return
-    const interval = setInterval(() => {
+    },
+    onLogsChange: () => {
       fetchLog()
-    }, 5000)
-    return () => clearInterval(interval)
-  }, [tab, fetchLog])
-
-  // Poll orders every 30 seconds — sincroniza lista de órdenes entre usuarios
-  // (no se hace cada 5s para no saturar la API de TiendaNube con múltiples usuarios)
-  useEffect(() => {
-    const interval = setInterval(() => {
+    },
+    onOrdersChange: () => {
       fetchOrders()
-    }, 30000)
-    return () => clearInterval(interval)
-  }, [fetchOrders])
+    },
+    onStoresChange: () => {
+      fetchStores()
+    },
+  })
 
-  // Load orders/payments when tab is shown
+  // Cargar datos específicos al cambiar de pestaña
   useEffect(() => {
     if (tab === 'manual' || tab === 'ordenes') {
       fetchOrders()
@@ -339,31 +331,8 @@ export default function Dashboard() {
     }
   }
 
-  // Refresh silencioso: no bloquea la UI, solo muestra el indicador en el header
-  const silentRefresh = useCallback(async () => {
-    if (isRefreshingRef.current) return // evitar solapamiento
-    isRefreshingRef.current = true
-    setIsRefreshing(true)
-    try {
-      await fetch('/api/reevaluar', { method: 'POST' })
-      fetch('/api/enrich-names', { method: 'POST' }).catch(() => {})
-      await Promise.all([fetchSync(), fetchOrders(), fetchLog()])
-      setMatchRefreshKey(k => k + 1)
-    } catch {
-      // silencioso: no mostrar toast en auto-refresh
-    } finally {
-      isRefreshingRef.current = false
-      setIsRefreshing(false)
-    }
-  }, [fetchSync, fetchOrders, fetchLog])
-
-  // Auto-refresh cada 5 minutos (corre aunque la pestaña esté minimizada)
-  useEffect(() => {
-    const interval = setInterval(() => {
-      silentRefresh()
-    }, 5 * 60 * 1000)
-    return () => clearInterval(interval)
-  }, [silentRefresh])
+  // silentRefresh eliminado — reemplazado por Supabase Realtime
+  // Los datos se actualizan automáticamente cuando cambian en Supabase
 
   const handleReevaluar = async () => {
     setMatchRefreshKey(k => k + 1)
