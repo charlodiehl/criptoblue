@@ -13,7 +13,7 @@ interface CycleResult {
 }
 
 export async function processMPPayments(): Promise<CycleResult> {
-  const result: CycleResult = { processed: 0, newUnmatched: 0, errors: [] }
+  const result: CycleResult = { processed: 0, newUnmatched: 0, errors: [], stores: {} }
 
   const [state, stores] = await Promise.all([loadState(), getStores()])
 
