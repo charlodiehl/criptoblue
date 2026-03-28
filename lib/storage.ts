@@ -206,7 +206,10 @@ function cleanHotData(state: HotState): HotState {
   }
 
   // Limpiar paymentOverrides de pagos que ya no están en unmatchedPayments (#M3)
-  if (cleaned.paymentOverrides && Object.keys(cleaned.paymentOverrides).length > 0) {
+  // IMPORTANTE: solo limpiar si hay pagos activos. Si la cola está vacía (ej: reset
+  // intencional en reevaluar), preservar todos los overrides para que se re-apliquen
+  // cuando processMPPayments reconstruya la cola en el mismo ciclo.
+  if (cleaned.paymentOverrides && Object.keys(cleaned.paymentOverrides).length > 0 && cleaned.unmatchedPayments.length > 0) {
     const activeIds = new Set(cleaned.unmatchedPayments.map(u => u.payment.mpPaymentId))
     for (const id of Object.keys(cleaned.paymentOverrides)) {
       if (!activeIds.has(id)) delete cleaned.paymentOverrides[id]
