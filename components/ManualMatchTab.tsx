@@ -198,6 +198,39 @@ function computeSignals(payment: Payment, order: Order): Signal[] {
   ]
 }
 
+// Espejo de meetsAutoCriteria en lib/auto-match.ts — deben mantenerse sincronizados
+function meetsAutoCriteria(signals: Signal[]): boolean {
+  const by = Object.fromEntries(signals.map(s => [s.label, s]))
+  const monto  = by['Monto']
+  const cuit   = by['CUIT / CUIL / DNI']
+  const nombre = by['Nombre']
+  const fecha  = by['Fecha / Hora']
+  const email  = by['Email']
+  const unica  = by['Otras órdenes mismo monto']
+  if (!monto?.match) return false
+  if (!fecha?.match) return false
+  const cuitOk   = cuit?.match === true
+  const emailOk  = email?.match === true || email?.partial === true
+  const nombreOk = nombre?.match === true
+  const allUnavailable = cuit?.unavailable && nombre?.unavailable && email?.unavailable
+  return cuitOk || emailOk || nombreOk || (!!allUnavailable && unica?.match === true)
+}
+
+// auto   → cumple todos los criterios de automarcado
+// review → algo coincide pero requiere revisión humana
+// mismatch → identificador confiable confirmó que no son la misma persona
+function getMatchLevel(signals: Signal[]): 'auto' | 'review' | 'mismatch' {
+  if (meetsAutoCriteria(signals)) return 'auto'
+  const by = Object.fromEntries(signals.map(s => [s.label, s]))
+  const cuit   = by['CUIT / CUIL / DNI']
+  const nombre = by['Nombre']
+  if ((cuit && !cuit.unavailable && !cuit.match) ||
+      (nombre && !nombre.unavailable && !nombre.match && !nombre.partial)) {
+    return 'mismatch'
+  }
+  return 'review'
+}
+
 interface RankedOrder {
   order: Order
   score: number

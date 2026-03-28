@@ -52,20 +52,19 @@ function emailMatchesName(email: string, name: string): boolean {
   return partialMatched.size >= 2
 }
 
+// Mismo algoritmo que nameSim en ManualMatchTab.tsx — usa el array más corto como
+// denominador y substring matching, para que backend y frontend sean 100% consistentes.
 function nameSimilarity(a: string, b: string): number {
   if (!a || !b) return 0
-  const na = a.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9\s]/g, '').trim()
-  const nb = b.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9\s]/g, '').trim()
-  const ta = na.split(' ').filter(t => t.length >= 2)
-  const tb = nb.split(' ').filter(t => t.length >= 2)
-  if (!ta.length || !tb.length) return 0
-  let matched = 0
-  for (const tokenA of ta) {
-    for (const tokenB of tb) {
-      if (tokenA === tokenB) { matched++; break }
-    }
-  }
-  return Math.round((matched / Math.max(ta.length, tb.length)) * 100)
+  const na = a.toLowerCase().trim()
+  const nb = b.toLowerCase().trim()
+  if (na === nb) return 100
+  const wa = na.split(/\s+/)
+  const wb = nb.split(/\s+/)
+  const shorter = wa.length <= wb.length ? wa : wb
+  const longer  = wa.length <= wb.length ? wb : wa
+  const hits = shorter.filter(w => longer.some(l => l.includes(w) || w.includes(l)))
+  return shorter.length ? Math.round((hits.length / shorter.length) * 100) : 0
 }
 
 // ─── Señales ─────────────────────────────────────────────────────────────────
@@ -153,8 +152,8 @@ function meetsAutoCriteria(signals: Signal[]): boolean {
   if (!fecha?.match) return false
 
   const cuitOk   = cuit?.match === true
-  const emailOk  = email?.match === true || email?.partial === true
-  const nombreOk = nombre?.match === true || (nombre?.partial === true && nombre.value === 'coincide con email')
+  const emailOk  = email?.match === true || email?.partial === true  // email exacto o cruce nombre↔email
+  const nombreOk = nombre?.match === true  // solo coincidencia real (nombre + apellido); partial nombre-a-nombre no alcanza
   const allUnavailable = cuit?.unavailable && nombre?.unavailable && email?.unavailable
 
   return cuitOk || emailOk || nombreOk || (!!allUnavailable && unica?.match === true)
