@@ -102,7 +102,7 @@ export async function POST(req: NextRequest) {
 
     await Promise.all([saveHotState(hot), saveLogs(logs), saveMatchLog(matchLogData)])
 
-    return NextResponse.json({ success: true, logEntry })
+    return NextResponse.json({ success: true, logEntry, recentMatch: { mpPaymentId: fakeMpPaymentId, matchedAt: now, orderId, storeId } })
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 })
   }

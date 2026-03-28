@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { loadHotState, saveHotState, loadLogs, saveLogs, loadMatchLog, saveMatchLog, getStores, incrementPersistedMonthStats, appendActivity, appendError } from '@/lib/storage'
 import { markOrderAsPaid as markTNOrderAsPaid } from '@/lib/tiendanube'
 import { markOrderAsPaid as markShopifyOrderAsPaid } from '@/lib/shopify'
-import type { LogEntry } from '@/lib/types'
+import type { LogEntry, RecentMatch } from '@/lib/types'
 
 // #6: Agrega appendActivity y appendError para consistencia con el resto de endpoints
 export async function POST(req: NextRequest) {
@@ -45,8 +45,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error }, { status: 500 })
     }
 
+    const now = new Date().toISOString()
+    const fakeMpPaymentId = `manual_paid_${Date.now()}_${orderId}`
+
     const logEntry: LogEntry = {
-      timestamp: new Date().toISOString(),
+      timestamp: now,
       action: 'manual_paid',
       source: 'manual_ordenes',
       triggeredBy: 'human',
@@ -59,6 +62,16 @@ export async function POST(req: NextRequest) {
     matchLogData.matchLog.push(logEntry)
     if (total != null) incrementPersistedMonthStats(hot, total, 'manual_ordenes')
 
+    // recentMatches: para que la orden quede verde en la pestaña Órdenes
+    const recentMatch: RecentMatch = {
+      mpPaymentId: fakeMpPaymentId,
+      matchedAt: now,
+      orderId,
+      storeId,
+    }
+    hot.recentMatches = hot.recentMatches || []
+    hot.recentMatches.push(recentMatch)
+
     appendActivity(logs, 'human', 'orden_marcada_pagada_manual', {
       orderId,
       storeId,
@@ -68,7 +81,7 @@ export async function POST(req: NextRequest) {
 
     await Promise.all([saveHotState(hot), saveLogs(logs), saveMatchLog(matchLogData)])
 
-    return NextResponse.json({ success: true })
+    return NextResponse.json({ success: true, logEntry, recentMatch })
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 })
   }

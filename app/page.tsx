@@ -260,7 +260,16 @@ export default function Dashboard() {
       const data = await res.json()
       if (data.success) {
         addToast('Orden marcada como pagada', 'success')
-        await Promise.all([fetchOrders(), fetchStatus()])
+        // Actualización optimista: verde inmediato sin remover la orden (Realtime la saca cuando TN la confirme)
+        if (data.recentMatch) setRecentMatches(prev => [...prev, data.recentMatch])
+        if (data.logEntry) setLogEntries(prev => [...prev, data.logEntry])
+        setStats(prev => prev ? {
+          ...prev,
+          manualCount: prev.manualCount + 1,
+          manualVolume: prev.manualVolume + (total ?? 0),
+          pendingOrders: Math.max(0, prev.pendingOrders - 1),
+        } : prev)
+        setMatchRefreshKey(k => k + 1)
       } else {
         addToast(`Error: ${data.error}`, 'error')
       }
@@ -502,7 +511,16 @@ export default function Dashboard() {
       const data = await res.json()
       if (data.success) {
         addToast('Orden marcada como pagada', 'success')
-        await Promise.all([fetchSync(), fetchLog()])
+        // Actualización optimista: verde inmediato, Realtime confirma y saca la orden de pendientes
+        if (data.recentMatch) setRecentMatches(prev => [...prev, data.recentMatch])
+        if (data.logEntry) setLogEntries(prev => [...prev, data.logEntry])
+        setStats(prev => prev ? {
+          ...prev,
+          manualCount: prev.manualCount + 1,
+          manualVolume: prev.manualVolume + (monto ?? 0),
+          pendingOrders: Math.max(0, prev.pendingOrders - 1),
+        } : prev)
+        setMatchRefreshKey(k => k + 1)
       } else {
         addToast(`Error: ${data.error}`, 'error')
       }
