@@ -3,18 +3,9 @@ import { processMPPayments } from '@/lib/cycle'
 
 export const maxDuration = 60
 
-function isAuthorized(req: Request): boolean {
-  const cronSecret = process.env.CRON_SECRET
-  if (!cronSecret) return true
-  const bearer = req.headers.get('authorization')
-  const custom = req.headers.get('x-cron-secret')
-  return bearer === `Bearer ${cronSecret}` || custom === cronSecret
-}
+// Auth manejada por middleware.ts — GET requiere CRON_SECRET, POST requiere sesión
 
-export async function GET(req: Request) {
-  if (!isAuthorized(req)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+export async function GET() {
   try {
     const result = await processMPPayments()
     return NextResponse.json({ success: true, ...result })

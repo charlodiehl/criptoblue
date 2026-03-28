@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server'
-import { loadState } from '@/lib/storage'
+import { loadHotState } from '@/lib/storage'
 
 export async function GET() {
   try {
-    const state = await loadState()
-    return NextResponse.json(state.unmatchedPayments)
+    const hot = await loadHotState()
+    return NextResponse.json(hot.unmatchedPayments)
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 })
   }

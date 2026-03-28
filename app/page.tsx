@@ -475,8 +475,8 @@ export default function Dashboard() {
       })
       const data = await res.json()
       if (data.success) {
-        const msg = data.tnMethod
-          ? 'Orden marcada como pagada en TiendaNube y registrada'
+        const msg = data.markMethod
+          ? 'Orden marcada como pagada y registrada'
           : 'Pago registrado manualmente'
         addToast(msg, 'success')
         // Actualización local instantánea

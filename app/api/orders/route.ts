@@ -1,15 +1,15 @@
 import { NextResponse } from 'next/server'
-import { loadState, saveState, getStores } from '@/lib/storage'
+import { loadOrdersCache, saveOrdersCache, getStores } from '@/lib/storage'
 import { getPendingOrders } from '@/lib/tiendanube'
 import { HARD_CUTOFF_ORDERS } from '@/lib/config'
 
 export async function GET() {
   try {
-    const state = await loadState()
+    const ordersCache = await loadOrdersCache()
 
     // Si hay cache válido, devolverlo directamente — todos los clientes ven lo mismo
-    if (state.cachedOrders && state.cachedOrders.length > 0) {
-      return NextResponse.json(state.cachedOrders)
+    if (ordersCache.cachedOrders && ordersCache.cachedOrders.length > 0) {
+      return NextResponse.json(ordersCache.cachedOrders)
     }
 
     // Fallback: cache vacío (primer arranque o reset) → fetch directo a TiendaNube y guardar cache
@@ -30,9 +30,7 @@ export async function GET() {
 
     // Guardar en cache para los próximos clientes
     if (results.some(r => r.status === 'fulfilled')) {
-      state.cachedOrders = orders
-      state.cachedOrdersAt = new Date().toISOString()
-      await saveState(state)
+      await saveOrdersCache({ cachedOrders: orders, cachedOrdersAt: new Date().toISOString() })
     }
 
     return NextResponse.json(orders)

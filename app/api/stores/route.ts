@@ -1,35 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getStores, saveStores, loadState, saveState } from '@/lib/storage'
-import { CONFIG } from '@/lib/config'
+import { getStores, saveStores, loadHotState, saveHotState, loadLogs, saveLogs, appendActivity } from '@/lib/storage'
 
-async function fetchStoreName(storeId: string, accessToken: string): Promise<string | null> {
-  try {
-    const res = await fetch(`${CONFIG.tiendanube.apiBase}/${storeId}`, {
-      headers: {
-        Authentication: `bearer ${accessToken}`,
-        'User-Agent': CONFIG.tiendanube.userAgent,
-      },
-    })
-    if (!res.ok) {
-      console.error(`[stores] fetchStoreName ${storeId} → HTTP ${res.status}`)
-      return null
-    }
-    const data = await res.json()
-    // TN puede devolver el nombre como string, objeto multilingual, o en business_name
-    const name = data.name
-    if (typeof name === 'string' && name) return name
-    if (name && typeof name === 'object') {
-      const fromName = name.es || name.pt || Object.values(name).find((v): v is string => typeof v === 'string') || null
-      if (fromName) return fromName
-    }
-    if (typeof data.business_name === 'string' && data.business_name) return data.business_name
-    console.error(`[stores] fetchStoreName ${storeId} → no name field found, data keys:`, Object.keys(data))
-    return null
-  } catch (err) {
-    console.error(`[stores] fetchStoreName ${storeId} → exception:`, err)
-    return null
-  }
-}
+// Auth manejada por middleware.ts — GET público, PATCH/DELETE requieren sesión
 
 export async function GET() {
   try {
@@ -64,13 +36,24 @@ export async function DELETE(req: NextRequest) {
     const stores = await getStores()
     if (!stores[storeId]) return NextResponse.json({ error: 'Store not found' }, { status: 404 })
 
+    const storeName = stores[storeId].storeName
     delete stores[storeId]
-    await saveStores(stores)
 
-    // Clean up all state records associated with this store
-    const state = await loadState()
-    state.unmatchedPayments = state.unmatchedPayments.filter(p => (p as any).storeId !== storeId)
-    await saveState(state)
+    // Limpiar registros asociados a la tienda usando cargas parciales
+    const [hot, logs] = await Promise.all([loadHotState(), loadLogs()])
+
+    // UnmatchedPayment no tiene storeId directo — filtrar por storeName (#A1)
+    hot.unmatchedPayments = hot.unmatchedPayments.filter(u => u.storeName !== storeName)
+
+    // Limpiar recentMatches de la tienda
+    hot.recentMatches = (hot.recentMatches ?? []).filter(m => m.storeId !== storeId)
+
+    // Limpiar dismissedPairs de la tienda
+    hot.dismissedPairs = (hot.dismissedPairs ?? []).filter(d => d.storeId !== storeId)
+
+    appendActivity(logs, 'human', 'tienda_eliminada', { storeId, storeName })
+
+    await Promise.all([saveStores(stores), saveHotState(hot), saveLogs(logs)])
 
     return NextResponse.json({ success: true })
   } catch (err) {

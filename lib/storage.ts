@@ -1,38 +1,137 @@
 import { createClient } from '@supabase/supabase-js'
-import type { AppState, Store, Payment, ErrorEntry, ActivityEntry, UnmatchedPayment } from './types'
+import type { AppState, Store, Payment, Order, LogEntry, UnmatchedPayment, RecentMatch, DismissedPair, ExternalPaymentMark, PersistedMonthStats, ErrorEntry, ActivityEntry } from './types'
 import { HARD_CUTOFF_PAYMENTS, HARD_CUTOFF_ORDERS } from './config'
 
-function stripRawData(payment: Payment): Payment {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { rawData: _, ...rest } = payment
-  return rest as Payment
-}
-
+// ─────────────────────────────────────────────
 // Supabase schema required:
 // CREATE TABLE kv_store (
 //   key TEXT PRIMARY KEY,
 //   value JSONB NOT NULL,
 //   updated_at TIMESTAMPTZ DEFAULT NOW()
 // );
+// ─────────────────────────────────────────────
 
+// Cliente Supabase cacheado a nivel de módulo — reutiliza conexiones HTTP (#9)
+let _client: ReturnType<typeof createClient> | null = null
 function getClient() {
+  if (_client) return _client
   const url = process.env.SUPABASE_URL
   const key = process.env.SUPABASE_SERVICE_KEY
   if (!url || !key) throw new Error('Missing SUPABASE_URL or SUPABASE_SERVICE_KEY')
-  return createClient(url, key)
+  _client = createClient(url, key)
+  return _client
 }
 
-const STORES_KEY = 'criptoblue:stores'
-const STATE_KEY = 'criptoblue:state'
+// ─────────────────────────────────────────────
+// Keys de Supabase — cada una almacena una parte del estado
+// ─────────────────────────────────────────────
+const HOT_KEY        = 'criptoblue:state'
+const PROCESSED_KEY  = 'criptoblue:processed'
+const ORDERS_KEY     = 'criptoblue:orders-cache'
+const LOGS_KEY       = 'criptoblue:logs'
+const MATCH_LOG_KEY  = 'criptoblue:match-log'
+const STORES_KEY     = 'criptoblue:stores'
+
+// ─────────────────────────────────────────────
+// Tipos parciales por key
+// ─────────────────────────────────────────────
+
+// cachedOrdersAt vive SOLO en OrdersCacheState — fuente única de verdad (#5)
+export type HotState = {
+  unmatchedPayments: UnmatchedPayment[]
+  recentMatches: RecentMatch[]
+  externallyMarkedOrders: string[]
+  externallyMarkedPayments: ExternalPaymentMark[]
+  retainedPaymentIds: string[]
+  lastMPCheck: string
+  lastAutoMatchAt?: string
+  lastAutoMatchMatched?: number
+  currentPhase?: 'idle' | 'syncing' | 'auto-matching'
+  paymentOverrides: Record<string, Partial<Payment>>
+  settings: Record<string, unknown>
+  persistedMonthStats: Record<string, PersistedMonthStats>
+  dismissedPairs: DismissedPair[]
+}
+
+export type LogsState = {
+  registroLog: LogEntry[]
+  errorLog: ErrorEntry[]
+  activityLog: ActivityEntry[]
+}
+
+export type MatchLogState = {
+  matchLog: LogEntry[]
+}
+
+export type ProcessedState = {
+  processedPayments: string[]
+}
+
+export type OrdersCacheState = {
+  cachedOrders: Order[]
+  cachedOrdersAt: string
+}
+
+// ─────────────────────────────────────────────
+// Defaults
+// ─────────────────────────────────────────────
+
+const DEFAULT_HOT_STATE: HotState = {
+  unmatchedPayments: [],
+  recentMatches: [],
+  externallyMarkedOrders: [],
+  externallyMarkedPayments: [],
+  retainedPaymentIds: [],
+  lastMPCheck: '',
+  lastAutoMatchAt: undefined,
+  lastAutoMatchMatched: undefined,
+  currentPhase: 'idle',
+  paymentOverrides: {},
+  settings: {},
+  persistedMonthStats: {},
+  dismissedPairs: [],
+}
+
+const DEFAULT_LOGS_STATE: LogsState = {
+  registroLog: [],
+  errorLog: [],
+  activityLog: [],
+}
+
+const DEFAULT_MATCH_LOG_STATE: MatchLogState = {
+  matchLog: [],
+}
+
+const DEFAULT_PROCESSED_STATE: ProcessedState = {
+  processedPayments: [],
+}
+
+const DEFAULT_ORDERS_STATE: OrdersCacheState = {
+  cachedOrders: [],
+  cachedOrdersAt: '',
+}
+
+// ─────────────────────────────────────────────
+// Nombres manuales para tiendas que la API de TN no devuelve bien
+// ─────────────────────────────────────────────
+const STORE_NAME_OVERRIDES: Record<string, string> = {
+  '5512981': 'Perla',
+  '1935431': 'Chunas',
+  '6557652': 'Deportivo',
+  '4963651': 'Dege',
+}
+
+// ─────────────────────────────────────────────
+// Capa base de Supabase
+// ─────────────────────────────────────────────
 
 async function kvGet<T>(key: string): Promise<T | null> {
   const supabase = getClient()
-  const { data, error } = await supabase
-    .from('kv_store')
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (supabase.from('kv_store') as any)
     .select('value')
     .eq('key', key)
     .single()
-  // PGRST116 = "no rows found" — es válido, significa que no hay data guardada aún
   if (error && error.code !== 'PGRST116') {
     throw new Error(`kvGet("${key}") falló: ${error.message} [${error.code}]`)
   }
@@ -41,42 +140,117 @@ async function kvGet<T>(key: string): Promise<T | null> {
 
 async function kvSet(key: string, value: unknown): Promise<void> {
   const supabase = getClient()
-  const { error } = await supabase
-    .from('kv_store')
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error } = await (supabase.from('kv_store') as any)
     .upsert({ key, value, updated_at: new Date().toISOString() })
   if (error) {
     throw new Error(`kvSet("${key}") falló: ${error.message} [${error.code}]`)
   }
 }
 
-const DEFAULT_STATE: AppState = {
-  processedPayments: [],
-  registroLog: [],
-  matchLog: [],
-  recentMatches: [],
-  unmatchedPayments: [],
-  externallyMarkedOrders: [],
-  externallyMarkedPayments: [],
-  retainedPaymentIds: [],
-  cachedOrders: [],
-  cachedOrdersAt: '',
-  lastMPCheck: '',
-  currentPhase: 'idle',
-  paymentOverrides: {},
-  settings: {},
-  persistedMonthStats: {},
-  dismissedPairs: [],
-  errorLog: [],
-  activityLog: [],
+// Retry con backoff — protege contra fallos de red transitorios (#1)
+async function kvSetConRetry(key: string, value: unknown, intentos = 3): Promise<void> {
+  for (let i = 0; i < intentos; i++) {
+    try {
+      await kvSet(key, value)
+      return
+    } catch (e) {
+      if (i === intentos - 1) throw e
+      await new Promise(r => setTimeout(r, 500 * (i + 1)))
+    }
+  }
 }
 
-// Nombres manuales para tiendas que la API de TN no devuelve bien
-const STORE_NAME_OVERRIDES: Record<string, string> = {
-  '5512981': 'Perla',
-  '1935431': 'Chunas',
-  '6557652': 'Deportivo',
-  '4963651': 'Dege',
+// ─────────────────────────────────────────────
+// Helpers internos
+// ─────────────────────────────────────────────
+
+// Reemplaza rawData con {} para reducir tamaño sin romper el tipo Payment (#A4)
+function stripRawData(payment: Payment): Payment {
+  return { ...payment, rawData: {} }
 }
+
+function getCutoffs() {
+  const cutoff48hMs = Date.now() - 48 * 60 * 60 * 1000
+  const effectiveCutoffPaymentsMs = Math.max(cutoff48hMs, HARD_CUTOFF_PAYMENTS.getTime())
+  const effectiveCutoffOrdersMs = Math.max(cutoff48hMs, HARD_CUTOFF_ORDERS.getTime())
+  const effectiveCutoffMinMs = Math.min(effectiveCutoffPaymentsMs, effectiveCutoffOrdersMs)
+  const cutoff30dMs = Date.now() - 30 * 24 * 60 * 60 * 1000
+  const cutoff7dMs = Date.now() - 7 * 24 * 60 * 60 * 1000
+  return { cutoff48hMs, effectiveCutoffPaymentsMs, effectiveCutoffOrdersMs, effectiveCutoffMinMs, cutoff30dMs, cutoff7dMs }
+}
+
+// Lógica de limpieza compartida entre saveHotState y saveState (#8)
+function cleanHotData(state: HotState): HotState {
+  const { cutoff48hMs, effectiveCutoffPaymentsMs, effectiveCutoffMinMs } = getCutoffs()
+  const cleaned: HotState = {
+    ...state,
+    recentMatches: (state.recentMatches ?? []).filter(
+      m => new Date(m.matchedAt).getTime() >= effectiveCutoffMinMs
+    ),
+    dismissedPairs: (state.dismissedPairs ?? []).filter(
+      p => new Date(p.dismissedAt).getTime() >= cutoff48hMs
+    ),
+    externallyMarkedPayments: (state.externallyMarkedPayments ?? []).filter(
+      e => new Date(e.markedAt).getTime() >= effectiveCutoffPaymentsMs
+    ),
+    externallyMarkedOrders: (state.externallyMarkedOrders ?? []).length > 500
+      ? (state.externallyMarkedOrders ?? []).slice(-500)
+      : (state.externallyMarkedOrders ?? []),
+    retainedPaymentIds: (state.retainedPaymentIds ?? []).length > 1000
+      ? (state.retainedPaymentIds ?? []).slice(-1000)
+      : (state.retainedPaymentIds ?? []),
+    unmatchedPayments: (state.unmatchedPayments ?? [])
+      .filter(u => !u.payment.fechaPago || new Date(u.payment.fechaPago).getTime() >= effectiveCutoffPaymentsMs)
+      .map(u => ({ ...u, payment: stripRawData(u.payment) })),
+  }
+
+  // Limpiar paymentOverrides de pagos que ya no están en unmatchedPayments (#M3)
+  if (cleaned.paymentOverrides && Object.keys(cleaned.paymentOverrides).length > 0) {
+    const activeIds = new Set(cleaned.unmatchedPayments.map(u => u.payment.mpPaymentId))
+    for (const id of Object.keys(cleaned.paymentOverrides)) {
+      if (!activeIds.has(id)) delete cleaned.paymentOverrides[id]
+    }
+  }
+
+  return cleaned
+}
+
+function cleanLogsData(state: LogsState): LogsState {
+  const { cutoff30dMs, cutoff7dMs } = getCutoffs()
+  return {
+    registroLog: (state.registroLog ?? [])
+      .filter(e => new Date(e.timestamp).getTime() >= cutoff30dMs)
+      .map(e => ({ ...e, payment: e.payment ? stripRawData(e.payment) : undefined })),
+    errorLog: (state.errorLog ?? [])
+      .filter(e => !e.resolved || new Date(e.timestamp).getTime() >= cutoff7dMs)
+      .slice(-500),
+    activityLog: (state.activityLog ?? [])
+      .filter(e => new Date(e.timestamp).getTime() >= cutoff30dMs)
+      .slice(-1000),
+  }
+}
+
+function cleanMatchLogData(state: MatchLogState): MatchLogState {
+  const { effectiveCutoffMinMs } = getCutoffs()
+  return {
+    matchLog: (state.matchLog ?? [])
+      .filter(e => new Date(e.timestamp).getTime() >= effectiveCutoffMinMs)
+      .map(e => ({ ...e, payment: e.payment ? stripRawData(e.payment) : undefined })),
+  }
+}
+
+function cleanProcessedData(state: ProcessedState): ProcessedState {
+  return {
+    processedPayments: (state.processedPayments ?? []).length > 5000
+      ? (state.processedPayments ?? []).slice(-5000)
+      : (state.processedPayments ?? []),
+  }
+}
+
+// ─────────────────────────────────────────────
+// Stores
+// ─────────────────────────────────────────────
 
 export async function getStores(): Promise<Record<string, Store>> {
   const stores = await kvGet<Record<string, Store>>(STORES_KEY)
@@ -90,7 +264,7 @@ export async function getStores(): Promise<Record<string, Store>> {
       modified = true
     }
   }
-  if (modified) await kvSet(STORES_KEY, stores)
+  if (modified) await kvSetConRetry(STORES_KEY, stores)
 
   return stores
 }
@@ -98,153 +272,181 @@ export async function getStores(): Promise<Record<string, Store>> {
 export async function saveStore(store: Store): Promise<void> {
   const stores = await getStores()
   stores[store.storeId] = store
-  await kvSet(STORES_KEY, stores)
+  await kvSetConRetry(STORES_KEY, stores)
 }
 
 export async function saveStores(stores: Record<string, Store>): Promise<void> {
-  await kvSet(STORES_KEY, stores)
+  await kvSetConRetry(STORES_KEY, stores)
 }
 
+// ─────────────────────────────────────────────
+// Cargas parciales — cada endpoint carga solo lo que necesita
+// ─────────────────────────────────────────────
+
+export async function loadHotState(): Promise<HotState> {
+  const data = await kvGet<HotState>(HOT_KEY)
+  if (!data) return { ...DEFAULT_HOT_STATE }
+  return { ...DEFAULT_HOT_STATE, ...data }
+}
+
+export async function loadLogs(): Promise<LogsState> {
+  const data = await kvGet<LogsState>(LOGS_KEY)
+  if (!data) return { ...DEFAULT_LOGS_STATE }
+  return {
+    registroLog: data.registroLog ?? [],
+    errorLog: data.errorLog ?? [],
+    activityLog: data.activityLog ?? [],
+  }
+}
+
+export async function loadMatchLog(): Promise<MatchLogState> {
+  const data = await kvGet<MatchLogState>(MATCH_LOG_KEY)
+  if (!data) return { ...DEFAULT_MATCH_LOG_STATE }
+  return { matchLog: data.matchLog ?? [] }
+}
+
+export async function loadProcessed(): Promise<ProcessedState> {
+  const data = await kvGet<ProcessedState>(PROCESSED_KEY)
+  if (!data) return { ...DEFAULT_PROCESSED_STATE }
+  return { processedPayments: data.processedPayments ?? [] }
+}
+
+export async function loadOrdersCache(): Promise<OrdersCacheState> {
+  const data = await kvGet<OrdersCacheState>(ORDERS_KEY)
+  if (!data) return { ...DEFAULT_ORDERS_STATE }
+  return {
+    cachedOrders: data.cachedOrders ?? [],
+    cachedOrdersAt: data.cachedOrdersAt ?? '',
+  }
+}
+
+// ─────────────────────────────────────────────
+// Guardados parciales con cleanup y retry
+// ─────────────────────────────────────────────
+
+export async function saveHotState(state: HotState): Promise<void> {
+  await kvSetConRetry(HOT_KEY, cleanHotData(state))
+}
+
+export async function saveLogs(state: LogsState): Promise<void> {
+  await kvSetConRetry(LOGS_KEY, cleanLogsData(state))
+}
+
+export async function saveMatchLog(state: MatchLogState): Promise<void> {
+  await kvSetConRetry(MATCH_LOG_KEY, cleanMatchLogData(state))
+}
+
+export async function saveProcessed(state: ProcessedState): Promise<void> {
+  await kvSetConRetry(PROCESSED_KEY, cleanProcessedData(state))
+}
+
+export async function saveOrdersCache(state: OrdersCacheState): Promise<void> {
+  await kvSetConRetry(ORDERS_KEY, state)
+}
+
+// ─────────────────────────────────────────────
+// loadState / saveState — carga y guarda todo (usado por cycle.ts)
+// ─────────────────────────────────────────────
+
 export async function loadState(): Promise<AppState> {
-  const state = await kvGet<AppState>(STATE_KEY)
-  if (!state) return { ...DEFAULT_STATE }
+  const [hot, logs, matchLog, processed, orders] = await Promise.all([
+    loadHotState(),
+    loadLogs(),
+    loadMatchLog(),
+    loadProcessed(),
+    loadOrdersCache(),
+  ])
 
   return {
-    ...DEFAULT_STATE,
-    ...state,
-    processedPayments: state.processedPayments || [],
-    registroLog: state.registroLog || [],
-    matchLog: state.matchLog || [],
-    recentMatches: state.recentMatches || [],
-    unmatchedPayments: state.unmatchedPayments || [],
-    externallyMarkedOrders: state.externallyMarkedOrders || [],
-    externallyMarkedPayments: state.externallyMarkedPayments || [],
-    retainedPaymentIds: state.retainedPaymentIds || [],
-    cachedOrders: state.cachedOrders || [],
-    cachedOrdersAt: state.cachedOrdersAt || '',
-    persistedMonthStats: state.persistedMonthStats || {},
-    dismissedPairs: state.dismissedPairs || [],
-    errorLog: state.errorLog || [],
-    activityLog: state.activityLog || [],
-    paymentOverrides: state.paymentOverrides || {},
+    ...hot,
+    ...logs,
+    ...matchLog,
+    ...processed,
+    cachedOrders: orders.cachedOrders,
+    cachedOrdersAt: orders.cachedOrdersAt, // fuente de verdad: OrdersCacheState (#5)
   }
 }
 
 export async function saveState(state: AppState): Promise<void> {
-  const cutoff48hMs = Date.now() - 48 * 60 * 60 * 1000
-  // Cutoffs efectivos separados para pagos y órdenes
-  const effectiveCutoffPaymentsMs = Math.max(cutoff48hMs, HARD_CUTOFF_PAYMENTS.getTime())
-  const effectiveCutoffOrdersMs = Math.max(cutoff48hMs, HARD_CUTOFF_ORDERS.getTime())
-  // Para datos mixtos (matchLog, recentMatches) usar el más permisivo (órdenes, que es más antiguo)
-  const effectiveCutoffMinMs = Math.min(effectiveCutoffPaymentsMs, effectiveCutoffOrdersMs)
+  const { effectiveCutoffPaymentsMs } = getCutoffs()
 
-  // matchLog (backend): auto-expira a 48hs — solo para consultas del sistema, no toca persistedMonthStats
-  state.matchLog = (state.matchLog || []).filter(e => new Date(e.timestamp).getTime() >= effectiveCutoffMinMs)
-
-  // registroLog (UI): cap en 30 días para historial visible
-  const cutoff30dMs = Date.now() - 30 * 24 * 60 * 60 * 1000
-  state.registroLog = (state.registroLog || []).filter(
-    e => new Date(e.timestamp).getTime() >= cutoff30dMs
-  )
-
-  // recentMatches: auto-cleanup al cutoff efectivo (solo se usa para resaltado verde en pestañas)
-  state.recentMatches = (state.recentMatches || []).filter(m => new Date(m.matchedAt).getTime() >= effectiveCutoffMinMs)
-
-  // unmatchedPayments: antes de eliminar los vencidos, registrarlos en registroLog (solo UI, no en matchLog)
-  const expiredPayments = state.unmatchedPayments.filter(
+  // Registrar pagos vencidos sin emparejar en registroLog antes de limpiar (#7: agrega source)
+  const expiredPayments = (state.unmatchedPayments ?? []).filter(
     u => u.payment.fechaPago && new Date(u.payment.fechaPago).getTime() < effectiveCutoffPaymentsMs
   )
-  // Para prevención de duplicados solo miramos las últimas 72h — ningún pago activo vive más de 48h
   const cutoff72hMs = Date.now() - 72 * 60 * 60 * 1000
   const alreadyLoggedIds = new Set(
-    (state.registroLog || [])
+    (state.registroLog ?? [])
       .filter(e => new Date(e.timestamp).getTime() >= cutoff72hMs)
       .map(e => e.mpPaymentId).filter(Boolean)
   )
+  const registroLog = [...(state.registroLog ?? [])]
   for (const u of expiredPayments) {
     if (!alreadyLoggedIds.has(u.payment.mpPaymentId)) {
-      state.registroLog = state.registroLog || []
-      state.registroLog.push({
+      registroLog.push({
         timestamp: u.payment.fechaPago,
         action: 'no_match',
-        payment: u.payment,
+        source: 'emparejamiento',
+        payment: stripRawData(u.payment),
         amount: u.payment.monto,
         mpPaymentId: u.payment.mpPaymentId,
       })
     }
   }
 
-  // unmatchedPayments: eliminar los anteriores al cutoff efectivo de PAGOS
-  // IMPORTANTE: usar getTime() para comparar correctamente fechas con distintos offsets de timezone
-  state.unmatchedPayments = state.unmatchedPayments.filter(
-    u => !u.payment.fechaPago || new Date(u.payment.fechaPago).getTime() >= effectiveCutoffPaymentsMs
-  )
+  // Limpiar con funciones compartidas (#8)
+  const hot = cleanHotData({
+    unmatchedPayments: state.unmatchedPayments ?? [],
+    recentMatches: state.recentMatches ?? [],
+    externallyMarkedOrders: state.externallyMarkedOrders ?? [],
+    externallyMarkedPayments: state.externallyMarkedPayments ?? [],
+    retainedPaymentIds: state.retainedPaymentIds ?? [],
+    lastMPCheck: state.lastMPCheck ?? '',
+    lastAutoMatchAt: state.lastAutoMatchAt,
+    lastAutoMatchMatched: state.lastAutoMatchMatched,
+    currentPhase: state.currentPhase,
+    paymentOverrides: state.paymentOverrides ?? {},
+    settings: state.settings ?? {},
+    persistedMonthStats: state.persistedMonthStats ?? {},
+    dismissedPairs: state.dismissedPairs ?? [],
+  })
 
+  const logs = cleanLogsData({
+    registroLog,
+    errorLog: state.errorLog ?? [],
+    activityLog: state.activityLog ?? [],
+  })
 
-  if (state.processedPayments.length > 5000) {
-    state.processedPayments = state.processedPayments.slice(-5000)
+  const matchLogData = cleanMatchLogData({ matchLog: state.matchLog ?? [] })
+  const processed = cleanProcessedData({ processedPayments: state.processedPayments ?? [] })
+
+  const orders: OrdersCacheState = {
+    cachedOrders: state.cachedOrders ?? [],
+    cachedOrdersAt: state.cachedOrdersAt ?? '',
   }
 
-  // Limpiar externallyMarkedPayments: eliminar entradas anteriores al cutoff efectivo de pagos
-  // Se limpia SIEMPRE (no solo cuando >500) para que los pagos expiren igual que el resto
-  state.externallyMarkedPayments = (state.externallyMarkedPayments || []).filter(
-    e => new Date(e.markedAt).getTime() >= effectiveCutoffPaymentsMs
-  )
-
-  // Limpiar externallyMarkedOrders: mantener solo los últimos 500
-  if ((state.externallyMarkedOrders || []).length > 500) {
-    state.externallyMarkedOrders = (state.externallyMarkedOrders || []).slice(-500)
-  }
-
-  // Limpiar retainedPaymentIds: limitar a los últimos 1000
-  if ((state.retainedPaymentIds || []).length > 1000) {
-    state.retainedPaymentIds = (state.retainedPaymentIds || []).slice(-1000)
-  }
-
-  // errorLog: descarta errores resueltos con más de 7 días, y limita total a 500
-  const cutoff7dMs = Date.now() - 7 * 24 * 60 * 60 * 1000
-  state.errorLog = (state.errorLog || [])
-    .filter(e => !e.resolved || new Date(e.timestamp).getTime() >= cutoff7dMs)
-    .slice(-500)
-
-  // activityLog: mantener 30 días, límite de 1000 entradas
-  state.activityLog = (state.activityLog || [])
-    .filter(e => new Date(e.timestamp).getTime() >= cutoff30dMs)
-    .slice(-1000)
-
-  // dismissedPairs: expirar pares con más de 48hs (el pago y la orden ya no estarán en la app)
-  state.dismissedPairs = (state.dismissedPairs || []).filter(
-    p => new Date(p.dismissedAt).getTime() >= cutoff48hMs
-  )
-  // Strip rawData from all Payment objects to prevent state bloat
-  // (raw MP payment JSON is ~5-10KB per payment; with thousands of payments this would exceed Supabase limits)
-  const clean: AppState = {
-    ...state,
-    unmatchedPayments: state.unmatchedPayments.map(u => ({
-      ...u,
-      payment: stripRawData(u.payment),
-    })),
-    registroLog: state.registroLog.map(e => ({
-      ...e,
-      payment: e.payment ? stripRawData(e.payment) : undefined,
-    })),
-    matchLog: state.matchLog.map(e => ({
-      ...e,
-      payment: e.payment ? stripRawData(e.payment) : undefined,
-    })),
-  }
-  await kvSet(STATE_KEY, clean)
+  await Promise.all([
+    kvSetConRetry(HOT_KEY, hot),
+    kvSetConRetry(LOGS_KEY, logs),
+    kvSetConRetry(MATCH_LOG_KEY, matchLogData),
+    kvSetConRetry(PROCESSED_KEY, processed),
+    kvSetConRetry(ORDERS_KEY, orders),
+  ])
 }
 
+// ─────────────────────────────────────────────
+// Funciones auxiliares — mutan el objeto recibido (intencional)
+// ─────────────────────────────────────────────
+
 export function appendError(
-  state: AppState,
+  target: { errorLog: ErrorEntry[] },
   source: string,
   level: 'error' | 'warning' | 'info',
   message: string,
   context?: Record<string, unknown>
 ): void {
-  state.errorLog = state.errorLog || []
-  const entry: ErrorEntry = {
+  target.errorLog = target.errorLog ?? []
+  target.errorLog.push({
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     timestamp: new Date().toISOString(),
     source,
@@ -252,46 +454,42 @@ export function appendError(
     message,
     context,
     resolved: false,
-  }
-  state.errorLog.push(entry)
-}
-
-export function incrementPersistedMonthStats(
-  state: AppState,
-  amount: number,
-  source: 'emparejamiento' | 'manual_pagos' | 'manual_ordenes'
-): void {
-  // Usar hora de Argentina (UTC-3) para que los pagos entre 21:00 y 00:00
-  // se atribuyan al mes correcto y no al siguiente (que ya empezó en UTC)
-  const now = new Date()
-  const argOffset = -3 * 60 // ART = UTC-3, sin DST
-  const argTime = new Date(now.getTime() + argOffset * 60 * 1000)
-  const key = argTime.toISOString().slice(0, 7) // "YYYY-MM"
-  state.persistedMonthStats = state.persistedMonthStats || {}
-  const base = state.persistedMonthStats[key] || { matchedCount: 0, matchedVolume: 0, manualCount: 0, manualVolume: 0 }
-  const isMatched = source === 'emparejamiento'
-  const isManual = source === 'manual_pagos' || source === 'manual_ordenes'
-  state.persistedMonthStats[key] = {
-    matchedCount:  base.matchedCount  + (isMatched ? 1 : 0),
-    matchedVolume: base.matchedVolume + (isMatched ? amount : 0),
-    manualCount:   base.manualCount   + (isManual  ? 1 : 0),
-    manualVolume:  base.manualVolume  + (isManual  ? amount : 0),
-  }
+  })
 }
 
 export function appendActivity(
-  state: AppState,
+  target: { activityLog: ActivityEntry[] },
   actor: 'human' | 'system',
   action: string,
   details?: Record<string, unknown>
 ): void {
-  state.activityLog = state.activityLog || []
-  const entry: ActivityEntry = {
+  target.activityLog = target.activityLog ?? []
+  target.activityLog.push({
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     timestamp: new Date().toISOString(),
     actor,
     action,
     details,
+  })
+}
+
+export function incrementPersistedMonthStats(
+  hot: { persistedMonthStats: Record<string, PersistedMonthStats> },
+  amount: number,
+  source: 'emparejamiento' | 'manual_pagos' | 'manual_ordenes'
+): void {
+  const now = new Date()
+  const argOffset = -3 * 60
+  const argTime = new Date(now.getTime() + argOffset * 60 * 1000)
+  const key = argTime.toISOString().slice(0, 7)
+  hot.persistedMonthStats = hot.persistedMonthStats ?? {}
+  const base = hot.persistedMonthStats[key] ?? { matchedCount: 0, matchedVolume: 0, manualCount: 0, manualVolume: 0 }
+  const isMatched = source === 'emparejamiento'
+  const isManual = source === 'manual_pagos' || source === 'manual_ordenes'
+  hot.persistedMonthStats[key] = {
+    matchedCount:  base.matchedCount  + (isMatched ? 1 : 0),
+    matchedVolume: base.matchedVolume + (isMatched ? amount : 0),
+    manualCount:   base.manualCount   + (isManual  ? 1 : 0),
+    manualVolume:  base.manualVolume  + (isManual  ? amount : 0),
   }
-  state.activityLog.push(entry)
 }

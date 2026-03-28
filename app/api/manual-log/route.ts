@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { loadState, saveState, getStores, incrementPersistedMonthStats, appendActivity } from '@/lib/storage'
-import { markOrderAsPaid } from '@/lib/tiendanube'
+import { loadHotState, saveHotState, loadLogs, saveLogs, loadMatchLog, saveMatchLog, getStores, incrementPersistedMonthStats, appendActivity } from '@/lib/storage'
+import { markOrderAsPaid as markTNOrderAsPaid } from '@/lib/tiendanube'
+import { markOrderAsPaid as markShopifyOrderAsPaid } from '@/lib/shopify'
 import type { LogEntry, Order } from '@/lib/types'
 
 export async function POST(req: NextRequest) {
@@ -8,37 +9,41 @@ export async function POST(req: NextRequest) {
     const { mpPaymentId, storeName, orderNumber, matchedOrder } = await req.json()
     if (!mpPaymentId) return NextResponse.json({ error: 'mpPaymentId required' }, { status: 400 })
 
-    const state = await loadState()
+    const [hot, logs, matchLogData] = await Promise.all([loadHotState(), loadLogs(), loadMatchLog()])
 
-    const unmatchedIndex = state.unmatchedPayments.findIndex(
+    const unmatchedIndex = hot.unmatchedPayments.findIndex(
       u => (u.mpPaymentId || u.payment?.mpPaymentId || '') === mpPaymentId
     )
     if (unmatchedIndex < 0) return NextResponse.json({ error: 'Payment not found' }, { status: 404 })
 
-    const payment = state.unmatchedPayments[unmatchedIndex].payment
+    const payment = hot.unmatchedPayments[unmatchedIndex].payment
 
-    let tnMethod: string | null = null
+    let markMethod: string | null = null
 
-    // Si hay una orden macheada, intentar marcarla como pagada en TiendaNube
+    // Si hay una orden macheada, marcarla como pagada en la plataforma correspondiente
     if (matchedOrder) {
       const stores = await getStores()
       const store = stores[matchedOrder.storeId]
       if (store) {
-        const tnResult = await markOrderAsPaid(matchedOrder.storeId, store.accessToken, matchedOrder.orderId)
-        if (tnResult.success) {
-          tnMethod = tnResult.method
+        const platform = store.platform ?? 'tiendanube'
+        if (platform === 'shopify') {
+          const result = await markShopifyOrderAsPaid(matchedOrder.storeId, store.accessToken, matchedOrder.orderId, payment.monto)
+          if (result.success) markMethod = 'shopify'
+        } else {
+          const result = await markTNOrderAsPaid(matchedOrder.storeId, store.accessToken, matchedOrder.orderId)
+          if (result.success) markMethod = result.method
         }
       }
     }
 
-    state.unmatchedPayments.splice(unmatchedIndex, 1)
+    hot.unmatchedPayments.splice(unmatchedIndex, 1)
 
-    incrementPersistedMonthStats(state, payment.monto, 'manual_pagos')
+    incrementPersistedMonthStats(hot, payment.monto, 'manual_pagos')
 
     const order: Order | undefined = matchedOrder || undefined
 
-    state.recentMatches = state.recentMatches || []
-    state.recentMatches.push({
+    hot.recentMatches = hot.recentMatches || []
+    hot.recentMatches.push({
       mpPaymentId: payment.mpPaymentId,
       matchedAt: new Date().toISOString(),
       orderId: order?.orderId,
@@ -64,17 +69,17 @@ export async function POST(req: NextRequest) {
       paymentReceivedAt: payment.fechaPago,
       orderCreatedAt: order?.createdAt,
     }
-    state.registroLog.push(logEntry)
-    state.matchLog.push(logEntry)
+    logs.registroLog.push(logEntry)
+    matchLogData.matchLog.push(logEntry)
 
-    appendActivity(state, 'human', 'pago_registrado_manual', {
+    appendActivity(logs, 'human', 'pago_registrado_manual', {
       mpPaymentId: payment.mpPaymentId,
       monto: payment.monto,
       orderNumber: order?.orderNumber || orderNumber || '',
       storeName: order?.storeName || storeName || '',
     })
 
-    await saveState(state)
+    await Promise.all([saveHotState(hot), saveLogs(logs), saveMatchLog(matchLogData)])
 
     const recentMatch = {
       mpPaymentId: payment.mpPaymentId,
@@ -85,7 +90,7 @@ export async function POST(req: NextRequest) {
       payment,
     }
 
-    return NextResponse.json({ success: true, tnMethod, logEntry, recentMatch })
+    return NextResponse.json({ success: true, markMethod, logEntry, recentMatch })
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 })
   }

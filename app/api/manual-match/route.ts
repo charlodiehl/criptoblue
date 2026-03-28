@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { loadState, saveState, getStores, incrementPersistedMonthStats, appendError, appendActivity } from '@/lib/storage'
+import { loadHotState, saveHotState, loadLogs, saveLogs, loadMatchLog, saveMatchLog, getStores, incrementPersistedMonthStats, appendError, appendActivity } from '@/lib/storage'
 import { markOrderAsPaid as markTNOrderAsPaid, getPendingOrders as getTNOrders } from '@/lib/tiendanube'
 import { markOrderAsPaid as markShopifyOrderAsPaid, getPendingOrders as getShopifyOrders } from '@/lib/shopify'
 import { HARD_CUTOFF_ORDERS } from '@/lib/config'
@@ -12,16 +12,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'mpPaymentId, orderId, storeId required' }, { status: 400 })
     }
 
-    const [state, stores] = await Promise.all([loadState(), getStores()])
+    const [hot, logs, matchLogData, stores] = await Promise.all([
+      loadHotState(), loadLogs(), loadMatchLog(), getStores()
+    ])
     const store = stores[storeId]
     if (!store) return NextResponse.json({ error: 'Store not found' }, { status: 404 })
 
-    const unmatchedIndex = state.unmatchedPayments.findIndex(
+    const unmatchedIndex = hot.unmatchedPayments.findIndex(
       u => (u.mpPaymentId || u.payment?.mpPaymentId || '') === mpPaymentId
     )
     if (unmatchedIndex < 0) return NextResponse.json({ error: 'Payment not found' }, { status: 404 })
 
-    const unmatched = state.unmatchedPayments[unmatchedIndex]
+    const unmatched = hot.unmatchedPayments[unmatchedIndex]
     const payment = unmatched.payment
 
     // Usar la orden enviada por el cliente (ya la tiene en memoria).
@@ -42,6 +44,7 @@ export async function POST(req: NextRequest) {
 
     let markSuccess: boolean
     let markError: string | undefined
+    let markMethod: string | undefined
 
     if (platform === 'shopify') {
       const amount = order?.total ?? payment.monto
@@ -52,9 +55,10 @@ export async function POST(req: NextRequest) {
       const result = await markTNOrderAsPaid(storeId, store.accessToken, orderId)
       markSuccess = result.success
       markError = result.error
+      markMethod = result.method
       if (result.success && result.method === 'note') {
         console.warn('[manual-match] WARNING: TN returned 403/422 for payment_status change. Only a note was added. Order may NOT be marked paid in TiendaNube.')
-        appendError(state, 'manual-match', 'warning',
+        appendError(logs, 'manual-match', 'warning',
           `TiendaNube no permitió cambiar el estado de la orden (403/422) — solo se agregó una nota. Marcala manualmente en TN.`,
           { orderId, storeId, storeName: store.storeName, orderNumber: order?.orderNumber }
         )
@@ -64,21 +68,20 @@ export async function POST(req: NextRequest) {
     console.log('[manual-match] result:', { platform, success: markSuccess, error: markError })
 
     if (!markSuccess) {
-      appendError(state, 'manual-match', 'error',
+      appendError(logs, 'manual-match', 'error',
         `Error al marcar orden como pagada en ${platform}`,
         { orderId, storeId, storeName: store.storeName, orderNumber: order?.orderNumber, error: markError }
       )
-      await saveState(state)
+      await saveLogs(logs)
       return NextResponse.json({ error: markError }, { status: 500 })
     }
 
-    state.unmatchedPayments.splice(unmatchedIndex, 1)
-
-    incrementPersistedMonthStats(state, payment.monto, 'emparejamiento')
+    hot.unmatchedPayments.splice(unmatchedIndex, 1)
+    incrementPersistedMonthStats(hot, payment.monto, 'emparejamiento')
 
     // recentMatches: para resaltado verde en pestañas (auto-limpia a las 24h, independiente del Registro)
-    state.recentMatches = state.recentMatches || []
-    state.recentMatches.push({ mpPaymentId: payment.mpPaymentId, matchedAt: new Date().toISOString(), orderId, storeId, order: order || undefined, payment })
+    hot.recentMatches = hot.recentMatches ?? []
+    hot.recentMatches.push({ mpPaymentId: payment.mpPaymentId, matchedAt: new Date().toISOString(), orderId, storeId, order: order || undefined, payment })
 
     const logEntry: LogEntry = {
       timestamp: new Date().toISOString(),
@@ -97,10 +100,10 @@ export async function POST(req: NextRequest) {
       paymentReceivedAt: payment.fechaPago,
       orderCreatedAt: order?.createdAt,
     }
-    state.registroLog.push(logEntry)
-    state.matchLog.push(logEntry)
+    logs.registroLog.push(logEntry)
+    matchLogData.matchLog.push(logEntry)
 
-    appendActivity(state, 'human', 'pago_emparejado', {
+    appendActivity(logs, 'human', 'pago_emparejado', {
       mpPaymentId: payment.mpPaymentId,
       monto: payment.monto,
       orderNumber: order?.orderNumber,
@@ -108,10 +111,10 @@ export async function POST(req: NextRequest) {
       storeName: store.storeName,
     })
 
-    await saveState(state)
+    await Promise.all([saveHotState(hot), saveLogs(logs), saveMatchLog(matchLogData)])
 
     const recentMatch = { mpPaymentId: payment.mpPaymentId, matchedAt: logEntry.timestamp, orderId, storeId, order: order || undefined, payment }
-    return NextResponse.json({ success: true, logEntry, recentMatch })
+    return NextResponse.json({ success: true, method: markMethod, logEntry, recentMatch })
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 })
   }

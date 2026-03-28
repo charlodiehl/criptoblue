@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { loadState, saveState, appendActivity } from '@/lib/storage'
+import { loadHotState, saveHotState, loadLogs, saveLogs, appendActivity } from '@/lib/storage'
 
 export async function POST(req: NextRequest) {
   try {
@@ -8,20 +8,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'mpPaymentId, orderId y storeId son requeridos' }, { status: 400 })
     }
 
-    const state = await loadState()
+    const [hot, logs] = await Promise.all([loadHotState(), loadLogs()])
 
     // Agregar a la blacklist de pares solo si no existe ya
-    const yaExiste = (state.dismissedPairs || []).some(
+    const yaExiste = (hot.dismissedPairs ?? []).some(
       p => p.mpPaymentId === mpPaymentId && p.orderId === orderId && p.storeId === storeId
     )
     if (!yaExiste) {
-      state.dismissedPairs = state.dismissedPairs || []
-      state.dismissedPairs.push({ mpPaymentId, orderId, storeId, dismissedAt: new Date().toISOString() })
+      hot.dismissedPairs = hot.dismissedPairs ?? []
+      hot.dismissedPairs.push({ mpPaymentId, orderId, storeId, dismissedAt: new Date().toISOString() })
     }
 
     // El pago y la orden NO se eliminan — siguen disponibles para otros emparejamientos
-    appendActivity(state, 'human', 'par_descartado', { mpPaymentId, orderId, storeId })
-    await saveState(state)
+    appendActivity(logs, 'human', 'par_descartado', { mpPaymentId, orderId, storeId })
+
+    await Promise.all([saveHotState(hot), saveLogs(logs)])
 
     return NextResponse.json({ success: true })
   } catch (err) {

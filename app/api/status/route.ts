@@ -1,39 +1,31 @@
 import { NextResponse } from 'next/server'
-import { loadState } from '@/lib/storage'
+import { loadHotState } from '@/lib/storage'
 
 export async function GET() {
   try {
-    const state = await loadState()
+    const hot = await loadHotState()
 
     const now = new Date()
     const currentMonth = now.getMonth()
     const currentYear = now.getFullYear()
 
-    // Tarjetas: leen exclusivamente de persistedMonthStats — se acumula en tiempo real con cada match
     const monthKey = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`
-    const stats = (state.persistedMonthStats || {})[monthKey] || { matchedCount: 0, matchedVolume: 0, manualCount: 0, manualVolume: 0 }
-
-    const matchedCount = stats.matchedCount
-    const matchedVolume = stats.matchedVolume
-    const manualCount  = stats.manualCount
-    const manualVolume = stats.manualVolume
-
-    const pendingOrders = state.unmatchedPayments.length
+    const stats = (hot.persistedMonthStats ?? {})[monthKey] ?? { matchedCount: 0, matchedVolume: 0, manualCount: 0, manualVolume: 0 }
 
     const cutoff24h = Date.now() - 24 * 60 * 60 * 1000
-    const recentMatches = (state.recentMatches || []).filter(
+    const recentMatches = (hot.recentMatches ?? []).filter(
       m => new Date(m.matchedAt).getTime() >= cutoff24h
     )
 
     return NextResponse.json({
-      matchedCount,
-      matchedVolume,
-      manualCount,
-      manualVolume,
-      pendingOrders,
-      lastMPCheck: state.lastMPCheck || null,
-      externallyMarkedOrders: state.externallyMarkedOrders || [],
-      externallyMarkedPayments: (state.externallyMarkedPayments || []).map(e => e.id),
+      matchedCount: stats.matchedCount,
+      matchedVolume: stats.matchedVolume,
+      manualCount: stats.manualCount,
+      manualVolume: stats.manualVolume,
+      pendingOrders: (hot.unmatchedPayments ?? []).length, // #12: fallback defensivo
+      lastMPCheck: hot.lastMPCheck || null,
+      externallyMarkedOrders: hot.externallyMarkedOrders ?? [],
+      externallyMarkedPayments: (hot.externallyMarkedPayments ?? []).map(e => e.id),
       recentMatches,
     })
   } catch (err) {

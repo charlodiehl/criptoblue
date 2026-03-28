@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { loadState, saveState, getStores, incrementPersistedMonthStats, appendActivity } from '@/lib/storage'
-import { markOrderAsPaid } from '@/lib/tiendanube'
+import { loadHotState, saveHotState, loadLogs, saveLogs, loadMatchLog, saveMatchLog, getStores, incrementPersistedMonthStats, appendActivity } from '@/lib/storage'
+import { markOrderAsPaid as markTNOrderAsPaid } from '@/lib/tiendanube'
+import { markOrderAsPaid as markShopifyOrderAsPaid } from '@/lib/shopify'
 import type { LogEntry, Payment } from '@/lib/types'
 
 export async function POST(req: NextRequest) {
@@ -10,13 +11,29 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'orderId, storeId, monto y medioPago son requeridos' }, { status: 400 })
     }
 
-    const [state, stores] = await Promise.all([loadState(), getStores()])
+    const [hot, logs, matchLogData, stores] = await Promise.all([
+      loadHotState(), loadLogs(), loadMatchLog(), getStores()
+    ])
     const store = stores[storeId]
     if (!store) return NextResponse.json({ error: 'Tienda no encontrada' }, { status: 404 })
 
-    const tnResult = await markOrderAsPaid(storeId, store.accessToken, orderId)
-    if (!tnResult.success) {
-      return NextResponse.json({ error: tnResult.error }, { status: 500 })
+    // Marcar como pagada en la plataforma correspondiente
+    const platform = store.platform ?? 'tiendanube'
+    let markSuccess: boolean
+    let markError: string | undefined
+
+    if (platform === 'shopify') {
+      const result = await markShopifyOrderAsPaid(storeId, store.accessToken, orderId, Number(monto))
+      markSuccess = result.success
+      markError = result.error
+    } else {
+      const result = await markTNOrderAsPaid(storeId, store.accessToken, orderId)
+      markSuccess = result.success
+      markError = result.error
+    }
+
+    if (!markSuccess) {
+      return NextResponse.json({ error: markError }, { status: 500 })
     }
 
     const fakeMpPaymentId = `manual_${Date.now()}_${orderId}`
@@ -41,11 +58,11 @@ export async function POST(req: NextRequest) {
 
     const order = orderFromClient || null
 
-    incrementPersistedMonthStats(state, Number(monto), 'manual_ordenes')
+    incrementPersistedMonthStats(hot, Number(monto), 'manual_ordenes')
 
     // recentMatches: para que la orden quede verde en la pestaña Órdenes
-    state.recentMatches = state.recentMatches || []
-    state.recentMatches.push({
+    hot.recentMatches = hot.recentMatches || []
+    hot.recentMatches.push({
       mpPaymentId: fakeMpPaymentId,
       matchedAt: now,
       orderId,
@@ -71,10 +88,10 @@ export async function POST(req: NextRequest) {
       cuitPagador: cuitPagador || undefined,
       orderCreatedAt: order?.createdAt,
     }
-    state.registroLog.push(logEntry)
-    state.matchLog.push(logEntry)
+    logs.registroLog.push(logEntry)
+    matchLogData.matchLog.push(logEntry)
 
-    appendActivity(state, 'human', 'orden_pagada_manual', {
+    appendActivity(logs, 'human', 'orden_pagada_manual', {
       orderId,
       orderNumber: order?.orderNumber,
       storeName: store.storeName,
@@ -83,9 +100,9 @@ export async function POST(req: NextRequest) {
       nombrePagador: nombrePagador || order?.customerName,
     })
 
-    await saveState(state)
+    await Promise.all([saveHotState(hot), saveLogs(logs), saveMatchLog(matchLogData)])
 
-    return NextResponse.json({ success: true, method: tnResult.method, logEntry })
+    return NextResponse.json({ success: true, logEntry })
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 })
   }

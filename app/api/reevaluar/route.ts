@@ -1,82 +1,79 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { createHmac } from 'crypto'
+import { NextResponse } from 'next/server'
 import { processMPPayments } from '@/lib/cycle'
-import { loadState, saveState, getStores, appendError, appendActivity } from '@/lib/storage'
+import { loadHotState, saveHotState, loadProcessed, saveProcessed, loadLogs, saveLogs, getStores, appendError, appendActivity } from '@/lib/storage'
 import { runAutoMatchCore } from '@/lib/auto-match-runner'
 
-// maxDuration aumentado para cubrir sync + auto-match (con delays de 5s entre marcados)
 export const maxDuration = 300
 
-// Auth para cron de Vercel (usa CRON_SECRET en header)
-function isCronAuthorized(req: Request): boolean {
-  const cronSecret = process.env.CRON_SECRET
-  if (!cronSecret) return true
-  const bearer = req.headers.get('authorization')
-  const custom = req.headers.get('x-cron-secret')
-  return bearer === `Bearer ${cronSecret}` || custom === cronSecret
-}
+// Auth manejada por middleware.ts — GET requiere CRON_SECRET, POST requiere sesión
 
-// Auth para botón manual del browser (usa cookie de sesión)
-function isSessionAuthorized(req: NextRequest): boolean {
-  const token = req.cookies.get('cb_session')?.value
-  if (!token) return false
-  const secret = process.env.AUTH_SECRET || 'criptoblue-secret'
-  const username = process.env.AUTH_USERNAME || 'Benancio'
-  const expected = createHmac('sha256', secret).update(username).digest('hex')
-  return token === expected
-}
-
+// #1: Arreglada race condition — usa solo cargas parciales, nunca mezcla loadState con saveLogs
 async function runFullCycle(triggeredBy: 'cron' | 'manual_button') {
-  // Fase 1: syncing
-  const state = await loadState()
-  state.unmatchedPayments = []
-  state.processedPayments = []
-  state.currentPhase = 'syncing'
-  appendActivity(state, triggeredBy === 'cron' ? 'system' : 'human', triggeredBy === 'cron' ? 'reevaluar_automatico' : 'reevaluar_manual')
-  await saveState(state)
+  // Fase 1: resetear estado para reevaluación fresca
+  const [hot, processed, logs] = await Promise.all([loadHotState(), loadProcessed(), loadLogs()])
 
-  // Procesar pagos de MP y órdenes
-  const cycleResult = await processMPPayments()
+  // Guardar backup de unmatchedPayments para restaurar en caso de error (#M2)
+  const backupUnmatched = [...hot.unmatchedPayments]
+  const backupProcessed = [...processed.processedPayments]
 
-  // Fase 2: auto-matching — carga estado fresco con los datos del sync
-  const [freshState, stores] = await Promise.all([loadState(), getStores()])
-  freshState.currentPhase = 'auto-matching'
-  await saveState(freshState)
+  hot.unmatchedPayments = []
+  hot.currentPhase = 'syncing'
+  processed.processedPayments = []
+  appendActivity(logs, triggeredBy === 'cron' ? 'system' : 'human', triggeredBy === 'cron' ? 'reevaluar_automatico' : 'reevaluar_manual')
+  await Promise.all([saveHotState(hot), saveProcessed(processed), saveLogs(logs)])
 
-  const { matched, errors } = await runAutoMatchCore(freshState, stores, triggeredBy)
+  // Fase 2: sync de pagos de MP y órdenes
+  let cycleResult
+  try {
+    cycleResult = await processMPPayments()
+  } catch (err) {
+    // Restaurar datos si el sync falla (#M2)
+    const [restoreHot, restoreProcessed, restoreLogs] = await Promise.all([loadHotState(), loadProcessed(), loadLogs()])
+    if (restoreHot.unmatchedPayments.length === 0) {
+      restoreHot.unmatchedPayments = backupUnmatched
+    }
+    if (restoreProcessed.processedPayments.length === 0) {
+      restoreProcessed.processedPayments = backupProcessed
+    }
+    restoreHot.currentPhase = 'idle'
+    appendError(restoreLogs, 'reevaluar', 'error', `Sync falló, restaurando datos: ${String(err)}`)
+    await Promise.all([saveHotState(restoreHot), saveProcessed(restoreProcessed), saveLogs(restoreLogs)])
+    throw err
+  }
+
+  // Fase 3: auto-matching
+  const [freshHot, stores] = await Promise.all([loadHotState(), getStores()])
+  freshHot.currentPhase = 'auto-matching'
+  await saveHotState(freshHot)
+
+  const { matched, errors } = await runAutoMatchCore(stores, triggeredBy)
 
   return NextResponse.json({ success: true, ...cycleResult, autoMatched: matched, autoMatchErrors: errors.length })
 }
 
-export async function GET(req: Request) {
-  if (!isCronAuthorized(req)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+export async function GET() {
   try {
     return await runFullCycle('cron')
   } catch (err) {
     try {
-      const state = await loadState()
-      state.currentPhase = 'idle'
-      appendError(state, 'reevaluar', 'error', `Error inesperado en ciclo automático (GET): ${String(err)}`)
-      await saveState(state)
+      const [hot, logs] = await Promise.all([loadHotState(), loadLogs()])
+      hot.currentPhase = 'idle'
+      appendError(logs, 'reevaluar', 'error', `Error inesperado en ciclo automático (GET): ${String(err)}`)
+      await Promise.all([saveHotState(hot), saveLogs(logs)])
     } catch { /* no bloquear si falla el logging */ }
     return NextResponse.json({ success: false, error: String(err) }, { status: 500 })
   }
 }
 
-export async function POST(req: NextRequest) {
-  if (!isSessionAuthorized(req)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+export async function POST() {
   try {
     return await runFullCycle('manual_button')
   } catch (err) {
     try {
-      const state = await loadState()
-      state.currentPhase = 'idle'
-      appendError(state, 'reevaluar', 'error', `Error inesperado en ciclo manual (POST): ${String(err)}`)
-      await saveState(state)
+      const [hot, logs] = await Promise.all([loadHotState(), loadLogs()])
+      hot.currentPhase = 'idle'
+      appendError(logs, 'reevaluar', 'error', `Error inesperado en ciclo manual (POST): ${String(err)}`)
+      await Promise.all([saveHotState(hot), saveLogs(logs)])
     } catch { /* no bloquear si falla el logging */ }
     return NextResponse.json({ success: false, error: String(err) }, { status: 500 })
   }

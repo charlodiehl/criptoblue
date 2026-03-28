@@ -147,20 +147,20 @@ export async function processMPPayments(): Promise<CycleResult> {
   // 6. Campos exclusivos del ciclo
   freshState.lastMPCheck = now.toISOString()
 
-  // 5. Actualizar cache de órdenes (si al menos una tienda respondió)
+  // 7. Actualizar cache de órdenes (si al menos una tienda respondió)
   const anyFulfilled = allOrdersPerStore.some(r => r.status === 'fulfilled')
   if (anyFulfilled) {
     freshState.cachedOrders = allOrdersPerStore.flatMap(r => r.status === 'fulfilled' ? r.value : [])
     freshState.cachedOrdersAt = now.toISOString()
   }
 
-  // 6. Merge de errorLog agregado en este ciclo
+  // 8. Merge de errorLog agregado en este ciclo
   const freshErrorIds = new Set(freshState.errorLog.map(e => e.id))
   for (const e of state.errorLog) {
     if (!freshErrorIds.has(e.id)) freshState.errorLog.push(e)
   }
 
-  // 7. Merge de activityLog agregado en este ciclo
+  // 9. Merge de activityLog agregado en este ciclo
   const freshActivityIds = new Set(freshState.activityLog.map(a => a.id))
   for (const a of state.activityLog) {
     if (!freshActivityIds.has(a.id)) freshState.activityLog.push(a)

@@ -1,9 +1,9 @@
 // Lógica central del auto-match — compartida por el cron (reevaluar) y el botón manual
-import { loadState, saveState, getStores, incrementPersistedMonthStats, appendError, appendActivity } from './storage'
+import { loadHotState, saveHotState, loadLogs, saveLogs, loadMatchLog, saveMatchLog, loadOrdersCache, incrementPersistedMonthStats, appendError, appendActivity } from './storage'
 import { markOrderAsPaid as markTNOrderAsPaid } from './tiendanube'
 import { markOrderAsPaid as markShopifyOrderAsPaid } from './shopify'
 import { findAutoMatchCandidates } from './auto-match'
-import type { AppState, Store, LogEntry } from './types'
+import type { Store, LogEntry } from './types'
 
 interface AutoMatchResult {
   matched: number
@@ -11,47 +11,62 @@ interface AutoMatchResult {
 }
 
 export async function runAutoMatchCore(
-  state: AppState,
   stores: Record<string, Store>,
   triggeredBy: 'cron' | 'manual_button',
 ): Promise<AutoMatchResult> {
+  const [hot, logs, matchLogData, ordersCache] = await Promise.all([
+    loadHotState(), loadLogs(), loadMatchLog(), loadOrdersCache()
+  ])
+
   const confirmedIds = new Set<string>([
-    ...state.registroLog
+    ...logs.registroLog
       .filter(e => e.action === 'manual_paid' || e.action === 'auto_paid' || e.action === 'dismissed')
       .map(e => e.mpPaymentId)
       .filter(Boolean) as string[],
-    ...state.matchLog
+    ...matchLogData.matchLog
       .filter(e => e.action === 'manual_paid' || e.action === 'auto_paid' || e.action === 'dismissed')
       .map(e => e.mpPaymentId)
       .filter(Boolean) as string[],
-    ...(state.retainedPaymentIds || []),
+    ...(hot.retainedPaymentIds ?? []),
   ])
 
   const candidates = findAutoMatchCandidates(
-    state.unmatchedPayments,
-    state.cachedOrders || [],
-    state.dismissedPairs || [],
+    hot.unmatchedPayments,
+    ordersCache.cachedOrders ?? [],
+    hot.dismissedPairs ?? [],
     confirmedIds,
   )
 
   let matched = 0
   const errors: string[] = []
-  // Rastrear órdenes ya usadas en esta corrida para evitar doble-emparejamiento
   const usedOrderIds = new Set<string>()
 
-  for (const candidate of candidates) {
+  for (let i = 0; i < candidates.length; i++) {
+    const candidate = candidates[i]
     const store = stores[candidate.storeId]
     if (!store) continue
 
-    // Si esta orden ya fue tomada por otro pago en esta misma corrida, salteamos
     if (usedOrderIds.has(candidate.orderId)) {
       console.log(`[auto-match] Orden #${candidate.order.orderNumber} ya emparejada en esta corrida — saltando pago ${candidate.mpPaymentId}`)
+      continue
+    }
+
+    // Verificar que el pago siga sin emparejar antes de llamar a la API (#3)
+    const preCheckHot = await loadHotState()
+    const stillExists = preCheckHot.unmatchedPayments.some(
+      u => (u.mpPaymentId || u.payment?.mpPaymentId || '') === candidate.mpPaymentId
+    )
+    if (!stillExists) {
+      console.log(`[auto-match] Pago ${candidate.mpPaymentId} ya no existe en unmatchedPayments — saltando`)
       continue
     }
 
     const platform = store.platform ?? 'tiendanube'
     let markSuccess = false
     let markError: string | undefined
+
+    // Recargar logs frescos antes de cada iteración para no pisar cambios concurrentes (#A2)
+    const [freshLogs, freshMatchLog] = await Promise.all([loadLogs(), loadMatchLog()])
 
     try {
       if (platform === 'shopify') {
@@ -63,7 +78,7 @@ export async function runAutoMatchCore(
         markSuccess = result.success
         markError = result.error
         if (result.success && result.method === 'note') {
-          appendError(state, 'auto-match', 'warning',
+          appendError(freshLogs, 'auto-match', 'warning',
             `TiendaNube no permitió cambiar estado (403/422) — solo se agregó nota. Orden: #${candidate.order.orderNumber}`,
             { orderId: candidate.orderId, storeId: candidate.storeId, storeName: store.storeName }
           )
@@ -74,26 +89,30 @@ export async function runAutoMatchCore(
     }
 
     if (!markSuccess) {
-      appendError(state, 'auto-match', 'error',
+      appendError(freshLogs, 'auto-match', 'error',
         `Error al marcar orden #${candidate.order.orderNumber} como pagada (auto-match)`,
         { orderId: candidate.orderId, storeId: candidate.storeId, error: markError }
       )
       errors.push(`${candidate.orderId}: ${markError}`)
+      await saveLogs(freshLogs)
       continue
     }
 
-    // Recargar state fresco antes de guardar para no pisar cambios concurrentes
-    // (ej: el usuario hizo un match manual mientras el runner corría)
-    const freshState = await loadState()
+    // Recargar hot state fresco para no pisar cambios concurrentes
+    const freshHot = await loadHotState()
 
-    // Aplicar los cambios de este match sobre el state fresco
-    const idx = freshState.unmatchedPayments.findIndex(u => (u.mpPaymentId || u.payment?.mpPaymentId || '') === candidate.mpPaymentId)
-    if (idx >= 0) freshState.unmatchedPayments.splice(idx, 1)
+    const idx = freshHot.unmatchedPayments.findIndex(u => (u.mpPaymentId || u.payment?.mpPaymentId || '') === candidate.mpPaymentId)
+    if (idx < 0) {
+      // Pago ya fue procesado por otro proceso concurrente — no duplicar stats/logs
+      console.log(`[auto-match] Pago ${candidate.mpPaymentId} ya no está en unmatchedPayments después de marcar — saltando registro`)
+      continue
+    }
+    freshHot.unmatchedPayments.splice(idx, 1)
 
-    incrementPersistedMonthStats(freshState, candidate.payment.monto, 'emparejamiento')
+    incrementPersistedMonthStats(freshHot, candidate.payment.monto, 'emparejamiento')
 
-    freshState.recentMatches = freshState.recentMatches || []
-    freshState.recentMatches.push({
+    freshHot.recentMatches = freshHot.recentMatches ?? []
+    freshHot.recentMatches.push({
       mpPaymentId: candidate.mpPaymentId,
       matchedAt: new Date().toISOString(),
       orderId: candidate.orderId,
@@ -119,10 +138,10 @@ export async function runAutoMatchCore(
       paymentReceivedAt: candidate.payment.fechaPago,
       orderCreatedAt: candidate.order.createdAt,
     }
-    freshState.registroLog.push(logEntry)
-    freshState.matchLog.push(logEntry)
+    freshLogs.registroLog.push(logEntry)
+    freshMatchLog.matchLog.push(logEntry)
 
-    appendActivity(freshState, 'system', 'pago_auto_emparejado', {
+    appendActivity(freshLogs, 'system', 'pago_auto_emparejado', {
       mpPaymentId: candidate.mpPaymentId,
       monto: candidate.payment.monto,
       orderNumber: candidate.order.orderNumber,
@@ -131,26 +150,22 @@ export async function runAutoMatchCore(
     })
 
     matched++
-    // Registrar esta orden como usada para prevenir doble-emparejamiento
     usedOrderIds.add(candidate.orderId)
 
-    // Guardar el state fresco con los cambios de este match
-    await saveState(freshState)
-    // Actualizar state local para la próxima iteración
-    state = freshState
+    await Promise.all([saveHotState(freshHot), saveLogs(freshLogs), saveMatchLog(freshMatchLog)])
 
-    // 5s entre marcados para respetar rate limits de TiendaNube/Shopify
-    if (candidates.indexOf(candidate) < candidates.length - 1) {
+    // 5s entre marcados para respetar rate limits
+    if (i < candidates.length - 1) {
       await new Promise(resolve => setTimeout(resolve, 5000))
     }
   }
 
-  // Recargar una última vez antes del save final
-  const finalState = await loadState()
-  finalState.lastAutoMatchAt = new Date().toISOString()
-  finalState.lastAutoMatchMatched = matched
-  finalState.currentPhase = 'idle'
-  await saveState(finalState)
+  // Recargar hot state una última vez y guardar estado final
+  const finalHot = await loadHotState()
+  finalHot.lastAutoMatchAt = new Date().toISOString()
+  finalHot.lastAutoMatchMatched = matched
+  finalHot.currentPhase = 'idle'
+  await saveHotState(finalHot)
 
   console.log(`[auto-match] matched: ${matched}, errors: ${errors.length}`)
   return { matched, errors }
