@@ -4,7 +4,7 @@
     {
       "name": "criptoblue-dev",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeArgs": ["run", "dev", "--", "-p", "3456"],
       "port": 3456
     }
   ]
