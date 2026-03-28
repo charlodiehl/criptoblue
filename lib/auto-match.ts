@@ -196,6 +196,12 @@ export function findAutoMatchCandidates(
 
     for (const order of orders) {
       if (dismissedSet.has(`${mpId}|${order.orderId}|${order.storeId}`)) continue
+
+      // Regla dura: el pago no puede ser anterior a la creación de la orden
+      const payTime = u.payment.fechaPago ? new Date(u.payment.fechaPago).getTime() : 0
+      const ordTime = order.createdAt ? new Date(order.createdAt).getTime() : 0
+      if (payTime && ordTime && payTime < ordTime) continue
+
       const signals = computeSignals(u.payment, order, sameMontoCount)
       if (!meetsAutoCriteria(signals)) continue
       const greenCount = signals.filter(s => s.match).length
