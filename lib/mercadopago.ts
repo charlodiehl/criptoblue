@@ -21,11 +21,6 @@ async function mpFetch(path: string, params?: Record<string, string>) {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function normalizePayment(raw: any): Payment | null {
-  // Excluir pagos con tarjeta, efectivo, cajero y cupones — nunca son transferencias bancarias.
-  // Usamos blacklist (no whitelist) para no perder pagos con payment_type_id vacío o inesperado.
-  const EXCLUDED_TYPES = ['credit_card', 'debit_card', 'prepaid_card', 'ticket', 'atm', 'voucher_code']
-  if (raw.payment_type_id && EXCLUDED_TYPES.includes(raw.payment_type_id)) return null
-
   const OWNER_EMAIL = 'compubairestore@gmail.com'
   const OWNER_CUIT = '20190997252'
 
