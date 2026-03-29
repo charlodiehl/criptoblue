@@ -146,7 +146,7 @@ export default function RegistroTab({ entries, onClearLog, onEntryEdited }: Prop
       fmtCuit(e.payment?.cuitPagador || ''),
       nombrePagador(e),
       e.storeName || e.order?.storeName || '',
-      e.orderNumber || e.order?.orderNumber || '',
+      (e.orderNumber || e.order?.orderNumber || '').replace(/^#/, ''),
       billetera(e),
     ])
 

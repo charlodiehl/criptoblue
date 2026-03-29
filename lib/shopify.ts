@@ -57,7 +57,7 @@ function normalizeOrder(order: any, storeId: string, storeName: string): Order {
 
   return {
     orderId: String(order.id),
-    orderNumber: order.name || String(order.order_number),
+    orderNumber: (order.name || String(order.order_number)).replace(/^#/, ''),
     total: parseFloat(order.total_price || '0'),
     customerName,
     customerEmail: order.email || customer?.email || '',
