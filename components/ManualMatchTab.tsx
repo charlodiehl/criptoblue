@@ -188,7 +188,7 @@ function computeSignals(payment: Payment, order: Order): Signal[] {
       match: minDiff >= 0 && minDiff <= 15,
       partial: minDiff > 15 && minDiff <= 180,
       unavailable: minDiff < 0,
-      timeMinutes: minDiff,
+      timeMinutes: minDiff >= 0 ? minDiff : undefined,
     },
     {
       label: 'Email',
@@ -208,11 +208,14 @@ function meetsAutoCriteria(signals: Signal[]): boolean {
   const email  = by['Email']
   const unica  = by['Otras órdenes mismo monto']
   if (!monto?.match) return false
-  if (!fecha?.match) return false
-  const cuitOk   = cuit?.match === true
-  const emailOk  = email?.match === true || email?.partial === true
-  const nombreOk = nombre?.match === true
+  const cuitOk     = cuit?.match === true
+  const emailExact = email?.match === true
+  const emailOk    = emailExact || email?.partial === true
+  const nombreOk   = nombre?.match === true
   const allUnavailable = cuit?.unavailable && nombre?.unavailable && email?.unavailable
+  const minDiff    = fecha?.timeMinutes ?? Infinity
+  const fechaOk    = minDiff <= 15 || (minDiff <= 60 && (cuitOk || emailExact))
+  if (!fechaOk) return false
   return cuitOk || emailOk || nombreOk || (!!allUnavailable && unica?.match === true)
 }
 

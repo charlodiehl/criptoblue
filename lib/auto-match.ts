@@ -75,6 +75,7 @@ interface Signal {
   partial: boolean
   unavailable: boolean
   value: string
+  timeMinutes?: number  // solo en la señal Fecha / Hora
 }
 
 function computeSignals(payment: Payment, order: Order, sameMontoCount: number): Signal[] {
@@ -121,6 +122,7 @@ function computeSignals(payment: Payment, order: Order, sameMontoCount: number):
       match: minDiff >= 0 && minDiff <= 15,
       partial: minDiff > 15 && minDiff <= 180,
       unavailable: minDiff < 0,
+      timeMinutes: minDiff >= 0 ? minDiff : undefined,
     },
     {
       label: 'Email',
@@ -149,12 +151,17 @@ function meetsAutoCriteria(signals: Signal[]): boolean {
   const unica  = by['Otras órdenes mismo monto']
 
   if (!monto?.match) return false
-  if (!fecha?.match) return false
 
-  const cuitOk   = cuit?.match === true
-  const emailOk  = email?.match === true || email?.partial === true  // email exacto o cruce nombre↔email
-  const nombreOk = nombre?.match === true  // solo coincidencia real (nombre + apellido); partial nombre-a-nombre no alcanza
+  const cuitOk      = cuit?.match === true
+  const emailExact  = email?.match === true
+  const emailOk     = emailExact || email?.partial === true
+  const nombreOk    = nombre?.match === true
   const allUnavailable = cuit?.unavailable && nombre?.unavailable && email?.unavailable
+  const minDiff     = fecha?.timeMinutes ?? Infinity
+
+  // Tiempo normal (≤15 min) o extendido (≤60 min) cuando hay identificador fuerte: CUIT o email exacto
+  const fechaOk = minDiff <= 15 || (minDiff <= 60 && (cuitOk || emailExact))
+  if (!fechaOk) return false
 
   return cuitOk || emailOk || nombreOk || (!!allUnavailable && unica?.match === true)
 }
