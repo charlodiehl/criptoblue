@@ -38,7 +38,9 @@ export async function POST(req: NextRequest) {
 
     const fakeMpPaymentId = `manual_${Date.now()}_${orderId}`
     // Usar la fecha/hora ingresada por el usuario; si no viene, usar el momento actual
-    const now = fechaPago ? new Date(fechaPago).toISOString() : new Date().toISOString()
+    // fechaPago viene del input datetime-local del browser en horario Argentina (UTC-3), sin zona horaria.
+    // Se agrega ':00-03:00' para que new Date() lo interprete correctamente como ART y no como UTC.
+    const now = fechaPago ? new Date(fechaPago + ':00-03:00').toISOString() : new Date().toISOString()
 
     // Payment sintético con los datos ingresados por el usuario
     const fakePayment: Payment = {
