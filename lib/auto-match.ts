@@ -191,12 +191,14 @@ export function findAutoMatchCandidates(
 
     // Excluir órdenes dismisseadas del conteo — ya fueron descartadas
     // intencionalmente y no deben inflar la ambigüedad del match.
-    // Solo contar órdenes de las últimas 24hs para reducir falsa ambigüedad.
+    // Solo contar órdenes de las últimas 24hs creadas antes del pago.
     const cutoff24h = Date.now() - 24 * 60 * 60 * 1000
+    const payTime = u.payment.fechaPago ? new Date(u.payment.fechaPago).getTime() : null
     const sameMontoCount = Math.max(0, orders.filter(o =>
       Math.abs(o.total - u.payment.monto) <= 10 &&
       !dismissedSet.has(`${mpId}|${o.orderId}|${o.storeId}`) &&
-      (o.createdAt ? new Date(o.createdAt).getTime() >= cutoff24h : true)
+      (o.createdAt ? new Date(o.createdAt).getTime() >= cutoff24h : true) &&
+      (payTime && o.createdAt ? new Date(o.createdAt).getTime() <= payTime : true)
     ).length - 1)
 
     let bestOrder: Order | null = null
