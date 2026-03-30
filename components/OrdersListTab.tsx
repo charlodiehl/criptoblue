@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import type { Order } from '@/lib/types'
+import type { Order, Store } from '@/lib/types'
 import { ARS, fmtDate, matchesSearch } from '@/lib/utils'
 
 const PAGE_SIZE = 100
@@ -20,6 +20,13 @@ interface DuplicateInfo {
   confidence: 'alta' | 'media'
 }
 
+interface BuscarOrdenResult {
+  order: Order
+  paymentStatus: string
+  orderStatus: string
+  alreadyInCache: boolean
+}
+
 function toDatetimeLocal(date: Date): string {
   const pad = (n: number) => String(n).padStart(2, '0')
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
@@ -27,6 +34,7 @@ function toDatetimeLocal(date: Date): string {
 
 interface Props {
   orders: Order[]
+  stores?: Store[]
   matchedIds?: Set<string>
   duplicateMap?: Map<string, DuplicateInfo>
   onMarkExternal?: (orderId: string, storeId: string) => Promise<void>
@@ -34,12 +42,99 @@ interface Props {
   loading?: boolean
 }
 
-export default function OrdersListTab({ orders, matchedIds, duplicateMap, onMarkExternal, onMarkManual, loading }: Props) {
+export default function OrdersListTab({ orders, stores, matchedIds, duplicateMap, onMarkExternal, onMarkManual, loading }: Props) {
   const [page, setPage] = useState(1)
   const [marking, setMarking] = useState<string | null>(null)
   const [manualOpen, setManualOpen] = useState<string | null>(null)
   const [manualForm, setManualForm] = useState<ManualPayForm>({ medioPago: '', monto: '', nombrePagador: '', cuitPagador: '', fechaPago: '', loading: false })
   const [search, setSearch] = useState('')
+
+  // Estado del modal "Validar orden antigua"
+  const [validarOpen, setValidarOpen] = useState(false)
+  const [validarOrderNumber, setValidarOrderNumber] = useState('')
+  const [validarStoreId, setValidarStoreId] = useState('')
+  const [validarLoading, setValidarLoading] = useState(false)
+  const [validarError, setValidarError] = useState<string | null>(null)
+  const [validarResult, setValidarResult] = useState<BuscarOrdenResult | null>(null)
+  const [validarManualOpen, setValidarManualOpen] = useState(false)
+  const [validarManualForm, setValidarManualForm] = useState<ManualPayForm>({ medioPago: '', monto: '', nombrePagador: '', cuitPagador: '', fechaPago: '', loading: false })
+
+  const openValidar = () => {
+    setValidarOpen(true)
+    setValidarOrderNumber('')
+    setValidarStoreId(stores?.[0]?.storeId || '')
+    setValidarError(null)
+    setValidarResult(null)
+    setValidarManualOpen(false)
+  }
+
+  const handleBuscarOrden = async () => {
+    if (!validarOrderNumber.trim() || !validarStoreId) return
+    setValidarLoading(true)
+    setValidarError(null)
+    setValidarResult(null)
+    setValidarManualOpen(false)
+    try {
+      const res = await fetch('/api/buscar-orden', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderNumber: validarOrderNumber.trim(), storeId: validarStoreId }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setValidarError(data.error || 'Error al buscar la orden')
+        return
+      }
+      if (data.notFound) {
+        setValidarError('No se encontró ninguna orden con ese número en la tienda seleccionada.')
+        return
+      }
+      // Advertencia si está cancelada o ya pagada (no bloquea, igual muestra la orden)
+      const ps = (data.paymentStatus || '').toLowerCase()
+      const os = (data.orderStatus || '').toLowerCase()
+      if (os === 'cancelled') {
+        setValidarError('⚠ Esta orden está cancelada.')
+      } else if (ps === 'paid') {
+        setValidarError('⚠ Esta orden ya está marcada como pagada.')
+      }
+      setValidarResult(data)
+      if (data.order) {
+        setValidarManualForm({
+          medioPago: '',
+          monto: String(data.order.total),
+          nombrePagador: data.order.customerName || '',
+          cuitPagador: data.order.customerCuit || '',
+          fechaPago: toDatetimeLocal(new Date()),
+          loading: false,
+        })
+      }
+    } catch (err) {
+      setValidarError(String(err))
+    } finally {
+      setValidarLoading(false)
+    }
+  }
+
+  const handleValidarManualSubmit = async () => {
+    if (!onMarkManual || !validarResult?.order || validarManualForm.loading) return
+    const monto = parseFloat(validarManualForm.monto.replace(',', '.'))
+    if (!validarManualForm.medioPago.trim() || isNaN(monto) || monto <= 0) return
+    setValidarManualForm(f => ({ ...f, loading: true }))
+    try {
+      const o = validarResult.order
+      await onMarkManual(
+        o.orderId, o.storeId, monto,
+        validarManualForm.medioPago.trim(),
+        validarManualForm.nombrePagador.trim(),
+        o,
+        validarManualForm.cuitPagador.trim() || undefined,
+        validarManualForm.fechaPago || undefined,
+      )
+      setValidarOpen(false)
+    } finally {
+      setValidarManualForm(f => ({ ...f, loading: false }))
+    }
+  }
 
   const handleMarkExternal = async (orderId: string, storeId: string) => {
     if (!onMarkExternal || marking) return
@@ -85,6 +180,199 @@ export default function OrdersListTab({ orders, matchedIds, duplicateMap, onMark
 
   return (
     <div>
+      {/* Botón Validar orden antigua */}
+      {onMarkManual && stores && stores.length > 0 && (
+        <div style={{ marginBottom: '12px' }}>
+          <button
+            onClick={openValidar}
+            style={{
+              fontSize: '12px', fontWeight: 600, padding: '7px 14px', borderRadius: '8px',
+              border: '1px solid rgba(251,191,36,0.3)', background: 'rgba(251,191,36,0.07)',
+              color: 'rgba(251,191,36,0.8)', cursor: 'pointer', letterSpacing: '0.02em',
+            }}
+          >
+            🔍 Validar orden antigua
+          </button>
+        </div>
+      )}
+
+      {/* Modal Validar orden antigua */}
+      {validarOpen && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 999,
+          background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          padding: '20px',
+        }} onClick={e => { if (e.target === e.currentTarget) setValidarOpen(false) }}>
+          <div style={{
+            background: 'linear-gradient(160deg, #0d1117 0%, #0f1824 100%)',
+            border: '1px solid rgba(251,191,36,0.2)', borderRadius: '16px',
+            padding: '24px', width: '100%', maxWidth: '420px',
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px' }}>
+              <span style={{ fontSize: '14px', fontWeight: 700, color: 'rgba(251,191,36,0.9)', letterSpacing: '0.04em' }}>
+                Validar orden antigua
+              </span>
+              <button onClick={() => setValidarOpen(false)} style={{ background: 'none', border: 'none', color: 'rgba(148,163,184,0.5)', cursor: 'pointer', fontSize: '18px', lineHeight: 1 }}>×</button>
+            </div>
+
+            {/* Formulario de búsqueda */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '14px' }}>
+              {stores && stores.length > 1 && (
+                <div>
+                  <label style={{ fontSize: '10px', color: 'rgba(148,163,184,0.5)', letterSpacing: '0.08em', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>Tienda</label>
+                  <select
+                    value={validarStoreId}
+                    onChange={e => { setValidarStoreId(e.target.value); setValidarResult(null); setValidarError(null) }}
+                    style={{ width: '100%', background: '#1a2235', border: '1px solid rgba(148,163,184,0.2)', borderRadius: '6px', padding: '6px 10px', fontSize: '12px', color: 'rgba(226,232,240,0.9)', outline: 'none', boxSizing: 'border-box', colorScheme: 'dark' }}
+                  >
+                    {stores.map(s => <option key={s.storeId} value={s.storeId}>{s.storeName}</option>)}
+                  </select>
+                </div>
+              )}
+              <div>
+                <label style={{ fontSize: '10px', color: 'rgba(148,163,184,0.5)', letterSpacing: '0.08em', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>Número de orden</label>
+                <input
+                  type="text"
+                  placeholder="Ej: 300354"
+                  value={validarOrderNumber}
+                  onChange={e => { setValidarOrderNumber(e.target.value); setValidarResult(null); setValidarError(null) }}
+                  onKeyDown={e => { if (e.key === 'Enter') handleBuscarOrden() }}
+                  style={{ width: '100%', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(148,163,184,0.2)', borderRadius: '6px', padding: '6px 10px', fontSize: '12px', color: 'white', outline: 'none', boxSizing: 'border-box' }}
+                />
+              </div>
+              <button
+                onClick={handleBuscarOrden}
+                disabled={validarLoading || !validarOrderNumber.trim() || !validarStoreId}
+                style={{
+                  fontSize: '12px', fontWeight: 700, padding: '7px 14px', borderRadius: '7px',
+                  border: '1px solid rgba(0,212,255,0.3)', background: 'rgba(0,212,255,0.08)',
+                  color: 'rgba(0,212,255,0.85)', cursor: 'pointer',
+                  opacity: (validarLoading || !validarOrderNumber.trim() || !validarStoreId) ? 0.4 : 1,
+                }}
+              >
+                {validarLoading ? 'Buscando...' : 'Buscar orden'}
+              </button>
+            </div>
+
+            {/* Error / Advertencia */}
+            {validarError && (
+              <div style={{
+                padding: '10px 12px', borderRadius: '8px', fontSize: '12px', marginBottom: '10px',
+                ...(validarError.startsWith('⚠')
+                  ? { background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.25)', color: 'rgba(251,191,36,0.9)' }
+                  : { background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', color: 'rgba(239,68,68,0.85)' }
+                )
+              }}>
+                {validarError}
+              </div>
+            )}
+
+            {/* Resultado */}
+            {validarResult && (
+              <div style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(0,212,255,0.12)', borderRadius: '10px', padding: '14px', marginBottom: '10px' }}>
+                <div style={{ marginBottom: '8px' }}>
+                  <span style={{ fontSize: '22px', fontWeight: 800, color: 'white', letterSpacing: '-0.02em' }}>
+                    {ARS.format(validarResult.order.total)}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '6px' }}>
+                  <span style={{ fontSize: '11px', fontWeight: 700, color: '#00d4ff' }}>#{validarResult.order.orderNumber}</span>
+                  <span style={{ fontSize: '10px', color: 'rgba(148,163,184,0.45)' }}>{validarResult.order.storeName}</span>
+                </div>
+                {validarResult.order.customerName && (
+                  <p style={{ fontSize: '13px', color: 'rgba(226,232,240,0.85)', marginBottom: '3px' }}>{validarResult.order.customerName}</p>
+                )}
+                {validarResult.order.customerCuit && (
+                  <p style={{ fontSize: '11px', color: 'rgba(0,212,255,0.6)', marginBottom: '3px' }}>CUIT/DNI: {validarResult.order.customerCuit}</p>
+                )}
+                {validarResult.order.customerEmail && (
+                  <p style={{ fontSize: '11px', color: 'rgba(148,163,184,0.45)', marginBottom: '3px' }}>{validarResult.order.customerEmail}</p>
+                )}
+                <p style={{ fontSize: '11px', color: 'rgba(148,163,184,0.45)', marginBottom: '8px' }}>{fmtDate(validarResult.order.createdAt)}</p>
+                {validarResult.alreadyInCache && (
+                  <div style={{ padding: '5px 9px', background: 'rgba(0,212,255,0.06)', border: '1px solid rgba(0,212,255,0.15)', borderRadius: '6px', fontSize: '11px', color: 'rgba(0,212,255,0.6)', marginBottom: '8px' }}>
+                    Esta orden ya aparece en el flujo activo de órdenes pendientes.
+                  </div>
+                )}
+
+                {/* Botón abrir form manual — solo si no está cancelada ni pagada */}
+                {!validarManualOpen && !validarError?.startsWith('⚠') && (
+                  <button
+                    onClick={() => setValidarManualOpen(true)}
+                    style={{ fontSize: '11px', padding: '6px 12px', borderRadius: '7px', border: '1px solid rgba(148,163,184,0.2)', background: 'transparent', color: 'rgba(148,163,184,0.55)', cursor: 'pointer' }}
+                  >
+                    ✎ Marcar manualmente
+                  </button>
+                )}
+
+                {/* Formulario de marcado manual */}
+                {validarManualOpen && (
+                  <div style={{ marginTop: '10px', padding: '12px', background: 'rgba(0,0,0,0.25)', borderRadius: '8px', border: '1px solid rgba(148,163,184,0.1)' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      <div>
+                        <label style={{ fontSize: '10px', color: 'rgba(148,163,184,0.5)', letterSpacing: '0.08em', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>Medio de pago *</label>
+                        <input type="text" placeholder="Ej: MercadoPago, Transferencia, Efectivo"
+                          value={validarManualForm.medioPago}
+                          onChange={e => setValidarManualForm(f => ({ ...f, medioPago: e.target.value }))}
+                          style={{ width: '100%', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(148,163,184,0.2)', borderRadius: '6px', padding: '6px 10px', fontSize: '12px', color: 'white', outline: 'none', boxSizing: 'border-box' }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '10px', color: 'rgba(148,163,184,0.5)', letterSpacing: '0.08em', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>Monto recibido *</label>
+                        <input type="number" placeholder="0"
+                          value={validarManualForm.monto}
+                          onChange={e => setValidarManualForm(f => ({ ...f, monto: e.target.value }))}
+                          style={{ width: '100%', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(148,163,184,0.2)', borderRadius: '6px', padding: '6px 10px', fontSize: '12px', color: 'white', outline: 'none', boxSizing: 'border-box' }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '10px', color: 'rgba(148,163,184,0.5)', letterSpacing: '0.08em', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>Nombre pagador</label>
+                        <input type="text" placeholder="Opcional"
+                          value={validarManualForm.nombrePagador}
+                          onChange={e => setValidarManualForm(f => ({ ...f, nombrePagador: e.target.value }))}
+                          style={{ width: '100%', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(148,163,184,0.2)', borderRadius: '6px', padding: '6px 10px', fontSize: '12px', color: 'white', outline: 'none', boxSizing: 'border-box' }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '10px', color: 'rgba(148,163,184,0.5)', letterSpacing: '0.08em', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>CUIT / DNI pagador</label>
+                        <input type="text" placeholder="Opcional"
+                          value={validarManualForm.cuitPagador}
+                          onChange={e => setValidarManualForm(f => ({ ...f, cuitPagador: e.target.value }))}
+                          style={{ width: '100%', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(148,163,184,0.2)', borderRadius: '6px', padding: '6px 10px', fontSize: '12px', color: 'white', outline: 'none', boxSizing: 'border-box' }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '10px', color: 'rgba(148,163,184,0.5)', letterSpacing: '0.08em', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>Fecha y hora del pago *</label>
+                        <input type="datetime-local"
+                          value={validarManualForm.fechaPago}
+                          onChange={e => setValidarManualForm(f => ({ ...f, fechaPago: e.target.value }))}
+                          style={{ width: '100%', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(148,163,184,0.2)', borderRadius: '6px', padding: '6px 10px', fontSize: '12px', color: 'white', outline: 'none', boxSizing: 'border-box', colorScheme: 'dark' }}
+                        />
+                      </div>
+                      <div style={{ display: 'flex', gap: '6px', marginTop: '2px' }}>
+                        <button
+                          onClick={handleValidarManualSubmit}
+                          disabled={validarManualForm.loading || !validarManualForm.medioPago.trim() || !validarManualForm.monto}
+                          style={{ flex: 1, fontSize: '12px', fontWeight: 700, padding: '7px 12px', borderRadius: '7px', border: '1px solid rgba(0,255,136,0.3)', background: 'rgba(0,255,136,0.08)', color: '#00ff88', cursor: 'pointer', opacity: (validarManualForm.loading || !validarManualForm.medioPago.trim() || !validarManualForm.monto) ? 0.4 : 1 }}
+                        >
+                          {validarManualForm.loading ? '...' : 'Confirmar'}
+                        </button>
+                        <button
+                          onClick={() => setValidarManualOpen(false)}
+                          style={{ fontSize: '12px', padding: '7px 12px', borderRadius: '7px', border: '1px solid rgba(148,163,184,0.15)', background: 'transparent', color: 'rgba(148,163,184,0.5)', cursor: 'pointer' }}
+                        >
+                          Cancelar
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Buscador */}
       <div style={{ marginBottom: '12px', position: 'relative' }}>
         <span style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', fontSize: '14px', color: 'rgba(0,212,255,0.4)', pointerEvents: 'none' }}>⌕</span>
