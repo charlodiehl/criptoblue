@@ -190,10 +190,13 @@ export function findAutoMatchCandidates(
     if (!mpId || confirmedIds.has(mpId)) continue
 
     // Excluir órdenes dismisseadas del conteo — ya fueron descartadas
-    // intencionalmente y no deben inflar la ambigüedad del match
+    // intencionalmente y no deben inflar la ambigüedad del match.
+    // Solo contar órdenes de las últimas 24hs para reducir falsa ambigüedad.
+    const cutoff24h = Date.now() - 24 * 60 * 60 * 1000
     const sameMontoCount = Math.max(0, orders.filter(o =>
       Math.abs(o.total - u.payment.monto) <= 10 &&
-      !dismissedSet.has(`${mpId}|${o.orderId}|${o.storeId}`)
+      !dismissedSet.has(`${mpId}|${o.orderId}|${o.storeId}`) &&
+      (o.createdAt ? new Date(o.createdAt).getTime() >= cutoff24h : true)
     ).length - 1)
 
     let bestOrder: Order | null = null
