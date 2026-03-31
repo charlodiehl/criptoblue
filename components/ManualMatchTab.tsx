@@ -324,7 +324,7 @@ export default function ManualMatchTab({
         .filter(o => !dismissedSet.has(`${id}|${o.orderId}|${o.storeId}`))
         .map(o => {
           const signals = computeSignals(u.payment, o)
-          const sameMontoCount = totalSameMonto - (Math.abs(o.total - u.payment.monto) <= 10 ? 1 : 0)
+          const sameMontoCount = Math.max(0, totalSameMonto - (Math.abs(o.total - u.payment.monto) <= 10 ? 1 : 0))
           // Mostrar señal cuando:
           // Caso 1: monto es el único verde (sin importar parciales)
           // Caso 2: monto + fecha son verdes pero CUIT/Nombre/Email no tienen verde ni parcial
