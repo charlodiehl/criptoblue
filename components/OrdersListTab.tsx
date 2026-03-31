@@ -25,6 +25,7 @@ interface BuscarOrdenResult {
   paymentStatus: string
   orderStatus: string
   alreadyInCache: boolean
+  logDuplicate?: { orderNumber: string; storeName: string; timestamp: string; confidence: 'alta' | 'media' } | null
 }
 
 function toDatetimeLocal(date: Date): string {
@@ -292,6 +293,15 @@ export default function OrdersListTab({ orders, stores, matchedIds, duplicateMap
                 {validarResult.alreadyInCache && (
                   <div style={{ padding: '5px 9px', background: 'rgba(0,212,255,0.06)', border: '1px solid rgba(0,212,255,0.15)', borderRadius: '6px', fontSize: '11px', color: 'rgba(0,212,255,0.6)', marginBottom: '8px' }}>
                     Esta orden ya aparece en el flujo activo de órdenes pendientes.
+                  </div>
+                )}
+
+                {/* Aviso de duplicado en historial 30 días */}
+                {validarResult.logDuplicate && (
+                  <div style={{ padding: '8px 12px', background: 'rgba(251,191,36,0.07)', border: '1px solid rgba(251,191,36,0.3)', borderRadius: '8px', fontSize: '12px', color: 'rgba(251,191,36,0.95)', marginBottom: '8px', lineHeight: 1.5 }}>
+                    ⚠ Posible duplicado · Orden #{validarResult.logDuplicate.orderNumber} con mismo{' '}
+                    {validarResult.logDuplicate.confidence === 'alta' ? 'cliente y monto' : 'nombre y monto'}{' '}
+                    ya fue marcada el {fmtDate(validarResult.logDuplicate.timestamp)}
                   </div>
                 )}
 
