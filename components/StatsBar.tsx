@@ -81,7 +81,7 @@ export default function StatsBar({ stats }: { stats: Stats | null }) {
   const s = stats || { matchedCount: 0, matchedVolume: 0, manualCount: 0, manualVolume: 0, pendingOrders: 0 }
 
   const now = new Date()
-  const monthName = now.toLocaleDateString('es-AR', { month: 'long' })
+  const monthName = now.toLocaleDateString('es-AR', { month: 'long', timeZone: 'America/Argentina/Buenos_Aires' })
 
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">

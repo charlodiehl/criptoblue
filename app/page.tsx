@@ -782,7 +782,7 @@ export default function Dashboard() {
               </span>
             ) : stats?.lastMPCheck ? (
               <span style={{ fontSize: '11px', color: 'rgba(148,163,184,0.4)', whiteSpace: 'nowrap' }}>
-                Última actualización: {new Date(stats.lastMPCheck).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                Última actualización: {new Date(stats.lastMPCheck).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'America/Argentina/Buenos_Aires' })}
               </span>
             ) : null}
             <button
