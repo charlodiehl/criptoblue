@@ -1,10 +1,29 @@
 import { NextResponse } from 'next/server'
 import { loadHotState, saveHotState, loadLogs, saveLogs, appendActivity } from '@/lib/storage'
 
-// PATCH: edita campos de nombre y CUIT de una entrada del registro (solo esos dos campos)
+// PATCH: edita campos de una entrada, o marca múltiples entradas como copiadas
 export async function PATCH(request: Request) {
   try {
-    const { timestamp, customerName, cuit, orderNumber, storeName } = await request.json()
+    const body = await request.json()
+
+    // Acción bulk: marcar entradas como copiadas
+    if (body.action === 'mark_copied') {
+      const { timestamps } = body as { timestamps: string[] }
+      if (!Array.isArray(timestamps) || timestamps.length === 0)
+        return NextResponse.json({ error: 'timestamps requerido' }, { status: 400 })
+
+      const logs = await loadLogs()
+      const tsSet = new Set(timestamps)
+      const nowISO = new Date().toISOString()
+      logs.registroLog = logs.registroLog.map(e =>
+        tsSet.has(e.timestamp) ? { ...e, copiedAt: nowISO } : e
+      )
+      await saveLogs(logs)
+      return NextResponse.json({ success: true })
+    }
+
+    // Acción individual: editar campos de nombre, CUIT, orden, tienda
+    const { timestamp, customerName, cuit, orderNumber, storeName } = body
     if (!timestamp) return NextResponse.json({ error: 'timestamp requerido' }, { status: 400 })
 
     const logs = await loadLogs()
@@ -86,10 +105,13 @@ export async function DELETE() {
       }
     }
 
-    // Marcar como ocultas en lugar de borrar — se conservan en Supabase por 30 días
-    const visibleEntries = logs.registroLog.filter(e => !e.hidden)
-    const entryCount = visibleEntries.length
-    logs.registroLog = logs.registroLog.map(e => ({ ...e, hidden: true }))
+    // Solo ocultar entradas ya copiadas — las nuevas (sin copiedAt) se conservan visibles
+    const toHide = logs.registroLog.filter(e => !e.hidden && e.copiedAt)
+    const entryCount = toHide.length
+    const toHideTs = new Set(toHide.map(e => e.timestamp))
+    logs.registroLog = logs.registroLog.map(e =>
+      toHideTs.has(e.timestamp) ? { ...e, hidden: true } : e
+    )
 
     appendActivity(logs, 'human', 'registro_borrado', { entradasEliminadas: entryCount })
 

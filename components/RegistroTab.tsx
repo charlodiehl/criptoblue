@@ -90,6 +90,7 @@ const inputStyle: React.CSSProperties = {
 export default function RegistroTab({ entries, onClearLog, onEntryEdited }: Props) {
   const [copied, setCopied] = useState(false)
   const [clearing, setClearing] = useState(false)
+  const [markingCopied, setMarkingCopied] = useState(false)
 
   // Inline edit state
   const [editingTs, setEditingTs] = useState<string | null>(null)
@@ -112,6 +113,14 @@ export default function RegistroTab({ entries, onClearLog, onEntryEdited }: Prop
   const [sortKey, setSortKey] = useState<SortKey>('fecha')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
   const [page, setPage] = useState(1)
+
+  const newCount = useMemo(() => entries.filter(e =>
+    (e.action === 'manual_paid' || e.action === 'auto_paid' || e.action === 'no_match') && !e.copiedAt
+  ).length, [entries])
+
+  const copiedCount = useMemo(() => entries.filter(e =>
+    (e.action === 'manual_paid' || e.action === 'auto_paid' || e.action === 'no_match') && !!e.copiedAt
+  ).length, [entries])
 
   const paid = useMemo(() => {
     const filtered = entries.filter(e => e.action === 'manual_paid' || e.action === 'auto_paid' || e.action === 'no_match')
@@ -139,8 +148,11 @@ export default function RegistroTab({ entries, onClearLog, onEntryEdited }: Prop
     setPage(1)
   }
 
-  const handleCopy = () => {
-    const rows = paid.map(e => [
+  const handleCopy = async () => {
+    const newEntries = paid.filter(e => !e.copiedAt)
+    if (newEntries.length === 0) return
+
+    const rows = newEntries.map(e => [
       fmtDate(e.payment?.fechaPago || e.timestamp),
       fmtMontoTSV(e.payment?.monto ?? e.amount ?? 0),
       fmtCuit(e.payment?.cuitPagador || ''),
@@ -151,10 +163,22 @@ export default function RegistroTab({ entries, onClearLog, onEntryEdited }: Prop
     ])
 
     const tsv = rows.map(r => r.join('\t')).join('\n')
-    navigator.clipboard.writeText(tsv).then(() => {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2500)
-    })
+    await navigator.clipboard.writeText(tsv)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2500)
+
+    // Marcar como copiadas en Supabase
+    setMarkingCopied(true)
+    try {
+      await fetch('/api/log', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'mark_copied', timestamps: newEntries.map(e => e.timestamp) }),
+      })
+      onEntryEdited?.()
+    } finally {
+      setMarkingCopied(false)
+    }
   }
 
   const startEdit = (e: LogEntry) => {
@@ -200,22 +224,27 @@ export default function RegistroTab({ entries, onClearLog, onEntryEdited }: Prop
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
         <span style={{ fontSize: '13px', color: 'rgba(148,163,184,0.4)' }}>
           {paid.length} emparejamiento{paid.length !== 1 ? 's' : ''}
+          {newCount > 0 && (
+            <span style={{ marginLeft: '8px', color: 'rgba(226,232,240,0.75)', fontWeight: 600 }}>
+              · {newCount} nuevo{newCount !== 1 ? 's' : ''}
+            </span>
+          )}
         </span>
         <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
           <button
             onClick={handleCopy}
-            disabled={paid.length === 0}
+            disabled={newCount === 0 || markingCopied}
             style={{
               display: 'flex', alignItems: 'center', gap: '7px',
               fontSize: '13px', fontWeight: 600, padding: '9px 18px', borderRadius: '10px',
               border: copied ? '1px solid rgba(0,255,136,0.4)' : '1px solid rgba(0,212,255,0.25)',
               background: copied ? 'rgba(0,255,136,0.08)' : 'rgba(0,212,255,0.06)',
               color: copied ? '#00ff88' : '#00d4ff',
-              cursor: paid.length === 0 ? 'not-allowed' : 'pointer',
-              opacity: paid.length === 0 ? 0.4 : 1, transition: 'all 0.2s',
+              cursor: newCount === 0 || markingCopied ? 'not-allowed' : 'pointer',
+              opacity: newCount === 0 || markingCopied ? 0.4 : 1, transition: 'all 0.2s',
             }}
           >
-            {copied ? '✓ Copiado' : '⧉ Copiar para Google Sheets'}
+            {copied ? '✓ Copiado' : '⧉ Copiar nuevos registros'}
           </button>
           <button
             onClick={handleClear}
@@ -283,6 +312,7 @@ export default function RegistroTab({ entries, onClearLog, onEntryEdited }: Prop
             <tbody>
               {pageRows.map((e, i) => {
                 const isEditing = editingTs === e.timestamp
+                const isNew = !e.copiedAt
                 const fecha = fmtDate(e.payment?.fechaPago || e.timestamp)
                 const monto = fmtMontoDisplay(e.payment?.monto ?? e.amount ?? 0)
                 const cuit = fmtCuit(e.payment?.cuitPagador || '')
@@ -299,16 +329,17 @@ export default function RegistroTab({ entries, onClearLog, onEntryEdited }: Prop
                       background: isEditing
                         ? 'rgba(0,212,255,0.04)'
                         : i % 2 === 0 ? 'transparent' : 'rgba(0,212,255,0.015)',
+                      opacity: isNew ? 1 : 0.45,
                     }}
                   >
                     {/* Fecha — siempre readonly */}
-                    <td style={{ padding: '12px 14px', color: 'rgba(148,163,184,0.6)', whiteSpace: 'nowrap' }}>{fecha}</td>
+                    <td style={{ padding: '12px 14px', color: isNew ? 'rgba(148,163,184,0.9)' : 'rgba(148,163,184,0.6)', fontWeight: isNew ? 700 : 400, whiteSpace: 'nowrap' }}>{fecha}</td>
 
                     {/* Monto — siempre readonly */}
                     <td style={{ padding: '12px 14px', color: 'white', fontWeight: 700, whiteSpace: 'nowrap' }}>{monto}</td>
 
                     {/* CUIT — editable */}
-                    <td style={{ padding: isEditing ? '6px 14px' : '12px 14px', color: 'rgba(0,212,255,0.7)', fontFamily: 'monospace' }}>
+                    <td style={{ padding: isEditing ? '6px 14px' : '12px 14px', color: isNew ? 'rgba(0,212,255,0.95)' : 'rgba(0,212,255,0.7)', fontWeight: isNew ? 700 : 400, fontFamily: 'monospace' }}>
                       {isEditing ? (
                         <input
                           value={editCuit}
@@ -327,7 +358,7 @@ export default function RegistroTab({ entries, onClearLog, onEntryEdited }: Prop
                     </td>
 
                     {/* Nombre — editable */}
-                    <td style={{ padding: isEditing ? '6px 14px' : '12px 14px', color: 'rgba(226,232,240,0.85)', maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: isEditing ? 'normal' : 'nowrap' }}>
+                    <td style={{ padding: isEditing ? '6px 14px' : '12px 14px', color: isNew ? 'rgba(226,232,240,0.95)' : 'rgba(226,232,240,0.85)', fontWeight: isNew ? 700 : 400, maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: isEditing ? 'normal' : 'nowrap' }}>
                       {isEditing ? (
                         <input
                           value={editName}
@@ -346,7 +377,7 @@ export default function RegistroTab({ entries, onClearLog, onEntryEdited }: Prop
                     </td>
 
                     {/* Tienda — editable */}
-                    <td style={{ padding: isEditing ? '6px 14px' : '12px 14px', color: 'rgba(148,163,184,0.5)', whiteSpace: isEditing ? 'normal' : 'nowrap' }}>
+                    <td style={{ padding: isEditing ? '6px 14px' : '12px 14px', color: isNew ? 'rgba(148,163,184,0.8)' : 'rgba(148,163,184,0.5)', fontWeight: isNew ? 700 : 400, whiteSpace: isEditing ? 'normal' : 'nowrap' }}>
                       {isEditing ? (
                         <input
                           value={editStoreName}
@@ -364,7 +395,7 @@ export default function RegistroTab({ entries, onClearLog, onEntryEdited }: Prop
                     </td>
 
                     {/* Orden — editable */}
-                    <td style={{ padding: isEditing ? '6px 14px' : '12px 14px', color: '#00d4ff', fontWeight: 600, whiteSpace: isEditing ? 'normal' : 'nowrap' }}>
+                    <td style={{ padding: isEditing ? '6px 14px' : '12px 14px', color: '#00d4ff', fontWeight: 700, whiteSpace: isEditing ? 'normal' : 'nowrap' }}>
                       {isEditing ? (
                         <input
                           value={editOrderNumber}
@@ -382,7 +413,7 @@ export default function RegistroTab({ entries, onClearLog, onEntryEdited }: Prop
                     </td>
 
                     {/* Billetera — siempre readonly */}
-                    <td style={{ padding: '12px 14px', color: 'rgba(148,163,184,0.4)', whiteSpace: 'nowrap' }}>{bill}</td>
+                    <td style={{ padding: '12px 14px', color: isNew ? 'rgba(148,163,184,0.7)' : 'rgba(148,163,184,0.4)', fontWeight: isNew ? 700 : 400, whiteSpace: 'nowrap' }}>{bill}</td>
 
                     {/* Botones de acción */}
                     <td style={{ padding: '6px 8px', textAlign: 'center', whiteSpace: 'nowrap' }}>
