@@ -115,11 +115,11 @@ export default function RegistroTab({ entries, onClearLog, onEntryEdited }: Prop
   const [page, setPage] = useState(1)
 
   const newCount = useMemo(() => entries.filter(e =>
-    (e.action === 'manual_paid' || e.action === 'auto_paid' || e.action === 'no_match') && !e.copiedAt
+    (e.action === 'manual_paid' || e.action === 'auto_paid') && !e.copiedAt
   ).length, [entries])
 
   const copiedCount = useMemo(() => entries.filter(e =>
-    (e.action === 'manual_paid' || e.action === 'auto_paid' || e.action === 'no_match') && !!e.copiedAt
+    (e.action === 'manual_paid' || e.action === 'auto_paid') && !!e.copiedAt
   ).length, [entries])
 
   const paid = useMemo(() => {

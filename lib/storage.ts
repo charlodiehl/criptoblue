@@ -442,29 +442,8 @@ export async function loadState(): Promise<AppState> {
 export async function saveState(state: AppState): Promise<void> {
   const { effectiveCutoffPaymentsMs } = getCutoffs()
 
-  // Registrar pagos vencidos sin emparejar en registroLog antes de limpiar (#7: agrega source)
-  const expiredPayments = (state.unmatchedPayments ?? []).filter(
-    u => u.payment.fechaPago && new Date(u.payment.fechaPago).getTime() < effectiveCutoffPaymentsMs
-  )
-  const cutoff72hMs = Date.now() - 72 * 60 * 60 * 1000
-  const alreadyLoggedIds = new Set(
-    (state.registroLog ?? [])
-      .filter(e => new Date(e.timestamp).getTime() >= cutoff72hMs)
-      .map(e => e.mpPaymentId).filter(Boolean)
-  )
+  // Los pagos vencidos sin emparejar ya NO se agregan al registroLog
   const registroLog = [...(state.registroLog ?? [])]
-  for (const u of expiredPayments) {
-    if (!alreadyLoggedIds.has(u.payment.mpPaymentId)) {
-      registroLog.push({
-        timestamp: u.payment.fechaPago,
-        action: 'no_match',
-        source: 'emparejamiento',
-        payment: stripRawData(u.payment),
-        amount: u.payment.monto,
-        mpPaymentId: u.payment.mpPaymentId,
-      })
-    }
-  }
 
   // HOT_KEY: usar saveHotState para aprovechar el merge de paymentOverrides (#race-condition)
   const hotInput: HotState = {
