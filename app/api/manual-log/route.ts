@@ -79,7 +79,9 @@ export async function POST(req: NextRequest) {
       storeName: order?.storeName || storeName || '',
     })
 
-    await Promise.all([saveHotState(hot), saveLogs(logs), saveMatchLog(matchLogData)])
+    // registroLog primero — es la fuente de verdad; si falla, el endpoint devuelve error
+    await saveLogs(logs)
+    await Promise.all([saveHotState(hot), saveMatchLog(matchLogData)])
 
     const recentMatch = {
       mpPaymentId: payment.mpPaymentId,

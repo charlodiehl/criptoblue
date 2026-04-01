@@ -79,7 +79,9 @@ export async function POST(req: NextRequest) {
       amount: total,
     })
 
-    await Promise.all([saveHotState(hot), saveLogs(logs), saveMatchLog(matchLogData)])
+    // registroLog primero — es la fuente de verdad; si falla, el endpoint devuelve error
+    await saveLogs(logs)
+    await Promise.all([saveHotState(hot), saveMatchLog(matchLogData)])
 
     return NextResponse.json({ success: true, logEntry, recentMatch })
   } catch (err) {

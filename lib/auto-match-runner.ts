@@ -152,7 +152,9 @@ export async function runAutoMatchCore(
     matched++
     usedOrderIds.add(candidate.orderId)
 
-    await Promise.all([saveHotState(freshHot), saveLogs(freshLogs), saveMatchLog(freshMatchLog)])
+    // registroLog primero — es la fuente de verdad; si falla, se propaga el error
+    await saveLogs(freshLogs)
+    await Promise.all([saveHotState(freshHot), saveMatchLog(freshMatchLog)])
 
     // 5s entre marcados para respetar rate limits
     if (i < candidates.length - 1) {
