@@ -1,7 +1,7 @@
 import { fetchAllPaymentsSince } from './mercadopago'
 import { getPendingOrders as getTNOrders } from './tiendanube'
 import { getPendingOrders as getShopifyOrders } from './shopify'
-import { loadState, saveState, getStores, appendError } from './storage'
+import { loadState, saveState, getStores, appendError, loadLogs, saveLogs } from './storage'
 import { HARD_CUTOFF_PAYMENTS, HARD_CUTOFF_ORDERS } from './config'
 import type { UnmatchedPayment, Store } from './types'
 
@@ -32,8 +32,11 @@ export async function processMPPayments(): Promise<CycleResult> {
     payments = await fetchAllPaymentsSince(sincePayments)
   } catch (err) {
     result.errors.push(`MP fetch error: ${String(err)}`)
-    appendError(state, 'mercadopago', 'error', `Error al traer pagos de MercadoPago: ${String(err)}`)
-    await saveState(state)
+    // Solo guardar el error — no sobreescribir todo el estado para evitar pisar
+    // cambios del usuario en registroLog (copiedAt, hidden, ediciones)
+    const errorLogs = await loadLogs()
+    appendError(errorLogs, 'mercadopago', 'error', `Error al traer pagos de MercadoPago: ${String(err)}`)
+    await saveLogs(errorLogs)
     return result
   }
 

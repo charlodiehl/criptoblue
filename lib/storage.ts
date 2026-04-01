@@ -219,6 +219,58 @@ function cleanHotData(state: HotState): HotState {
   return cleaned
 }
 
+// Merge de registroLog: preserva campos editados por el usuario (copiedAt, hidden, ediciones)
+// desde la versión actual de Supabase sobre la versión del ciclo.
+// Usa timestamp como clave primaria (único por entrada).
+function mergeRegistroLog(cycleEntries: LogEntry[], currentEntries: LogEntry[]): LogEntry[] {
+  const currentByTs = new Map(currentEntries.map(e => [e.timestamp, e]))
+
+  // Entradas del ciclo: preservar campos del usuario desde Supabase
+  const merged = cycleEntries.map(entry => {
+    const current = currentByTs.get(entry.timestamp)
+    if (!current) return entry // nueva del ciclo (ej: no_match), mantener
+
+    return {
+      ...entry,
+      // Campos que solo el usuario modifica — preservar la versión de Supabase
+      copiedAt: current.copiedAt ?? entry.copiedAt,
+      hidden: current.hidden !== undefined ? current.hidden : entry.hidden,
+      customerName: current.customerName ?? entry.customerName,
+      orderNumber: current.orderNumber ?? entry.orderNumber,
+      storeName: current.storeName ?? entry.storeName,
+      // Preservar ediciones del payment (nombre, CUIT)
+      payment: entry.payment ? {
+        ...entry.payment,
+        nombrePagador: current.payment?.nombrePagador || entry.payment.nombrePagador,
+        cuitPagador: current.payment?.cuitPagador || entry.payment.cuitPagador,
+      } : entry.payment,
+    }
+  })
+
+  // Entradas que existen en Supabase pero no en el ciclo
+  // (agregadas por otro proceso durante la ejecución del ciclo)
+  const cycleTs = new Set(cycleEntries.map(e => e.timestamp))
+  for (const current of currentEntries) {
+    if (!cycleTs.has(current.timestamp)) {
+      merged.push(current)
+    }
+  }
+
+  return merged
+}
+
+// Union-merge genérico por campo único (para errorLog/activityLog)
+function mergeByField<T extends { id: string }>(incoming: T[], current: T[]): T[] {
+  const incomingIds = new Set(incoming.map(e => e.id))
+  const merged = [...incoming]
+  for (const entry of current) {
+    if (!incomingIds.has(entry.id)) {
+      merged.push(entry)
+    }
+  }
+  return merged
+}
+
 function cleanLogsData(state: LogsState): LogsState {
   const { cutoff30dMs, cutoff7dMs } = getCutoffs()
   return {
@@ -431,11 +483,23 @@ export async function saveState(state: AppState): Promise<void> {
     dismissedPairs: state.dismissedPairs ?? [],
   }
 
-  const logs = cleanLogsData({
+  const cycleLogs: LogsState = {
     registroLog,
     errorLog: state.errorLog ?? [],
     activityLog: state.activityLog ?? [],
-  })
+  }
+
+  // Merge de logs — proteger ediciones del usuario (copiedAt, hidden, ediciones)
+  // contra sobreescritura por el ciclo del cron.
+  // Mismo patrón que saveHotState() usa para paymentOverrides.
+  const currentLogs = await kvGet<LogsState>(LOGS_KEY)
+  const mergedLogs = currentLogs
+    ? cleanLogsData({
+        registroLog: mergeRegistroLog(cycleLogs.registroLog, currentLogs.registroLog ?? []),
+        errorLog: mergeByField(cycleLogs.errorLog, currentLogs.errorLog ?? []),
+        activityLog: mergeByField(cycleLogs.activityLog, currentLogs.activityLog ?? []),
+      })
+    : cleanLogsData(cycleLogs)
 
   const matchLogData = cleanMatchLogData({ matchLog: state.matchLog ?? [] })
   const processed = cleanProcessedData({ processedPayments: state.processedPayments ?? [] })
@@ -447,7 +511,7 @@ export async function saveState(state: AppState): Promise<void> {
 
   await Promise.all([
     saveHotState(hotInput), // incluye cleanHotData + merge de paymentOverrides
-    kvSetConRetry(LOGS_KEY, logs),
+    kvSetConRetry(LOGS_KEY, mergedLogs),
     kvSetConRetry(MATCH_LOG_KEY, matchLogData),
     kvSetConRetry(PROCESSED_KEY, processed),
     kvSetConRetry(ORDERS_KEY, orders),
