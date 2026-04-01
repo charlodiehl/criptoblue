@@ -79,7 +79,7 @@ export async function runAutoMatchCore(
         markError = result.error
         if (result.success && result.method === 'note') {
           appendError(freshLogs, 'auto-match', 'warning',
-            `TiendaNube no permitió cambiar estado (403/422) — solo se agregó nota. Orden: #${candidate.order.orderNumber}`,
+            `Pago verificado, error de API no permitió marcar automaticamente. Orden: #${candidate.order.orderNumber}`,
             { orderId: candidate.orderId, storeId: candidate.storeId, storeName: store.storeName }
           )
         }

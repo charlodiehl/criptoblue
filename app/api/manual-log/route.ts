@@ -19,6 +19,7 @@ export async function POST(req: NextRequest) {
     const payment = hot.unmatchedPayments[unmatchedIndex].payment
 
     let markMethod: string | null = null
+    let markError: string | undefined
 
     // Si hay una orden macheada, marcarla como pagada en la plataforma correspondiente
     if (matchedOrder) {
@@ -26,12 +27,34 @@ export async function POST(req: NextRequest) {
       const store = stores[matchedOrder.storeId]
       if (store) {
         const platform = store.platform ?? 'tiendanube'
-        if (platform === 'shopify') {
-          const result = await markShopifyOrderAsPaid(matchedOrder.storeId, store.accessToken, matchedOrder.orderId, payment.monto)
-          if (result.success) markMethod = 'shopify'
-        } else {
-          const result = await markTNOrderAsPaid(matchedOrder.storeId, store.accessToken, matchedOrder.orderId)
-          if (result.success) markMethod = result.method
+        try {
+          if (platform === 'shopify') {
+            const result = await markShopifyOrderAsPaid(matchedOrder.storeId, store.accessToken, matchedOrder.orderId, payment.monto)
+            if (result.success) markMethod = 'shopify'
+            else markError = result.error
+          } else {
+            const result = await markTNOrderAsPaid(matchedOrder.storeId, store.accessToken, matchedOrder.orderId)
+            if (result.success) {
+              markMethod = result.method
+              if (result.method === 'note') {
+                appendActivity(logs, 'system', 'mark_api_note', {
+                  message: `Pago verificado, error de API no permitió marcar automaticamente. Orden: #${matchedOrder.orderNumber}`,
+                  orderId: matchedOrder.orderId, storeId: matchedOrder.storeId,
+                })
+              }
+            } else {
+              markError = result.error
+            }
+          }
+        } catch (err) {
+          markError = String(err)
+        }
+
+        if (markError) {
+          appendActivity(logs, 'system', 'mark_api_error', {
+            message: `Error al marcar orden #${matchedOrder.orderNumber} como pagada en ${platform}`,
+            orderId: matchedOrder.orderId, storeId: matchedOrder.storeId, error: markError,
+          })
         }
       }
     }
@@ -92,7 +115,7 @@ export async function POST(req: NextRequest) {
       payment,
     }
 
-    return NextResponse.json({ success: true, markMethod, logEntry, recentMatch })
+    return NextResponse.json({ success: true, markMethod, markError, logEntry, recentMatch })
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 })
   }

@@ -59,7 +59,7 @@ export async function POST(req: NextRequest) {
       if (result.success && result.method === 'note') {
         console.warn('[manual-match] WARNING: TN returned 403/422 for payment_status change. Only a note was added. Order may NOT be marked paid in TiendaNube.')
         appendError(logs, 'manual-match', 'warning',
-          `TiendaNube no permitió cambiar el estado de la orden (403/422) — solo se agregó una nota. Marcala manualmente en TN.`,
+          `Pago verificado, error de API no permitió marcar automaticamente. Orden: #${order?.orderNumber}`,
           { orderId, storeId, storeName: store.storeName, orderNumber: order?.orderNumber }
         )
       }
