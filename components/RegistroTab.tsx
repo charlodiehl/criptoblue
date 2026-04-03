@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import type { LogEntry } from '@/lib/types'
 import { PAYMENT_SOURCE_NAMES } from '@/lib/config'
 import { fmtDate } from '@/lib/utils'
@@ -33,6 +33,23 @@ type SortKey = 'fecha' | 'monto' | 'cuit' | 'nombre' | 'tienda' | 'orden' | 'bil
 type SortDir = 'asc' | 'desc'
 
 const PAGE_SIZE = 25
+
+// Cache local para mark_copied — persiste aunque falle la conexión
+const PENDING_KEY = 'criptoblue:pending_copied'
+function localPendingGet(): string[] {
+  try { return JSON.parse(localStorage.getItem(PENDING_KEY) || '[]') } catch { return [] }
+}
+function localPendingAdd(timestamps: string[]) {
+  const s = new Set(localPendingGet())
+  for (const ts of timestamps) s.add(ts)
+  localStorage.setItem(PENDING_KEY, JSON.stringify(Array.from(s)))
+}
+function localPendingRemove(timestamps: string[]) {
+  const remove = new Set(timestamps)
+  const updated = localPendingGet().filter(ts => !remove.has(ts))
+  if (updated.length === 0) localStorage.removeItem(PENDING_KEY)
+  else localStorage.setItem(PENDING_KEY, JSON.stringify(updated))
+}
 
 interface Props {
   entries: LogEntry[]
@@ -91,6 +108,51 @@ export default function RegistroTab({ entries, onClearLog, onEntryEdited }: Prop
   const [copied, setCopied] = useState(false)
   const [clearing, setClearing] = useState(false)
   const [markingCopied, setMarkingCopied] = useState(false)
+  const [copyError, setCopyError] = useState<string | null>(null)
+  const [pendingCopied, setPendingCopied] = useState<Set<string>>(new Set())
+  const onEntryEditedRef = useRef(onEntryEdited)
+  useEffect(() => { onEntryEditedRef.current = onEntryEdited }, [onEntryEdited])
+
+  // Intenta sincronizar los timestamps pendientes al server
+  async function flushPending(timestamps: string[]) {
+    if (timestamps.length === 0) return
+    try {
+      const res = await fetch('/api/log', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'mark_copied', timestamps }),
+      })
+      if (!res.ok) return
+      localPendingRemove(timestamps)
+      setPendingCopied(prev => {
+        const next = new Set(prev)
+        for (const ts of timestamps) next.delete(ts)
+        return next
+      })
+      onEntryEditedRef.current?.()
+    } catch { /* reintentará en el próximo foco */ }
+  }
+
+  // Al montar: cargar pendientes y reintentar sync
+  useEffect(() => {
+    const pending = localPendingGet()
+    if (pending.length > 0) {
+      setPendingCopied(new Set(pending))
+      flushPending(pending)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Al recuperar foco de ventana: reintentar sync si hay pendientes
+  useEffect(() => {
+    const onFocus = () => {
+      const pending = localPendingGet()
+      if (pending.length > 0) flushPending(pending)
+    }
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Inline edit state
   const [editingTs, setEditingTs] = useState<string | null>(null)
@@ -115,8 +177,8 @@ export default function RegistroTab({ entries, onClearLog, onEntryEdited }: Prop
   const [page, setPage] = useState(1)
 
   const newCount = useMemo(() => entries.filter(e =>
-    (e.action === 'manual_paid' || e.action === 'auto_paid') && !e.copiedAt
-  ).length, [entries])
+    (e.action === 'manual_paid' || e.action === 'auto_paid') && !e.copiedAt && !pendingCopied.has(e.timestamp)
+  ).length, [entries, pendingCopied])
 
   const copiedCount = useMemo(() => entries.filter(e =>
     (e.action === 'manual_paid' || e.action === 'auto_paid') && !!e.copiedAt
@@ -149,7 +211,7 @@ export default function RegistroTab({ entries, onClearLog, onEntryEdited }: Prop
   }
 
   const handleCopy = async () => {
-    const newEntries = paid.filter(e => !e.copiedAt)
+    const newEntries = paid.filter(e => !e.copiedAt && !pendingCopied.has(e.timestamp))
     if (newEntries.length === 0) return
 
     const rows = newEntries.map(e => [
@@ -167,15 +229,34 @@ export default function RegistroTab({ entries, onClearLog, onEntryEdited }: Prop
     setCopied(true)
     setTimeout(() => setCopied(false), 2500)
 
-    // Marcar como copiadas en Supabase
+    // Marcar localmente de inmediato (aunque falle la red)
+    const timestamps = newEntries.map(e => e.timestamp)
+    localPendingAdd(timestamps)
+    setPendingCopied(prev => {
+      const next = new Set(prev)
+      for (const ts of timestamps) next.add(ts)
+      return next
+    })
+    setCopyError(null)
+
+    // Sincronizar al servidor
     setMarkingCopied(true)
     try {
-      await fetch('/api/log', {
+      const res = await fetch('/api/log', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'mark_copied', timestamps: newEntries.map(e => e.timestamp) }),
+        body: JSON.stringify({ action: 'mark_copied', timestamps }),
+      })
+      if (!res.ok) throw new Error(`Error ${res.status}`)
+      localPendingRemove(timestamps)
+      setPendingCopied(prev => {
+        const next = new Set(prev)
+        for (const ts of timestamps) next.delete(ts)
+        return next
       })
       onEntryEdited?.()
+    } catch {
+      setCopyError('Conexión inestable — los registros se marcaron localmente y se sincronizarán al recuperar la conexión.')
     } finally {
       setMarkingCopied(false)
     }
@@ -220,6 +301,18 @@ export default function RegistroTab({ entries, onClearLog, onEntryEdited }: Prop
 
   return (
     <div>
+      {/* Error de marcado copiado */}
+      {copyError && (
+        <div style={{
+          marginBottom: '12px', padding: '10px 14px', borderRadius: '8px',
+          background: 'rgba(255,70,70,0.08)', border: '1px solid rgba(255,70,70,0.3)',
+          color: 'rgba(255,120,120,0.95)', fontSize: '13px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px',
+        }}>
+          <span>⚠ {copyError}</span>
+          <button onClick={() => setCopyError(null)} style={{ background: 'none', border: 'none', color: 'rgba(255,120,120,0.7)', cursor: 'pointer', fontSize: '16px', lineHeight: 1, padding: '0 2px' }}>✕</button>
+        </div>
+      )}
+
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
         <span style={{ fontSize: '13px', color: 'rgba(148,163,184,0.4)' }}>
@@ -312,7 +405,7 @@ export default function RegistroTab({ entries, onClearLog, onEntryEdited }: Prop
             <tbody>
               {pageRows.map((e, i) => {
                 const isEditing = editingTs === e.timestamp
-                const isNew = !e.copiedAt
+                const isNew = !e.copiedAt && !pendingCopied.has(e.timestamp)
                 const fecha = fmtDate(e.payment?.fechaPago || e.timestamp)
                 const monto = fmtMontoDisplay(e.payment?.monto ?? e.amount ?? 0)
                 const cuit = fmtCuit(e.payment?.cuitPagador || '')
