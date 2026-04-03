@@ -32,7 +32,7 @@ export async function getPendingOrders(storeId: string, accessToken: string, sto
   const sinceISO = since.toISOString()
 
   while (true) {
-    const url = `${CONFIG.tiendanube.apiBase}/${storeId}/orders?payment_status=pending&per_page=200&page=${page}&created_at_min=${sinceISO}`
+    const url = `${CONFIG.tiendanube.apiBase}/${storeId}/orders?payment_status=pending&status=open&per_page=200&page=${page}&created_at_min=${sinceISO}`
     const res = await fetch(url, { headers: tnHeaders(accessToken) })
 
     if (!res.ok) {
