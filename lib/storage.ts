@@ -153,12 +153,22 @@ async function kvSetConRetry(key: string, value: unknown, intentos = 3): Promise
   for (let i = 0; i < intentos; i++) {
     try {
       await kvSet(key, value)
+      // Notificación ligera para Realtime — fire-and-forget (~60 bytes vs ~100KB del row completo)
+      notifyKeyUpdate(key).catch(() => {})
       return
     } catch (e) {
       if (i === intentos - 1) throw e
       await new Promise(r => setTimeout(r, 500 * (i + 1)))
     }
   }
+}
+
+// Upsert mínimo en kv_notifications para disparar evento Realtime sin enviar el blob completo
+async function notifyKeyUpdate(key: string): Promise<void> {
+  const supabase = getClient()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await (supabase.from('kv_notifications') as any)
+    .upsert({ key, notified_at: new Date().toISOString() })
 }
 
 // ─────────────────────────────────────────────

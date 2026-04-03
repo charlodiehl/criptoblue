@@ -26,9 +26,9 @@ export function useRealtimeSync(handlers: FetchMap) {
       .on(
         'postgres_changes',
         {
-          event: 'UPDATE',
+          event: '*',
           schema: 'public',
-          table: 'kv_store',
+          table: 'kv_notifications',
         },
         (payload) => {
           const key = (payload.new as { key: string })?.key
