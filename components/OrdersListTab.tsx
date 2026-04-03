@@ -436,7 +436,7 @@ export default function OrdersListTab({ orders, stores, matchedIds, duplicateMap
           const isMarking = marking === key
           const dupInfo = duplicateMap?.get(key)
           const dupAlreadyMarked = dupInfo ? matchedIds?.has(`${dupInfo.order.storeId}-${dupInfo.order.orderId}`) : false
-          const isCancelled = (o.orderStatus || '').toLowerCase() === 'cancelled'
+          const isCancelled = ['cancelled', 'archived'].includes((o.orderStatus || '').toLowerCase())
           return (
             <div
               key={key}
