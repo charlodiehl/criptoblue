@@ -656,7 +656,7 @@ function PairRow({
                 </span>
               )}
             </div>
-            {['cancelled', 'archived'].includes((current.order.orderStatus || '').toLowerCase()) && (
+            {['cancelled', 'archived', 'closed'].includes((current.order.orderStatus || '').toLowerCase()) && (
               <div style={{ marginTop: '10px', padding: '6px 10px', background: 'rgba(248,113,113,0.07)', border: '1px solid rgba(248,113,113,0.2)', borderRadius: '8px', fontSize: '12px', color: 'rgba(248,113,113,0.85)', lineHeight: 1.4 }}>
                 ✕ Esta orden está cancelada en TiendaNube
               </div>
