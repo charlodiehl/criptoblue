@@ -25,6 +25,7 @@ export interface Order {
   gateway: string
   storeId: string
   storeName: string
+  orderStatus?: string  // 'open' | 'cancelled' | 'closed' — viene de TiendaNube/Shopify
 }
 
 export interface Store {

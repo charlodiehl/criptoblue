@@ -436,6 +436,7 @@ export default function OrdersListTab({ orders, stores, matchedIds, duplicateMap
           const isMarking = marking === key
           const dupInfo = duplicateMap?.get(key)
           const dupAlreadyMarked = dupInfo ? matchedIds?.has(`${dupInfo.order.storeId}-${dupInfo.order.orderId}`) : false
+          const isCancelled = (o.orderStatus || '').toLowerCase() === 'cancelled'
           return (
             <div
               key={key}
@@ -464,7 +465,17 @@ export default function OrdersListTab({ orders, stores, matchedIds, duplicateMap
                     ⚠ POSIBLE DUPLICADO
                   </span>
                 )}
+                {!matched && isCancelled && (
+                  <span style={{ fontSize: '10px', fontWeight: 700, color: '#f87171', letterSpacing: '0.04em', textShadow: '0 0 8px rgba(248,113,113,0.3)' }}>
+                    ✕ CANCELADA
+                  </span>
+                )}
               </div>
+              {isCancelled && (
+                <div style={{ marginBottom: '6px', padding: '5px 9px', background: 'rgba(248,113,113,0.07)', border: '1px solid rgba(248,113,113,0.18)', borderRadius: '7px', fontSize: '11px', color: 'rgba(248,113,113,0.8)', lineHeight: 1.4 }}>
+                  Esta orden está cancelada en TiendaNube
+                </div>
+              )}
               {dupInfo && (
                 <div style={{ marginBottom: '6px', padding: '5px 9px', background: 'rgba(251,191,36,0.07)', border: '1px solid rgba(251,191,36,0.18)', borderRadius: '7px', fontSize: '11px', color: 'rgba(251,191,36,0.8)', lineHeight: 1.4 }}>
                   Orden #{dupInfo.order.orderNumber} con mismo{' '}
