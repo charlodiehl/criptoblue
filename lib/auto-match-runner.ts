@@ -89,17 +89,11 @@ export async function runAutoMatchCore(
     }
 
     if (!markSuccess) {
-      // Si la orden está cancelada/cerrada (422 "not OPEN"), ignorarla permanentemente
-      // para que no vuelva a ser candidata en próximos ciclos
+      // Si la orden está cancelada/cerrada (422 "not OPEN"), saltarla silenciosamente
+      // sin marcarla como nada — puede reabrirse y volver a ser válida
       const isNotOpen = markError?.includes('422') && markError?.includes('OPEN')
       if (isNotOpen) {
-        const orderKey = `${candidate.storeId}-${candidate.orderId}`
-        const freshHotForSkip = await loadHotState()
-        if (!freshHotForSkip.externallyMarkedOrders.includes(orderKey)) {
-          freshHotForSkip.externallyMarkedOrders.push(orderKey)
-          await saveHotState(freshHotForSkip)
-        }
-        console.log(`[auto-match] Orden #${candidate.order.orderNumber} cancelada/cerrada — ignorando permanentemente`)
+        console.log(`[auto-match] Orden #${candidate.order.orderNumber} no está en estado OPEN — saltando`)
         continue
       }
       appendError(freshLogs, 'auto-match', 'error',
