@@ -474,15 +474,6 @@ export default function Dashboard() {
     }
   }
 
-  const handleClearLog = async () => {
-    try {
-      const res = await fetch('/api/log', { method: 'DELETE' })
-      if (res.ok) {
-        setLogEntries([])
-        addToast('Registro borrado', 'success')
-      }
-    } catch { /* ignore */ }
-  }
 
   const HOURS_24 = 24 * 60 * 60 * 1000
   const HOURS_48 = 48 * 60 * 60 * 1000
@@ -1072,7 +1063,7 @@ export default function Dashboard() {
           {tab === 'ordenes' && <OrdersListTab orders={allRecentOrders} stores={stores} matchedIds={matchedOrderIds} duplicateMap={duplicateMap} onMarkExternal={handleMarkOrderExternal} onMarkManual={handleMarkOrderManual} loading={actionLoading} />}
           {tab === 'pagos' && <PaymentsListTab payments={allRecentPayments} orders={allRecentOrders} matchedIds={matchedPaymentIds} externallyMarkedIds={new Set(stats?.externallyMarkedPayments ?? [])} title="Pagos · últimas 48hs" emptyText="No hay pagos en las últimas 48 horas" onMarkReceived={handleMarkPaymentReceived} onManualLog={handleManualLog} loading={actionLoading} />}
           {tab === 'sin-coincidencia' && <PaymentsListTab payments={paymentsWithoutMatch} orders={allRecentOrders} externallyMarkedIds={new Set(stats?.externallyMarkedPayments ?? [])} title="Pagos sin coincidencia · últimas 48hs" emptyText="Todos los pagos de las últimas 48hs tienen una orden asignada" onMarkReceived={handleMarkPaymentReceived} onManualLog={handleManualLog} loading={actionLoading} />}
-          {tab === 'registro' && <RegistroTab entries={logEntries} onClearLog={handleClearLog} onEntryEdited={fetchLog} />}
+          {tab === 'registro' && <RegistroTab entries={logEntries} onEntryEdited={fetchLog} />}
         </div>
       </main>
     </div>

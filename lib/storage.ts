@@ -269,6 +269,20 @@ function mergeRegistroLog(cycleEntries: LogEntry[], currentEntries: LogEntry[]):
   return merged
 }
 
+// Merge de matchLog: union por timestamp — asegura que entradas escritas por procesos
+// concurrentes no se pierdan cuando otro proceso guarda su versión del matchLog.
+// Mismo concepto que mergeRegistroLog pero sin campos editables por el usuario.
+function mergeMatchLog(incomingEntries: LogEntry[], currentEntries: LogEntry[]): LogEntry[] {
+  const incomingTs = new Set(incomingEntries.map(e => e.timestamp))
+  const merged = [...incomingEntries]
+  for (const current of currentEntries) {
+    if (!incomingTs.has(current.timestamp)) {
+      merged.push(current)
+    }
+  }
+  return merged
+}
+
 // Union-merge genérico por campo único (para errorLog/activityLog)
 function mergeByField<T extends { id: string }>(incoming: T[], current: T[]): T[] {
   const incomingIds = new Set(incoming.map(e => e.id))
@@ -282,10 +296,10 @@ function mergeByField<T extends { id: string }>(incoming: T[], current: T[]): T[
 }
 
 function cleanLogsData(state: LogsState): LogsState {
-  const { cutoff30dMs, cutoff7dMs } = getCutoffs()
+  const { cutoff7dMs, cutoff30dMs } = getCutoffs()
   return {
+    // registroLog es permanente — no expira (#registro-permanente)
     registroLog: (state.registroLog ?? [])
-      .filter(e => new Date(e.timestamp).getTime() >= cutoff30dMs)
       .map(e => ({ ...e, payment: e.payment ? stripRawData(e.payment) : undefined })),
     errorLog: (state.errorLog ?? [])
       .filter(e => !e.resolved || new Date(e.timestamp).getTime() >= cutoff7dMs)
@@ -411,10 +425,30 @@ export async function saveHotState(state: HotState): Promise<void> {
 }
 
 export async function saveLogs(state: LogsState): Promise<void> {
-  await kvSetConRetry(LOGS_KEY, cleanLogsData(state))
+  // Merge con la versión actual de Supabase para no perder entradas escritas
+  // por procesos concurrentes. Sin esto, dos endpoints que graben casi al mismo
+  // tiempo pueden sobreescribirse mutuamente y perder entradas del registroLog.
+  // (Misma protección que saveState() ya tenía vía mergeRegistroLog.)
+  const current = await kvGet<LogsState>(LOGS_KEY)
+  if (current) {
+    state = cleanLogsData({
+      registroLog: mergeRegistroLog(state.registroLog, current.registroLog ?? []),
+      errorLog: mergeByField(state.errorLog, current.errorLog ?? []),
+      activityLog: mergeByField(state.activityLog, current.activityLog ?? []),
+    })
+  } else {
+    state = cleanLogsData(state)
+  }
+  await kvSetConRetry(LOGS_KEY, state)
 }
 
 export async function saveMatchLog(state: MatchLogState): Promise<void> {
+  // Merge con la versión actual de Supabase para no perder entradas escritas
+  // por procesos concurrentes (misma protección que mergeRegistroLog para logs).
+  const current = await kvGet<MatchLogState>(MATCH_LOG_KEY)
+  if (current?.matchLog?.length) {
+    state = { matchLog: mergeMatchLog(state.matchLog, current.matchLog) }
+  }
   await kvSetConRetry(MATCH_LOG_KEY, cleanMatchLogData(state))
 }
 
@@ -490,7 +524,12 @@ export async function saveState(state: AppState): Promise<void> {
       })
     : cleanLogsData(cycleLogs)
 
-  const matchLogData = cleanMatchLogData({ matchLog: state.matchLog ?? [] })
+  // Merge de matchLog — misma protección que registroLog contra race condition (#race-ml)
+  const currentMatchLog = await kvGet<MatchLogState>(MATCH_LOG_KEY)
+  const mergedMatchLogEntries = currentMatchLog?.matchLog?.length
+    ? mergeMatchLog(state.matchLog ?? [], currentMatchLog.matchLog)
+    : (state.matchLog ?? [])
+  const matchLogData = cleanMatchLogData({ matchLog: mergedMatchLogEntries })
   const processed = cleanProcessedData({ processedPayments: state.processedPayments ?? [] })
 
   const orders: OrdersCacheState = {

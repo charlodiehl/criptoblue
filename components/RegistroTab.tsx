@@ -6,11 +6,9 @@ import { PAYMENT_SOURCE_NAMES } from '@/lib/config'
 import { fmtDate } from '@/lib/utils'
 
 function fmtMontoDisplay(n: number) {
-  // Sin separador de miles, punto decimal (igual que el export TSV)
   return n.toFixed(2).replace(/\.?0+$/, '')
 }
 
-// Para el TSV: punto como decimal, sin separador de miles → Google Sheets lo interpreta correctamente
 function fmtMontoTSV(n: number) {
   return n.toFixed(2).replace(/\.?0+$/, '')
 }
@@ -51,9 +49,23 @@ function localPendingRemove(timestamps: string[]) {
   else localStorage.setItem(PENDING_KEY, JSON.stringify(updated))
 }
 
+// Convierte fecha ISO a formato YYYY-MM-DD para inputs date
+function toDateValue(iso: string): string {
+  try {
+    const d = new Date(iso)
+    if (isNaN(d.getTime())) return ''
+    // Hora Argentina (UTC-3)
+    const arg = new Date(d.getTime() - 3 * 60 * 60 * 1000)
+    return arg.toISOString().slice(0, 10)
+  } catch { return '' }
+}
+
+function getEntryDate(e: LogEntry): Date {
+  return new Date(e.payment?.fechaPago || e.timestamp)
+}
+
 interface Props {
   entries: LogEntry[]
-  onClearLog?: () => void
   onEntryEdited?: () => void
 }
 
@@ -67,8 +79,6 @@ const COLUMNS: { label: string; key: SortKey }[] = [
   { label: 'Billetera',         key: 'billetera' },
 ]
 
-const HEADERS = COLUMNS.map(c => c.label)
-
 function getSortValue(e: LogEntry, key: SortKey): string | number {
   switch (key) {
     case 'fecha':     return new Date(e.payment?.fechaPago || e.timestamp).getTime()
@@ -81,15 +91,9 @@ function getSortValue(e: LogEntry, key: SortKey): string | number {
   }
 }
 
-// Default first-click direction per column
 const DEFAULT_DIR: Record<SortKey, SortDir> = {
-  fecha:     'desc',
-  monto:     'desc',
-  cuit:      'desc',
-  nombre:    'asc',
-  tienda:    'asc',
-  orden:     'desc',
-  billetera: 'asc',
+  fecha: 'desc', monto: 'desc', cuit: 'desc',
+  nombre: 'asc', tienda: 'asc', orden: 'desc', billetera: 'asc',
 }
 
 const inputStyle: React.CSSProperties = {
@@ -104,16 +108,30 @@ const inputStyle: React.CSSProperties = {
   minWidth: '100px',
 }
 
-export default function RegistroTab({ entries, onClearLog, onEntryEdited }: Props) {
+const filterInputStyle: React.CSSProperties = {
+  background: 'rgba(0,212,255,0.04)',
+  border: '1px solid rgba(255,255,255,0.1)',
+  borderRadius: '8px',
+  color: 'rgba(226,232,240,0.85)',
+  fontSize: '13px',
+  padding: '7px 10px',
+  outline: 'none',
+}
+
+export default function RegistroTab({ entries, onEntryEdited }: Props) {
   const [copied, setCopied] = useState(false)
-  const [clearing, setClearing] = useState(false)
   const [markingCopied, setMarkingCopied] = useState(false)
   const [copyError, setCopyError] = useState<string | null>(null)
   const [pendingCopied, setPendingCopied] = useState<Set<string>>(new Set())
   const onEntryEditedRef = useRef(onEntryEdited)
   useEffect(() => { onEntryEditedRef.current = onEntryEdited }, [onEntryEdited])
 
-  // Intenta sincronizar los timestamps pendientes al server
+  // Filtros
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
+  const [search, setSearch] = useState('')
+
+  // Flush pendientes al server
   async function flushPending(timestamps: string[]) {
     if (timestamps.length === 0) return
     try {
@@ -133,7 +151,6 @@ export default function RegistroTab({ entries, onClearLog, onEntryEdited }: Prop
     } catch { /* reintentará en el próximo foco */ }
   }
 
-  // Al montar: cargar pendientes y reintentar sync
   useEffect(() => {
     const pending = localPendingGet()
     if (pending.length > 0) {
@@ -143,7 +160,6 @@ export default function RegistroTab({ entries, onClearLog, onEntryEdited }: Prop
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Al recuperar foco de ventana: reintentar sync si hay pendientes
   useEffect(() => {
     const onFocus = () => {
       const pending = localPendingGet()
@@ -163,30 +179,50 @@ export default function RegistroTab({ entries, onClearLog, onEntryEdited }: Prop
   const [editSaving, setEditSaving] = useState(false)
   const [editError, setEditError] = useState<string | null>(null)
 
-  const handleClear = async () => {
-    if (!confirm('¿Borrar todo el registro? Esta acción no se puede deshacer.')) return
-    setClearing(true)
-    try {
-      await onClearLog?.()
-    } finally {
-      setClearing(false)
-    }
-  }
   const [sortKey, setSortKey] = useState<SortKey>('fecha')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
   const [page, setPage] = useState(1)
 
-  const newCount = useMemo(() => entries.filter(e =>
-    (e.action === 'manual_paid' || e.action === 'auto_paid') && !e.copiedAt && !pendingCopied.has(e.timestamp)
-  ).length, [entries, pendingCopied])
+  // Entradas filtradas por acción (solo emparejamientos)
+  const paidAll = useMemo(() =>
+    entries.filter(e => e.action === 'manual_paid' || e.action === 'auto_paid' || e.action === 'no_match'),
+  [entries])
 
-  const copiedCount = useMemo(() => entries.filter(e =>
-    (e.action === 'manual_paid' || e.action === 'auto_paid') && !!e.copiedAt
-  ).length, [entries])
+  // Aplicar filtros de fecha y búsqueda
+  const filtered = useMemo(() => {
+    let result = paidAll
 
-  const paid = useMemo(() => {
-    const filtered = entries.filter(e => e.action === 'manual_paid' || e.action === 'auto_paid' || e.action === 'no_match')
-    return filtered.sort((a, b) => {
+    // Filtro fecha desde
+    if (dateFrom) {
+      const from = new Date(dateFrom + 'T00:00:00-03:00') // AR timezone
+      result = result.filter(e => getEntryDate(e) >= from)
+    }
+
+    // Filtro fecha hasta (incluye todo el día)
+    if (dateTo) {
+      const to = new Date(dateTo + 'T23:59:59.999-03:00')
+      result = result.filter(e => getEntryDate(e) <= to)
+    }
+
+    // Búsqueda
+    if (search.trim()) {
+      const q = search.trim().toLowerCase()
+      result = result.filter(e => {
+        const nombre = nombrePagador(e).toLowerCase()
+        const orden = (e.orderNumber || e.order?.orderNumber || '').toLowerCase()
+        const tienda = (e.storeName || e.order?.storeName || '').toLowerCase()
+        const cuit = fmtCuit(e.payment?.cuitPagador || '')
+        const monto = fmtMontoDisplay(e.payment?.monto ?? e.amount ?? 0)
+        return nombre.includes(q) || orden.includes(q) || tienda.includes(q) || cuit.includes(q) || monto.includes(q)
+      })
+    }
+
+    return result
+  }, [paidAll, dateFrom, dateTo, search])
+
+  // Ordenar
+  const sorted = useMemo(() => {
+    return [...filtered].sort((a, b) => {
       const va = getSortValue(a, sortKey)
       const vb = getSortValue(b, sortKey)
       let cmp = 0
@@ -194,11 +230,19 @@ export default function RegistroTab({ entries, onClearLog, onEntryEdited }: Prop
       else cmp = String(va).localeCompare(String(vb), 'es-AR')
       return sortDir === 'asc' ? cmp : -cmp
     })
-  }, [entries, sortKey, sortDir])
+  }, [filtered, sortKey, sortDir])
 
-  const totalPages = Math.max(1, Math.ceil(paid.length / PAGE_SIZE))
+  // Conteos sobre las entradas filtradas
+  const newInFilterCount = useMemo(() =>
+    filtered.filter(e => !e.copiedAt && !pendingCopied.has(e.timestamp)).length,
+  [filtered, pendingCopied])
+
+  const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE))
   const safePage = Math.min(page, totalPages)
-  const pageRows = paid.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
+  const pageRows = sorted.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
+
+  // Reset page cuando cambian filtros
+  useEffect(() => { setPage(1) }, [dateFrom, dateTo, search])
 
   const handleSort = (key: SortKey) => {
     if (key === sortKey) {
@@ -210,8 +254,9 @@ export default function RegistroTab({ entries, onClearLog, onEntryEdited }: Prop
     setPage(1)
   }
 
+  // Copiar: solo entradas visibles (filtradas) que no tengan copiedAt
   const handleCopy = async () => {
-    const newEntries = paid.filter(e => !e.copiedAt && !pendingCopied.has(e.timestamp))
+    const newEntries = filtered.filter(e => !e.copiedAt && !pendingCopied.has(e.timestamp))
     if (newEntries.length === 0) return
 
     const rows = newEntries.map(e => [
@@ -229,7 +274,7 @@ export default function RegistroTab({ entries, onClearLog, onEntryEdited }: Prop
     setCopied(true)
     setTimeout(() => setCopied(false), 2500)
 
-    // Marcar localmente de inmediato (aunque falle la red)
+    // Marcar localmente solo las que se copiaron
     const timestamps = newEntries.map(e => e.timestamp)
     localPendingAdd(timestamps)
     setPendingCopied(prev => {
@@ -299,6 +344,8 @@ export default function RegistroTab({ entries, onClearLog, onEntryEdited }: Prop
     }
   }
 
+  const hasFilters = dateFrom || dateTo || search.trim()
+
   return (
     <div>
       {/* Error de marcado copiado */}
@@ -313,51 +360,95 @@ export default function RegistroTab({ entries, onClearLog, onEntryEdited }: Prop
         </div>
       )}
 
-      {/* Header */}
+      {/* Filtros */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center', marginBottom: '12px' }}>
+        {/* Búsqueda */}
+        <div style={{ flex: '1 1 200px', minWidth: '180px' }}>
+          <input
+            type="text"
+            placeholder="Buscar por nombre, orden, tienda, CUIT, monto..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            style={{ ...filterInputStyle, width: '100%' }}
+          />
+        </div>
+
+        {/* Fecha desde */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <span style={{ fontSize: '11px', color: 'rgba(148,163,184,0.5)', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 600 }}>Desde</span>
+          <div
+            onClick={e => { (e.currentTarget.querySelector('input') as HTMLInputElement)?.showPicker?.() }}
+            style={{ ...filterInputStyle, width: '130px', position: 'relative', cursor: 'pointer', overflow: 'hidden' }}
+          >
+            <span style={{ fontSize: '13px', color: dateFrom ? 'rgba(226,232,240,0.85)' : 'rgba(148,163,184,0.35)', pointerEvents: 'none', whiteSpace: 'nowrap' }}>
+              {dateFrom ? dateFrom.split('-').reverse().join('/') : 'dd/mm/aaaa'}
+            </span>
+            <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
+              style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer', width: '100%', height: '100%' }} />
+          </div>
+        </div>
+
+        {/* Fecha hasta */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <span style={{ fontSize: '11px', color: 'rgba(148,163,184,0.5)', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 600 }}>Hasta</span>
+          <div
+            onClick={e => { (e.currentTarget.querySelector('input') as HTMLInputElement)?.showPicker?.() }}
+            style={{ ...filterInputStyle, width: '130px', position: 'relative', cursor: 'pointer', overflow: 'hidden' }}
+          >
+            <span style={{ fontSize: '13px', color: dateTo ? 'rgba(226,232,240,0.85)' : 'rgba(148,163,184,0.35)', pointerEvents: 'none', whiteSpace: 'nowrap' }}>
+              {dateTo ? dateTo.split('-').reverse().join('/') : 'dd/mm/aaaa'}
+            </span>
+            <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
+              style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer', width: '100%', height: '100%' }} />
+          </div>
+        </div>
+
+        {/* Limpiar filtros */}
+        {hasFilters && (
+          <button
+            onClick={() => { setDateFrom(''); setDateTo(''); setSearch('') }}
+            style={{
+              fontSize: '12px', padding: '7px 12px', borderRadius: '8px',
+              border: '1px solid rgba(255,255,255,0.1)', background: 'transparent',
+              color: 'rgba(148,163,184,0.6)', cursor: 'pointer',
+            }}
+          >
+            Limpiar filtros
+          </button>
+        )}
+      </div>
+
+      {/* Header con conteo y botón copiar */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
         <span style={{ fontSize: '13px', color: 'rgba(148,163,184,0.4)' }}>
-          {paid.length} emparejamiento{paid.length !== 1 ? 's' : ''}
-          {newCount > 0 && (
+          {sorted.length} emparejamiento{sorted.length !== 1 ? 's' : ''}
+          {hasFilters && paidAll.length !== sorted.length && (
+            <span style={{ marginLeft: '4px' }}>(de {paidAll.length} total)</span>
+          )}
+          {newInFilterCount > 0 && (
             <span style={{ marginLeft: '8px', color: 'rgba(226,232,240,0.75)', fontWeight: 600 }}>
-              · {newCount} nuevo{newCount !== 1 ? 's' : ''}
+              · {newInFilterCount} nuevo{newInFilterCount !== 1 ? 's' : ''} en vista
             </span>
           )}
         </span>
-        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-          <button
-            onClick={handleCopy}
-            disabled={newCount === 0 || markingCopied}
-            style={{
-              display: 'flex', alignItems: 'center', gap: '7px',
-              fontSize: '13px', fontWeight: 600, padding: '9px 18px', borderRadius: '10px',
-              border: copied ? '1px solid rgba(0,255,136,0.4)' : '1px solid rgba(0,212,255,0.25)',
-              background: copied ? 'rgba(0,255,136,0.08)' : 'rgba(0,212,255,0.06)',
-              color: copied ? '#00ff88' : '#00d4ff',
-              cursor: newCount === 0 || markingCopied ? 'not-allowed' : 'pointer',
-              opacity: newCount === 0 || markingCopied ? 0.4 : 1, transition: 'all 0.2s',
-            }}
-          >
-            {copied ? '✓ Copiado' : '⧉ Copiar nuevos registros'}
-          </button>
-          <button
-            onClick={handleClear}
-            disabled={paid.length === 0 || clearing}
-            style={{
-              display: 'flex', alignItems: 'center', gap: '6px',
-              fontSize: '13px', fontWeight: 600, padding: '9px 18px', borderRadius: '10px',
-              border: '1px solid rgba(255,70,70,0.3)',
-              background: 'rgba(255,70,70,0.06)',
-              color: 'rgba(255,100,100,0.8)',
-              cursor: paid.length === 0 || clearing ? 'not-allowed' : 'pointer',
-              opacity: paid.length === 0 || clearing ? 0.4 : 1, transition: 'all 0.2s',
-            }}
-          >
-            {clearing ? 'Borrando...' : '🗑 Borrar registro'}
-          </button>
-        </div>
+        <button
+          onClick={handleCopy}
+          disabled={newInFilterCount === 0 || markingCopied}
+          style={{
+            display: 'flex', alignItems: 'center', gap: '7px',
+            fontSize: '13px', fontWeight: 600, padding: '9px 18px', borderRadius: '10px',
+            border: copied ? '1px solid rgba(0,255,136,0.4)' : '1px solid rgba(0,212,255,0.25)',
+            background: copied ? 'rgba(0,255,136,0.08)' : 'rgba(0,212,255,0.06)',
+            color: copied ? '#00ff88' : '#00d4ff',
+            cursor: newInFilterCount === 0 || markingCopied ? 'not-allowed' : 'pointer',
+            opacity: newInFilterCount === 0 || markingCopied ? 0.4 : 1, transition: 'all 0.2s',
+          }}
+        >
+          {copied ? '✓ Copiado' : `⧉ Copiar ${newInFilterCount > 0 ? newInFilterCount + ' ' : ''}nuevos`}
+        </button>
       </div>
 
-      {paid.length === 0 ? (
+      {sorted.length === 0 ? (
         <div
           style={{
             display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -366,7 +457,9 @@ export default function RegistroTab({ entries, onClearLog, onEntryEdited }: Prop
             border: '1px solid rgba(0,212,255,0.08)',
           }}
         >
-          <p style={{ fontSize: '13px', color: 'rgba(148,163,184,0.35)' }}>No hay emparejamientos registrados</p>
+          <p style={{ fontSize: '13px', color: 'rgba(148,163,184,0.35)' }}>
+            {hasFilters ? 'No hay resultados para los filtros aplicados' : 'No hay emparejamientos registrados'}
+          </p>
         </div>
       ) : (
         <div style={{ overflowX: 'auto' }}>
@@ -381,24 +474,17 @@ export default function RegistroTab({ entries, onClearLog, onEntryEdited }: Prop
                       key={col.key}
                       onClick={() => handleSort(col.key)}
                       style={{
-                        textAlign: 'left',
-                        padding: '10px 14px',
-                        fontSize: '10px',
-                        fontWeight: 700,
-                        letterSpacing: '0.15em',
-                        textTransform: 'uppercase',
+                        textAlign: 'left', padding: '10px 14px', fontSize: '10px', fontWeight: 700,
+                        letterSpacing: '0.15em', textTransform: 'uppercase',
                         color: active ? 'rgba(0,212,255,0.9)' : 'rgba(0,212,255,0.5)',
                         borderBottom: '1px solid rgba(255,255,255,0.06)',
-                        whiteSpace: 'nowrap',
-                        cursor: 'pointer',
-                        userSelect: 'none',
+                        whiteSpace: 'nowrap', cursor: 'pointer', userSelect: 'none',
                       }}
                     >
                       {col.label}{arrow}
                     </th>
                   )
                 })}
-                {/* Columna de edición — sin encabezado */}
                 <th style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', width: '42px' }} />
               </tr>
             </thead>
@@ -425,151 +511,58 @@ export default function RegistroTab({ entries, onClearLog, onEntryEdited }: Prop
                       opacity: isNew ? 1 : 0.45,
                     }}
                   >
-                    {/* Fecha — siempre readonly */}
                     <td style={{ padding: '12px 14px', color: isNew ? 'rgba(148,163,184,0.9)' : 'rgba(148,163,184,0.6)', fontWeight: isNew ? 700 : 400, whiteSpace: 'nowrap' }}>{fecha}</td>
-
-                    {/* Monto — siempre readonly */}
                     <td style={{ padding: '12px 14px', color: 'white', fontWeight: 700, whiteSpace: 'nowrap' }}>{monto}</td>
-
-                    {/* CUIT — editable */}
                     <td style={{ padding: isEditing ? '6px 14px' : '12px 14px', color: isNew ? 'rgba(0,212,255,0.95)' : 'rgba(0,212,255,0.7)', fontWeight: isNew ? 700 : 400, fontFamily: 'monospace' }}>
                       {isEditing ? (
-                        <input
-                          value={editCuit}
-                          onChange={ev => setEditCuit(ev.target.value.replace(/\D/g, ''))}
-                          placeholder="CUIT sin guiones"
-                          maxLength={11}
+                        <input value={editCuit} onChange={ev => setEditCuit(ev.target.value.replace(/\D/g, ''))} placeholder="CUIT sin guiones" maxLength={11}
                           style={{ ...inputStyle, fontFamily: 'monospace', color: 'rgba(0,212,255,0.9)' }}
-                          onKeyDown={ev => {
-                            if (ev.key === 'Enter') saveEdit(e.timestamp)
-                            if (ev.key === 'Escape') cancelEdit()
-                          }}
+                          onKeyDown={ev => { if (ev.key === 'Enter') saveEdit(e.timestamp); if (ev.key === 'Escape') cancelEdit() }}
                         />
-                      ) : (
-                        cuit || '—'
-                      )}
+                      ) : (cuit || '—')}
                     </td>
-
-                    {/* Nombre — editable */}
                     <td style={{ padding: isEditing ? '6px 14px' : '12px 14px', color: isNew ? 'rgba(226,232,240,0.95)' : 'rgba(226,232,240,0.85)', fontWeight: isNew ? 700 : 400, maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: isEditing ? 'normal' : 'nowrap' }}>
                       {isEditing ? (
-                        <input
-                          value={editName}
-                          onChange={ev => setEditName(ev.target.value)}
-                          placeholder="Nombre y apellido"
-                          autoFocus
+                        <input value={editName} onChange={ev => setEditName(ev.target.value)} placeholder="Nombre y apellido" autoFocus
                           style={inputStyle}
-                          onKeyDown={ev => {
-                            if (ev.key === 'Enter') saveEdit(e.timestamp)
-                            if (ev.key === 'Escape') cancelEdit()
-                          }}
+                          onKeyDown={ev => { if (ev.key === 'Enter') saveEdit(e.timestamp); if (ev.key === 'Escape') cancelEdit() }}
                         />
-                      ) : (
-                        nombre || '—'
-                      )}
+                      ) : (nombre || '—')}
                     </td>
-
-                    {/* Tienda — editable */}
                     <td style={{ padding: isEditing ? '6px 14px' : '12px 14px', color: isNew ? 'rgba(148,163,184,0.8)' : 'rgba(148,163,184,0.5)', fontWeight: isNew ? 700 : 400, whiteSpace: isEditing ? 'normal' : 'nowrap' }}>
                       {isEditing ? (
-                        <input
-                          value={editStoreName}
-                          onChange={ev => setEditStoreName(ev.target.value)}
-                          placeholder="Nombre de la tienda"
+                        <input value={editStoreName} onChange={ev => setEditStoreName(ev.target.value)} placeholder="Nombre de la tienda"
                           style={{ ...inputStyle, color: 'rgba(148,163,184,0.8)' }}
-                          onKeyDown={ev => {
-                            if (ev.key === 'Enter') saveEdit(e.timestamp)
-                            if (ev.key === 'Escape') cancelEdit()
-                          }}
+                          onKeyDown={ev => { if (ev.key === 'Enter') saveEdit(e.timestamp); if (ev.key === 'Escape') cancelEdit() }}
                         />
-                      ) : (
-                        tienda
-                      )}
+                      ) : tienda}
                     </td>
-
-                    {/* Orden — editable */}
                     <td style={{ padding: isEditing ? '6px 14px' : '12px 14px', color: '#00d4ff', fontWeight: 700, whiteSpace: isEditing ? 'normal' : 'nowrap' }}>
                       {isEditing ? (
-                        <input
-                          value={editOrderNumber}
-                          onChange={ev => setEditOrderNumber(ev.target.value)}
-                          placeholder="Número de orden"
+                        <input value={editOrderNumber} onChange={ev => setEditOrderNumber(ev.target.value)} placeholder="Número de orden"
                           style={{ ...inputStyle, color: '#00d4ff', fontWeight: 600 }}
-                          onKeyDown={ev => {
-                            if (ev.key === 'Enter') saveEdit(e.timestamp)
-                            if (ev.key === 'Escape') cancelEdit()
-                          }}
+                          onKeyDown={ev => { if (ev.key === 'Enter') saveEdit(e.timestamp); if (ev.key === 'Escape') cancelEdit() }}
                         />
-                      ) : (
-                        orden
-                      )}
+                      ) : orden}
                     </td>
-
-                    {/* Billetera — siempre readonly */}
                     <td style={{ padding: '12px 14px', color: isNew ? 'rgba(148,163,184,0.7)' : 'rgba(148,163,184,0.4)', fontWeight: isNew ? 700 : 400, whiteSpace: 'nowrap' }}>{bill}</td>
-
-                    {/* Botones de acción */}
                     <td style={{ padding: '6px 8px', textAlign: 'center', whiteSpace: 'nowrap' }}>
                       {isEditing ? (
                         <div style={{ display: 'flex', gap: '4px', justifyContent: 'center' }}>
-                          <button
-                            onClick={() => saveEdit(e.timestamp)}
-                            disabled={editSaving}
-                            title="Guardar"
-                            style={{
-                              width: '26px', height: '26px', borderRadius: '6px',
-                              border: '1px solid rgba(0,255,136,0.4)',
-                              background: 'rgba(0,255,136,0.08)',
-                              color: '#00ff88',
-                              fontSize: '13px', cursor: editSaving ? 'not-allowed' : 'pointer',
-                              opacity: editSaving ? 0.5 : 1,
-                              display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            }}
-                          >
+                          <button onClick={() => saveEdit(e.timestamp)} disabled={editSaving} title="Guardar"
+                            style={{ width: '26px', height: '26px', borderRadius: '6px', border: '1px solid rgba(0,255,136,0.4)', background: 'rgba(0,255,136,0.08)', color: '#00ff88', fontSize: '13px', cursor: editSaving ? 'not-allowed' : 'pointer', opacity: editSaving ? 0.5 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                             ✓
                           </button>
-                          <button
-                            onClick={cancelEdit}
-                            disabled={editSaving}
-                            title="Cancelar"
-                            style={{
-                              width: '26px', height: '26px', borderRadius: '6px',
-                              border: '1px solid rgba(255,70,70,0.3)',
-                              background: 'rgba(255,70,70,0.06)',
-                              color: 'rgba(255,100,100,0.8)',
-                              fontSize: '13px', cursor: editSaving ? 'not-allowed' : 'pointer',
-                              opacity: editSaving ? 0.5 : 1,
-                              display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            }}
-                          >
+                          <button onClick={cancelEdit} disabled={editSaving} title="Cancelar"
+                            style={{ width: '26px', height: '26px', borderRadius: '6px', border: '1px solid rgba(255,70,70,0.3)', background: 'rgba(255,70,70,0.06)', color: 'rgba(255,100,100,0.8)', fontSize: '13px', cursor: editSaving ? 'not-allowed' : 'pointer', opacity: editSaving ? 0.5 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                             ✕
                           </button>
                         </div>
                       ) : (
-                        <button
-                          onClick={() => startEdit(e)}
-                          title="Editar nombre y CUIT"
-                          style={{
-                            width: '26px', height: '26px', borderRadius: '6px',
-                            border: '1px solid rgba(255,255,255,0.07)',
-                            background: 'transparent',
-                            color: 'rgba(148,163,184,0.35)',
-                            fontSize: '13px', cursor: 'pointer',
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            transition: 'all 0.15s',
-                          }}
-                          onMouseEnter={ev => {
-                            const btn = ev.currentTarget
-                            btn.style.color = 'rgba(0,212,255,0.7)'
-                            btn.style.borderColor = 'rgba(0,212,255,0.3)'
-                            btn.style.background = 'rgba(0,212,255,0.06)'
-                          }}
-                          onMouseLeave={ev => {
-                            const btn = ev.currentTarget
-                            btn.style.color = 'rgba(148,163,184,0.35)'
-                            btn.style.borderColor = 'rgba(255,255,255,0.07)'
-                            btn.style.background = 'transparent'
-                          }}
+                        <button onClick={() => startEdit(e)} title="Editar nombre y CUIT"
+                          style={{ width: '26px', height: '26px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.07)', background: 'transparent', color: 'rgba(148,163,184,0.35)', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.15s' }}
+                          onMouseEnter={ev => { ev.currentTarget.style.color = 'rgba(0,212,255,0.7)'; ev.currentTarget.style.borderColor = 'rgba(0,212,255,0.3)'; ev.currentTarget.style.background = 'rgba(0,212,255,0.06)' }}
+                          onMouseLeave={ev => { ev.currentTarget.style.color = 'rgba(148,163,184,0.35)'; ev.currentTarget.style.borderColor = 'rgba(255,255,255,0.07)'; ev.currentTarget.style.background = 'transparent' }}
                         >
                           ✎
                         </button>
@@ -581,74 +574,26 @@ export default function RegistroTab({ entries, onClearLog, onEntryEdited }: Prop
             </tbody>
           </table>
 
-          {/* Error de edición */}
           {editError && (
             <div style={{ padding: '8px 14px', color: 'rgba(255,100,100,0.8)', fontSize: '12px' }}>
               ⚠ {editError}
             </div>
           )}
 
-          {/* Paginador */}
           {totalPages > 1 && (
             <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '6px', padding: '20px 0 4px' }}>
-              {/* Anterior */}
-              <button
-                onClick={() => setPage(p => Math.max(1, p - 1))}
-                disabled={safePage === 1}
-                style={{
-                  padding: '6px 12px',
-                  borderRadius: '8px',
-                  border: '1px solid rgba(255,255,255,0.08)',
-                  background: 'transparent',
-                  color: safePage === 1 ? 'rgba(148,163,184,0.2)' : 'rgba(148,163,184,0.5)',
-                  fontSize: '13px',
-                  cursor: safePage === 1 ? 'default' : 'pointer',
-                  transition: 'all 0.15s',
-                }}
-              >
+              <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={safePage === 1}
+                style={{ padding: '6px 12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)', background: 'transparent', color: safePage === 1 ? 'rgba(148,163,184,0.2)' : 'rgba(148,163,184,0.5)', fontSize: '13px', cursor: safePage === 1 ? 'default' : 'pointer', transition: 'all 0.15s' }}>
                 ‹
               </button>
-
-              {/* Números de página */}
-              {Array.from({ length: totalPages }, (_, i) => i + 1).map(n => {
-                const isActive = n === safePage
-                return (
-                  <button
-                    key={n}
-                    onClick={() => setPage(n)}
-                    style={{
-                      minWidth: '34px',
-                      padding: '6px 4px',
-                      borderRadius: '8px',
-                      border: isActive ? '1px solid rgba(0,212,255,0.4)' : '1px solid rgba(255,255,255,0.06)',
-                      background: isActive ? 'rgba(0,212,255,0.1)' : 'transparent',
-                      color: isActive ? '#00d4ff' : 'rgba(148,163,184,0.45)',
-                      fontSize: '13px',
-                      fontWeight: isActive ? 700 : 400,
-                      cursor: 'pointer',
-                      transition: 'all 0.15s',
-                    }}
-                  >
-                    {n}
-                  </button>
-                )
-              })}
-
-              {/* Siguiente */}
-              <button
-                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                disabled={safePage === totalPages}
-                style={{
-                  padding: '6px 12px',
-                  borderRadius: '8px',
-                  border: '1px solid rgba(255,255,255,0.08)',
-                  background: 'transparent',
-                  color: safePage === totalPages ? 'rgba(148,163,184,0.2)' : 'rgba(148,163,184,0.5)',
-                  fontSize: '13px',
-                  cursor: safePage === totalPages ? 'default' : 'pointer',
-                  transition: 'all 0.15s',
-                }}
-              >
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map(n => (
+                <button key={n} onClick={() => setPage(n)}
+                  style={{ minWidth: '34px', padding: '6px 4px', borderRadius: '8px', border: n === safePage ? '1px solid rgba(0,212,255,0.4)' : '1px solid rgba(255,255,255,0.06)', background: n === safePage ? 'rgba(0,212,255,0.1)' : 'transparent', color: n === safePage ? '#00d4ff' : 'rgba(148,163,184,0.45)', fontSize: '13px', fontWeight: n === safePage ? 700 : 400, cursor: 'pointer', transition: 'all 0.15s' }}>
+                  {n}
+                </button>
+              ))}
+              <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={safePage === totalPages}
+                style={{ padding: '6px 12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)', background: 'transparent', color: safePage === totalPages ? 'rgba(148,163,184,0.2)' : 'rgba(148,163,184,0.5)', fontSize: '13px', cursor: safePage === totalPages ? 'default' : 'pointer', transition: 'all 0.15s' }}>
                 ›
               </button>
             </div>
