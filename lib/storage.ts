@@ -614,6 +614,7 @@ export function incrementPersistedMonthStats(
 // ─────────────────────────────────────────────
 
 export type LockState = {
+  lockId: string      // ID único para verificación atómica (write-then-verify)
   holder: string      // 'manual-match' | 'auto-match' | 'cycle' | 'reevaluar' | etc.
   acquiredAt: string  // ISO timestamp
   detail?: string     // info adicional (ej: "orden #70786")
@@ -621,23 +622,36 @@ export type LockState = {
 
 const DEFAULT_LOCK_TIMEOUT_MS = 30_000 // 30 segundos
 
+// Patrón write-then-verify: escribe el lock con un ID único, luego lee para confirmar
+// que nuestra escritura ganó. Si otro proceso escribió entre medio, el ID no coincide
+// y sabemos que perdimos la carrera. Esto elimina la race condition del read-then-write.
 export async function acquireLock(
   holder: string,
   detail?: string,
   timeoutMs = DEFAULT_LOCK_TIMEOUT_MS,
 ): Promise<boolean> {
+  // Paso 1: verificar si hay lock activo
   const current = await kvGet<LockState>(LOCK_KEY)
   if (current?.acquiredAt) {
     const age = Date.now() - new Date(current.acquiredAt).getTime()
     if (age < timeoutMs) {
-      // Lock activo y no expirado — no se puede adquirir
-      return false
+      return false // Lock activo y no expirado
     }
-    // Lock expirado — se puede robar
   }
-  const lock: LockState = { holder, acquiredAt: new Date().toISOString(), detail }
+
+  // Paso 2: escribir nuestro lock con ID único
+  const lockId = `${holder}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+  const lock: LockState = { lockId, holder, acquiredAt: new Date().toISOString(), detail }
   await kvSet(LOCK_KEY, lock)
-  return true
+
+  // Paso 3: leer de vuelta y verificar que nuestro ID ganó
+  const verify = await kvGet<LockState>(LOCK_KEY)
+  if (verify?.lockId === lockId) {
+    return true // Nuestro write ganó
+  }
+
+  // Otro proceso escribió entre medio — no tenemos el lock
+  return false
 }
 
 export async function releaseLock(holder: string): Promise<void> {
