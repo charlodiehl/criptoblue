@@ -1,5 +1,5 @@
 // Lógica central del auto-match — compartida por el cron (reevaluar) y el botón manual
-import { loadHotState, saveHotState, loadLogs, saveLogs, loadMatchLog, saveMatchLog, loadOrdersCache, incrementPersistedMonthStats, appendError, appendActivity } from './storage'
+import { loadHotState, saveHotState, loadLogs, saveLogs, loadMatchLog, saveMatchLog, loadOrdersCache, incrementPersistedMonthStats, appendError, appendActivity, waitForLock, releaseLock } from './storage'
 import { markOrderAsPaid as markTNOrderAsPaid } from './tiendanube'
 import { markOrderAsPaid as markShopifyOrderAsPaid } from './shopify'
 import { findAutoMatchCandidates } from './auto-match'
@@ -41,6 +41,8 @@ export async function runAutoMatchCore(
   const errors: string[] = []
   const usedOrderIds = new Set<string>()
 
+  const LOCK_HOLDER = 'auto-match'
+
   for (let i = 0; i < candidates.length; i++) {
     const candidate = candidates[i]
     const store = stores[candidate.storeId]
@@ -51,6 +53,14 @@ export async function runAutoMatchCore(
       continue
     }
 
+    // Adquirir lock global — esperar si hay una operación manual en curso
+    const lockAcquired = await waitForLock(LOCK_HOLDER, `orden #${candidate.order.orderNumber}`, 15_000, 1000)
+    if (!lockAcquired) {
+      console.log(`[auto-match] No se pudo adquirir lock para #${candidate.order.orderNumber} — saltando`)
+      continue
+    }
+
+    try {
     // Verificar que el pago siga sin emparejar antes de llamar a la API (#3)
     const preCheckHot = await loadHotState()
     const stillExists = preCheckHot.unmatchedPayments.some(
@@ -137,6 +147,7 @@ export async function runAutoMatchCore(
       order: candidate.order,
       mpPaymentId: candidate.mpPaymentId,
       amount: candidate.payment.monto,
+      orderTotal: candidate.order.total,
       orderNumber: candidate.order.orderNumber,
       orderId: candidate.orderId,
       storeId: candidate.storeId,
@@ -162,6 +173,10 @@ export async function runAutoMatchCore(
     // registroLog primero — es la fuente de verdad; si falla, se propaga el error
     await saveLogs(freshLogs)
     await Promise.all([saveHotState(freshHot), saveMatchLog(freshMatchLog)])
+
+    } finally {
+      await releaseLock(LOCK_HOLDER)
+    }
 
     // 5s entre marcados para respetar rate limits
     if (i < candidates.length - 1) {

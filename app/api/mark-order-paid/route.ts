@@ -1,11 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { loadHotState, saveHotState, loadLogs, saveLogs, loadMatchLog, saveMatchLog, getStores, incrementPersistedMonthStats, appendActivity, appendError } from '@/lib/storage'
+import { loadHotState, saveHotState, loadLogs, saveLogs, loadMatchLog, saveMatchLog, getStores, incrementPersistedMonthStats, appendActivity, appendError, acquireLock, releaseLock } from '@/lib/storage'
 import { markOrderAsPaid as markTNOrderAsPaid } from '@/lib/tiendanube'
 import { markOrderAsPaid as markShopifyOrderAsPaid } from '@/lib/shopify'
 import type { LogEntry, RecentMatch } from '@/lib/types'
 
-// #6: Agrega appendActivity y appendError para consistencia con el resto de endpoints
+const LOCK_HOLDER = 'mark-order-paid'
+
 export async function POST(req: NextRequest) {
+  const locked = await acquireLock(LOCK_HOLDER)
+  if (!locked) {
+    return NextResponse.json({ error: 'El sistema está procesando otra operación. Esperá unos segundos.' }, { status: 409 })
+  }
   try {
     const { storeId, orderId, total } = await req.json()
     if (!storeId || !orderId) {
@@ -57,6 +62,7 @@ export async function POST(req: NextRequest) {
       storeId,
       storeName: store.storeName,
       amount: total ?? undefined,
+      orderTotal: total ?? undefined,
     }
     logs.registroLog.push(logEntry)
     matchLogData.matchLog.push(logEntry)
@@ -86,5 +92,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: true, logEntry, recentMatch })
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 })
+  } finally {
+    await releaseLock(LOCK_HOLDER)
   }
 }

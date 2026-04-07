@@ -52,7 +52,8 @@ export interface LogEntry {
   payment?: Payment
   order?: Order
   score?: number
-  amount?: number
+  amount?: number               // Monto del pago con el que se emparejó (payment.monto)
+  orderTotal?: number            // Monto de la orden en la tienda (order.total)
   orderNumber?: string
   orderId?: string
   storeId?: string

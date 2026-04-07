@@ -1,11 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { loadHotState, saveHotState, loadLogs, saveLogs, loadMatchLog, saveMatchLog, getStores, incrementPersistedMonthStats, appendError, appendActivity } from '@/lib/storage'
+import { loadHotState, saveHotState, loadLogs, saveLogs, loadMatchLog, saveMatchLog, getStores, incrementPersistedMonthStats, appendError, appendActivity, acquireLock, releaseLock } from '@/lib/storage'
 import { markOrderAsPaid as markTNOrderAsPaid, getPendingOrders as getTNOrders } from '@/lib/tiendanube'
 import { markOrderAsPaid as markShopifyOrderAsPaid, getPendingOrders as getShopifyOrders } from '@/lib/shopify'
 import { HARD_CUTOFF_ORDERS } from '@/lib/config'
 import type { LogEntry } from '@/lib/types'
 
+const LOCK_HOLDER = 'manual-match'
+
 export async function POST(req: NextRequest) {
+  const locked = await acquireLock(LOCK_HOLDER, undefined, 30_000)
+  if (!locked) {
+    return NextResponse.json({ error: 'El sistema está procesando otra operación. Esperá unos segundos.' }, { status: 409 })
+  }
+
   try {
     const { mpPaymentId, orderId, storeId, order: orderFromClient } = await req.json()
     if (!mpPaymentId || !orderId || !storeId) {
@@ -23,11 +30,18 @@ export async function POST(req: NextRequest) {
     )
     if (unmatchedIndex < 0) return NextResponse.json({ error: 'Payment not found' }, { status: 404 })
 
+    // Validación de duplicados: verificar que este pago+orden no esté ya en el registro
+    const alreadyMatched = logs.registroLog.some(e =>
+      e.mpPaymentId === mpPaymentId && e.orderId === orderId &&
+      (e.action === 'manual_paid' || e.action === 'auto_paid')
+    )
+    if (alreadyMatched) {
+      return NextResponse.json({ error: 'Este pago ya fue emparejado con esta orden' }, { status: 409 })
+    }
+
     const unmatched = hot.unmatchedPayments[unmatchedIndex]
     const payment = unmatched.payment
 
-    // Usar la orden enviada por el cliente (ya la tiene en memoria).
-    // Solo re-fetchear de TN si por algún motivo no vino en el body.
     const platform = store.platform ?? 'tiendanube'
 
     let order = orderFromClient || null
@@ -79,7 +93,6 @@ export async function POST(req: NextRequest) {
     hot.unmatchedPayments.splice(unmatchedIndex, 1)
     incrementPersistedMonthStats(hot, payment.monto, 'emparejamiento')
 
-    // recentMatches: para resaltado verde en pestañas (auto-limpia a las 24h, independiente del Registro)
     hot.recentMatches = hot.recentMatches ?? []
     hot.recentMatches.push({ mpPaymentId: payment.mpPaymentId, matchedAt: new Date().toISOString(), orderId, storeId, order: order || undefined, payment })
 
@@ -92,6 +105,7 @@ export async function POST(req: NextRequest) {
       order: order || undefined,
       mpPaymentId: payment.mpPaymentId,
       amount: payment.monto,
+      orderTotal: order?.total,
       orderNumber: order?.orderNumber,
       orderId,
       storeId,
@@ -111,7 +125,6 @@ export async function POST(req: NextRequest) {
       storeName: store.storeName,
     })
 
-    // registroLog primero — es la fuente de verdad; si falla, el endpoint devuelve error
     await saveLogs(logs)
     await Promise.all([saveHotState(hot), saveMatchLog(matchLogData)])
 
@@ -119,5 +132,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: true, method: markMethod, logEntry, recentMatch })
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 })
+  } finally {
+    await releaseLock(LOCK_HOLDER)
   }
 }

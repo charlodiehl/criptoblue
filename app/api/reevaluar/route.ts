@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { processMPPayments } from '@/lib/cycle'
-import { loadHotState, saveHotState, loadProcessed, saveProcessed, loadLogs, saveLogs, getStores, appendError, appendActivity } from '@/lib/storage'
+import { loadHotState, saveHotState, loadProcessed, saveProcessed, loadLogs, saveLogs, getStores, appendError, appendActivity, acquireLock, releaseLock } from '@/lib/storage'
 import { runAutoMatchCore } from '@/lib/auto-match-runner'
 
 export const maxDuration = 300
@@ -59,8 +59,14 @@ async function runFullCycle(triggeredBy: 'cron' | 'manual_button') {
   return NextResponse.json({ success: true, ...cycleResult })
 }
 
+const LOCK_HOLDER = 'reevaluar'
+
 // GET — cron de Vercel: solo sync de pagos y órdenes, sin auto-match
 export async function GET() {
+  const locked = await acquireLock(LOCK_HOLDER, undefined, 240_000)
+  if (!locked) {
+    return NextResponse.json({ success: true, skipped: true, reason: 'already_running' })
+  }
   try {
     return await runFullCycle('cron')
   } catch (err) {
@@ -71,11 +77,17 @@ export async function GET() {
       await Promise.all([saveHotState(hot), saveLogs(logs)])
     } catch { /* no bloquear si falla el logging */ }
     return NextResponse.json({ success: false, error: String(err) }, { status: 500 })
+  } finally {
+    await releaseLock(LOCK_HOLDER)
   }
 }
 
 // POST — botón manual: sync + auto-match completo
 export async function POST() {
+  const locked = await acquireLock(LOCK_HOLDER, undefined, 240_000)
+  if (!locked) {
+    return NextResponse.json({ success: false, error: 'Ya hay un ciclo en ejecución' }, { status: 409 })
+  }
   try {
     return await runFullCycle('manual_button')
   } catch (err) {
@@ -86,5 +98,7 @@ export async function POST() {
       await Promise.all([saveHotState(hot), saveLogs(logs)])
     } catch { /* no bloquear si falla el logging */ }
     return NextResponse.json({ success: false, error: String(err) }, { status: 500 })
+  } finally {
+    await releaseLock(LOCK_HOLDER)
   }
 }

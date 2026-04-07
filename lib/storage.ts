@@ -31,6 +31,7 @@ const ORDERS_KEY     = 'criptoblue:orders-cache'
 const LOGS_KEY       = 'criptoblue:logs'
 const MATCH_LOG_KEY  = 'criptoblue:match-log'
 const STORES_KEY     = 'criptoblue:stores'
+const LOCK_KEY       = 'criptoblue:lock'
 
 // ─────────────────────────────────────────────
 // Tipos parciales por key
@@ -604,4 +605,68 @@ export function incrementPersistedMonthStats(
     manualCount:   base.manualCount   + (isManual  ? 1 : 0),
     manualVolume:  base.manualVolume  + (isManual  ? amount : 0),
   }
+}
+
+// ─────────────────────────────────────────────
+// Lock global — exclusión mutua para operaciones de marcado
+// Usa un key dedicado en kv_store para no interferir con merge de HotState.
+// Timeout de seguridad: si un request falla sin liberar, el lock expira automáticamente.
+// ─────────────────────────────────────────────
+
+export type LockState = {
+  holder: string      // 'manual-match' | 'auto-match' | 'cycle' | 'reevaluar' | etc.
+  acquiredAt: string  // ISO timestamp
+  detail?: string     // info adicional (ej: "orden #70786")
+}
+
+const DEFAULT_LOCK_TIMEOUT_MS = 30_000 // 30 segundos
+
+export async function acquireLock(
+  holder: string,
+  detail?: string,
+  timeoutMs = DEFAULT_LOCK_TIMEOUT_MS,
+): Promise<boolean> {
+  const current = await kvGet<LockState>(LOCK_KEY)
+  if (current?.acquiredAt) {
+    const age = Date.now() - new Date(current.acquiredAt).getTime()
+    if (age < timeoutMs) {
+      // Lock activo y no expirado — no se puede adquirir
+      return false
+    }
+    // Lock expirado — se puede robar
+  }
+  const lock: LockState = { holder, acquiredAt: new Date().toISOString(), detail }
+  await kvSet(LOCK_KEY, lock)
+  return true
+}
+
+export async function releaseLock(holder: string): Promise<void> {
+  const current = await kvGet<LockState>(LOCK_KEY)
+  if (current?.holder === holder) {
+    await kvSet(LOCK_KEY, null)
+  }
+}
+
+export async function getLockState(): Promise<LockState | null> {
+  const current = await kvGet<LockState>(LOCK_KEY)
+  if (!current?.acquiredAt) return null
+  const age = Date.now() - new Date(current.acquiredAt).getTime()
+  if (age >= DEFAULT_LOCK_TIMEOUT_MS) return null // expirado
+  return current
+}
+
+// Esperar hasta que el lock esté libre, con timeout máximo
+export async function waitForLock(
+  holder: string,
+  detail?: string,
+  maxWaitMs = 15_000,
+  retryIntervalMs = 500,
+): Promise<boolean> {
+  const start = Date.now()
+  while (Date.now() - start < maxWaitMs) {
+    const acquired = await acquireLock(holder, detail)
+    if (acquired) return true
+    await new Promise(r => setTimeout(r, retryIntervalMs))
+  }
+  return false
 }

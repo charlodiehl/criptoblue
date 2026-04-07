@@ -42,6 +42,7 @@ export default function Dashboard() {
   const [unmatchedPayments, setUnmatchedPayments] = useState<UnmatchedPayment[]>([])
   const [toasts, setToasts] = useState<Toast[]>([])
   const [actionLoading, setActionLoading] = useState(false)
+  const [systemLocked, setSystemLocked] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [logEntries, setLogEntries] = useState<LogEntry[]>([])
   const [recentMatches, setRecentMatches] = useState<RecentMatch[]>([])
@@ -251,6 +252,7 @@ export default function Dashboard() {
         body: JSON.stringify({ storeId, orderId, total }),
       })
       const data = await res.json()
+      if (checkLockResponse(res, data)) return
       if (data.success) {
         addToast('Orden marcada como pagada', 'success')
         // Actualización optimista: verde inmediato sin remover la orden (Realtime la saca cuando TN la confirme)
@@ -273,6 +275,17 @@ export default function Dashboard() {
     }
   }
 
+  // Helper: verifica si la respuesta es un lock 409 y muestra toast
+  const checkLockResponse = (res: Response, data: { error?: string }): boolean => {
+    if (res.status === 409) {
+      addToast(data.error || 'El sistema está procesando otra operación. Esperá unos segundos.', 'error')
+      setSystemLocked(true)
+      setTimeout(() => setSystemLocked(false), 5000)
+      return true
+    }
+    return false
+  }
+
   const handleManualMatch = async (mpPaymentId: string, orderId: string, storeId: string, order?: Order) => {
     setActionLoading(true)
     try {
@@ -282,6 +295,7 @@ export default function Dashboard() {
         body: JSON.stringify({ mpPaymentId, orderId, storeId, order }),
       })
       const data = await res.json()
+      if (checkLockResponse(res, data)) return
       if (data.success) {
         if (data.method === 'note') {
           addToast('Pago registrado — TiendaNube no permite cambiar el estado vía API, se agregó una nota a la orden. Marcalo manualmente en TN.', 'error')
@@ -397,6 +411,7 @@ export default function Dashboard() {
         body: JSON.stringify({ mpPaymentId, storeName, orderNumber, matchedOrder }),
       })
       const data = await res.json()
+      if (checkLockResponse(res, data)) return
       if (data.success) {
         const msg = data.markMethod
           ? 'Orden marcada como pagada y registrada'
@@ -454,6 +469,7 @@ export default function Dashboard() {
         body: JSON.stringify({ orderId, storeId, monto, medioPago, nombrePagador, cuitPagador, order, fechaPago }),
       })
       const data = await res.json()
+      if (checkLockResponse(res, data)) return
       if (data.success) {
         addToast('Orden marcada como pagada', 'success')
         // Actualización optimista: verde inmediato, Realtime confirma y saca la orden de pendientes
@@ -1059,10 +1075,10 @@ export default function Dashboard() {
 
         {/* Tab content */}
         <div>
-          {tab === 'manual' && <ManualMatchTab unmatchedPayments={filteredUnmatched} orders={filteredOrders} duplicateMap={duplicateMap} onManualMatch={handleManualMatch} onDismissPayment={handleDismissPayment} onMarkOrderPaid={handleMarkOrderPaid} dismissedPairs={dismissedPairs} loading={actionLoading} lastMPCheck={stats?.lastMPCheck ?? null} refreshKey={matchRefreshKey} />}
-          {tab === 'ordenes' && <OrdersListTab orders={allRecentOrders} stores={stores} matchedIds={matchedOrderIds} duplicateMap={duplicateMap} onMarkExternal={handleMarkOrderExternal} onMarkManual={handleMarkOrderManual} loading={actionLoading} />}
-          {tab === 'pagos' && <PaymentsListTab payments={allRecentPayments} orders={allRecentOrders} matchedIds={matchedPaymentIds} externallyMarkedIds={new Set(stats?.externallyMarkedPayments ?? [])} title="Pagos · últimas 48hs" emptyText="No hay pagos en las últimas 48 horas" onMarkReceived={handleMarkPaymentReceived} onManualLog={handleManualLog} loading={actionLoading} />}
-          {tab === 'sin-coincidencia' && <PaymentsListTab payments={paymentsWithoutMatch} orders={allRecentOrders} externallyMarkedIds={new Set(stats?.externallyMarkedPayments ?? [])} title="Pagos sin coincidencia · últimas 48hs" emptyText="Todos los pagos de las últimas 48hs tienen una orden asignada" onMarkReceived={handleMarkPaymentReceived} onManualLog={handleManualLog} loading={actionLoading} />}
+          {tab === 'manual' && <ManualMatchTab unmatchedPayments={filteredUnmatched} orders={filteredOrders} duplicateMap={duplicateMap} onManualMatch={handleManualMatch} onDismissPayment={handleDismissPayment} onMarkOrderPaid={handleMarkOrderPaid} dismissedPairs={dismissedPairs} loading={actionLoading || systemLocked} lastMPCheck={stats?.lastMPCheck ?? null} refreshKey={matchRefreshKey} />}
+          {tab === 'ordenes' && <OrdersListTab orders={allRecentOrders} stores={stores} matchedIds={matchedOrderIds} duplicateMap={duplicateMap} onMarkExternal={handleMarkOrderExternal} onMarkManual={handleMarkOrderManual} loading={actionLoading || systemLocked} />}
+          {tab === 'pagos' && <PaymentsListTab payments={allRecentPayments} orders={allRecentOrders} matchedIds={matchedPaymentIds} externallyMarkedIds={new Set(stats?.externallyMarkedPayments ?? [])} title="Pagos · últimas 48hs" emptyText="No hay pagos en las últimas 48 horas" onMarkReceived={handleMarkPaymentReceived} onManualLog={handleManualLog} loading={actionLoading || systemLocked} />}
+          {tab === 'sin-coincidencia' && <PaymentsListTab payments={paymentsWithoutMatch} orders={allRecentOrders} externallyMarkedIds={new Set(stats?.externallyMarkedPayments ?? [])} title="Pagos sin coincidencia · últimas 48hs" emptyText="Todos los pagos de las últimas 48hs tienen una orden asignada" onMarkReceived={handleMarkPaymentReceived} onManualLog={handleManualLog} loading={actionLoading || systemLocked} />}
           {tab === 'registro' && <RegistroTab entries={logEntries} onEntryEdited={fetchLog} />}
         </div>
       </main>
