@@ -7,11 +7,11 @@ import type { LogEntry, RecentMatch } from '@/lib/types'
 const LOCK_HOLDER = 'mark-order-paid'
 
 export async function POST(req: NextRequest) {
-  const locked = await acquireLock(LOCK_HOLDER)
-  if (!locked) {
-    return NextResponse.json({ error: 'El sistema está procesando otra operación. Esperá unos segundos.' }, { status: 409 })
-  }
   try {
+    const locked = await acquireLock(LOCK_HOLDER)
+    if (!locked) {
+      return NextResponse.json({ error: 'El sistema está procesando otra operación. Esperá unos segundos.' }, { status: 409 })
+    }
     const { storeId, orderId, total } = await req.json()
     if (!storeId || !orderId) {
       return NextResponse.json({ error: 'storeId and orderId required' }, { status: 400 })

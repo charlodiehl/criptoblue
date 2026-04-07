@@ -7,11 +7,11 @@ import type { LogEntry, Payment } from '@/lib/types'
 const LOCK_HOLDER = 'mark-order-paid-manual'
 
 export async function POST(req: NextRequest) {
-  const locked = await acquireLock(LOCK_HOLDER)
-  if (!locked) {
-    return NextResponse.json({ error: 'El sistema está procesando otra operación. Esperá unos segundos.' }, { status: 409 })
-  }
   try {
+    const locked = await acquireLock(LOCK_HOLDER)
+    if (!locked) {
+      return NextResponse.json({ error: 'El sistema está procesando otra operación. Esperá unos segundos.' }, { status: 409 })
+    }
     const { orderId, storeId, monto, medioPago, nombrePagador, cuitPagador, order: orderFromClient, fechaPago } = await req.json()
     if (!orderId || !storeId || !monto || !medioPago) {
       return NextResponse.json({ error: 'orderId, storeId, monto y medioPago son requeridos' }, { status: 400 })

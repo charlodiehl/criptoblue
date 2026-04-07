@@ -7,11 +7,11 @@ import type { LogEntry, Order } from '@/lib/types'
 const LOCK_HOLDER = 'manual-log'
 
 export async function POST(req: NextRequest) {
-  const locked = await acquireLock(LOCK_HOLDER)
-  if (!locked) {
-    return NextResponse.json({ error: 'El sistema está procesando otra operación. Esperá unos segundos.' }, { status: 409 })
-  }
   try {
+    const locked = await acquireLock(LOCK_HOLDER)
+    if (!locked) {
+      return NextResponse.json({ error: 'El sistema está procesando otra operación. Esperá unos segundos.' }, { status: 409 })
+    }
     const { mpPaymentId, storeName, orderNumber, matchedOrder } = await req.json()
     if (!mpPaymentId) return NextResponse.json({ error: 'mpPaymentId required' }, { status: 400 })
 

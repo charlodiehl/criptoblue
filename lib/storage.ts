@@ -655,9 +655,13 @@ export async function acquireLock(
 }
 
 export async function releaseLock(holder: string): Promise<void> {
-  const current = await kvGet<LockState>(LOCK_KEY)
-  if (current?.holder === holder) {
-    await kvSet(LOCK_KEY, null)
+  try {
+    const current = await kvGet<LockState>(LOCK_KEY)
+    if (current?.holder === holder) {
+      await kvSet(LOCK_KEY, {}) // {} en vez de null — kv_store tiene NOT NULL en value
+    }
+  } catch {
+    // Si falla la liberación, el lock expirará por timeout (30s)
   }
 }
 
