@@ -61,13 +61,22 @@ export async function runAutoMatchCore(
     }
 
     try {
-    // Verificar que el pago siga sin emparejar antes de llamar a la API (#3)
+    // Verificar que el pago siga sin emparejar y que el par no haya sido descartado (#3)
     const preCheckHot = await loadHotState()
     const stillExists = preCheckHot.unmatchedPayments.some(
       u => (u.mpPaymentId || u.payment?.mpPaymentId || '') === candidate.mpPaymentId
     )
     if (!stillExists) {
       console.log(`[auto-match] Pago ${candidate.mpPaymentId} ya no existe en unmatchedPayments — saltando`)
+      continue
+    }
+
+    // Re-validar dismissedPairs frescos — puede haberse descartado mientras el loop corría
+    const freshDismissedSet = new Set(
+      (preCheckHot.dismissedPairs ?? []).map(p => `${p.mpPaymentId}|${p.orderId}|${p.storeId}`)
+    )
+    if (freshDismissedSet.has(`${candidate.mpPaymentId}|${candidate.orderId}|${candidate.storeId}`)) {
+      console.log(`[auto-match] Par ${candidate.mpPaymentId}+${candidate.order.orderNumber} fue descartado — saltando`)
       continue
     }
 

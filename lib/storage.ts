@@ -413,11 +413,50 @@ export async function saveHotState(state: HotState): Promise<void> {
   // Cargamos el valor actual de HOT_KEY y mergeamos los overrides que no tenemos,
   // descartando los que ya no tienen un pago activo.
   const current = await kvGet<HotState>(HOT_KEY)
-  if (current?.paymentOverrides && Object.keys(current.paymentOverrides).length > 0) {
-    const activeIds = new Set(cleaned.unmatchedPayments.map(u => u.payment.mpPaymentId))
-    for (const [id, override] of Object.entries(current.paymentOverrides)) {
-      if (activeIds.has(id) && !cleaned.paymentOverrides[id]) {
-        cleaned.paymentOverrides[id] = override
+  if (current) {
+    // Merge paymentOverrides — preservar overrides de procesos concurrentes
+    if (current.paymentOverrides && Object.keys(current.paymentOverrides).length > 0) {
+      const activeIds = new Set(cleaned.unmatchedPayments.map(u => u.payment.mpPaymentId))
+      for (const [id, override] of Object.entries(current.paymentOverrides)) {
+        if (activeIds.has(id) && !cleaned.paymentOverrides[id]) {
+          cleaned.paymentOverrides[id] = override
+        }
+      }
+    }
+
+    // Merge dismissedPairs — preservar dismisses de procesos concurrentes
+    if (current.dismissedPairs?.length) {
+      const existingKeys = new Set(
+        (cleaned.dismissedPairs ?? []).map(p => `${p.mpPaymentId}|${p.orderId}|${p.storeId}`)
+      )
+      for (const pair of current.dismissedPairs) {
+        const key = `${pair.mpPaymentId}|${pair.orderId}|${pair.storeId}`
+        if (!existingKeys.has(key)) {
+          cleaned.dismissedPairs = cleaned.dismissedPairs ?? []
+          cleaned.dismissedPairs.push(pair)
+        }
+      }
+    }
+
+    // Merge externallyMarkedOrders — preservar marcados de procesos concurrentes
+    if (current.externallyMarkedOrders?.length) {
+      const existingOrders = new Set(cleaned.externallyMarkedOrders ?? [])
+      for (const key of current.externallyMarkedOrders) {
+        if (!existingOrders.has(key)) {
+          cleaned.externallyMarkedOrders = cleaned.externallyMarkedOrders ?? []
+          cleaned.externallyMarkedOrders.push(key)
+        }
+      }
+    }
+
+    // Merge externallyMarkedPayments — preservar marcados de procesos concurrentes
+    if (current.externallyMarkedPayments?.length) {
+      const existingIds = new Set((cleaned.externallyMarkedPayments ?? []).map(e => e.id))
+      for (const entry of current.externallyMarkedPayments) {
+        if (!existingIds.has(entry.id)) {
+          cleaned.externallyMarkedPayments = cleaned.externallyMarkedPayments ?? []
+          cleaned.externallyMarkedPayments.push(entry)
+        }
       }
     }
   }

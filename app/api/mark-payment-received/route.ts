@@ -1,25 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { loadHotState, saveHotState, loadProcessed, saveProcessed, loadLogs, saveLogs, appendActivity } from '@/lib/storage'
+import { loadHotState, saveHotState, loadProcessed, saveProcessed, loadLogs, saveLogs, appendActivity, acquireLock, releaseLock } from '@/lib/storage'
+
+const LOCK_HOLDER = 'mark-payment-received'
 
 export async function POST(req: NextRequest) {
   try {
+    const locked = await acquireLock(LOCK_HOLDER)
+    if (!locked) {
+      return NextResponse.json({ success: false, error: 'El sistema está procesando otra operación. Esperá unos segundos.' }, { status: 409 })
+    }
+
     const { mpPaymentId } = await req.json()
     if (!mpPaymentId) return NextResponse.json({ success: false, error: 'mpPaymentId requerido' }, { status: 400 })
 
     const [hot, processed, logs] = await Promise.all([loadHotState(), loadProcessed(), loadLogs()])
 
-    // El pago se QUEDA en unmatchedPayments para seguir visible en la pestaña Pagos
-    // (con badge amarillo "NO ES TIENDAS"). Solo se saca de Sin coincidencia via externallyMarkedPayments.
     const payment = hot.unmatchedPayments.find(
       u => u.mpPaymentId === mpPaymentId || u.payment.mpPaymentId === mpPaymentId
     )?.payment
 
-    // Marcar como procesado para que no vuelva en el próximo sync
     if (!processed.processedPayments.includes(mpPaymentId)) {
       processed.processedPayments.push(mpPaymentId)
     }
 
-    // Registrar como marcado externamente con timestamp (para que expire a las 48h igual que el resto)
     if (!hot.externallyMarkedPayments.some(e => e.id === mpPaymentId)) {
       hot.externallyMarkedPayments.push({ id: mpPaymentId, markedAt: new Date().toISOString() })
     }
@@ -33,5 +36,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: true })
   } catch (err) {
     return NextResponse.json({ success: false, error: String(err) }, { status: 500 })
+  } finally {
+    await releaseLock(LOCK_HOLDER)
   }
 }
