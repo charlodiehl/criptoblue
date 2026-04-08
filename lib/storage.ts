@@ -513,24 +513,6 @@ export async function saveState(state: AppState): Promise<void> {
     activityLog: state.activityLog ?? [],
   }
 
-  // Merge de logs — proteger ediciones del usuario (copiedAt, hidden, ediciones)
-  // contra sobreescritura por el ciclo del cron.
-  // Mismo patrón que saveHotState() usa para paymentOverrides.
-  const currentLogs = await kvGet<LogsState>(LOGS_KEY)
-  const mergedLogs = currentLogs
-    ? cleanLogsData({
-        registroLog: mergeRegistroLog(cycleLogs.registroLog, currentLogs.registroLog ?? []),
-        errorLog: mergeByField(cycleLogs.errorLog, currentLogs.errorLog ?? []),
-        activityLog: mergeByField(cycleLogs.activityLog, currentLogs.activityLog ?? []),
-      })
-    : cleanLogsData(cycleLogs)
-
-  // Merge de matchLog — misma protección que registroLog contra race condition (#race-ml)
-  const currentMatchLog = await kvGet<MatchLogState>(MATCH_LOG_KEY)
-  const mergedMatchLogEntries = currentMatchLog?.matchLog?.length
-    ? mergeMatchLog(state.matchLog ?? [], currentMatchLog.matchLog)
-    : (state.matchLog ?? [])
-  const matchLogData = cleanMatchLogData({ matchLog: mergedMatchLogEntries })
   const processed = cleanProcessedData({ processedPayments: state.processedPayments ?? [] })
 
   const orders: OrdersCacheState = {
@@ -538,10 +520,14 @@ export async function saveState(state: AppState): Promise<void> {
     cachedOrdersAt: state.cachedOrdersAt ?? '',
   }
 
+  // Usar saveLogs() y saveMatchLog() en vez de escribir directamente —
+  // estas funciones hacen su propio read+merge justo antes de escribir,
+  // evitando la race condition donde el auto-match guarda entradas entre
+  // el momento en que saveState() lee los logs y el momento en que escribe.
   await Promise.all([
-    saveHotState(hotInput), // incluye cleanHotData + merge de paymentOverrides
-    kvSetConRetry(LOGS_KEY, mergedLogs),
-    kvSetConRetry(MATCH_LOG_KEY, matchLogData),
+    saveHotState(hotInput),
+    saveLogs(cycleLogs),
+    saveMatchLog({ matchLog: state.matchLog ?? [] }),
     kvSetConRetry(PROCESSED_KEY, processed),
     kvSetConRetry(ORDERS_KEY, orders),
   ])

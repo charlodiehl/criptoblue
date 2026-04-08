@@ -184,6 +184,26 @@ export async function runAutoMatchCore(
     }
   }
 
+  // Verificación post-auto-match: asegurar que todo lo que está en matchLog
+  // también esté en registroLog. Si falta algo, recuperarlo.
+  if (matched > 0) {
+    const [verifyLogs, verifyMatchLog] = await Promise.all([loadLogs(), loadMatchLog()])
+    const registroTs = new Set(verifyLogs.registroLog.map(e => e.timestamp))
+    const registroOrders = new Set(verifyLogs.registroLog.map(e => e.orderNumber).filter(Boolean))
+    let recovered = 0
+    for (const entry of verifyMatchLog.matchLog) {
+      if (!registroTs.has(entry.timestamp) && !registroOrders.has(entry.orderNumber)) {
+        verifyLogs.registroLog.push(entry)
+        recovered++
+        console.log(`[auto-match] Recuperada entrada faltante en registroLog: #${entry.orderNumber}`)
+      }
+    }
+    if (recovered > 0) {
+      await saveLogs(verifyLogs)
+      console.log(`[auto-match] ${recovered} entrada(s) recuperada(s) en registroLog`)
+    }
+  }
+
   // Recargar hot state una última vez y guardar estado final
   const finalHot = await loadHotState()
   finalHot.lastAutoMatchAt = new Date().toISOString()
