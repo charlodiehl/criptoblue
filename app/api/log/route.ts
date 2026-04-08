@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { loadHotState, loadLogs, saveLogs, appendActivity } from '@/lib/storage'
+import { audit } from '@/lib/audit'
 
 // PATCH: edita campos de una entrada, o marca múltiples entradas como copiadas
 export async function PATCH(request: Request) {
@@ -19,6 +20,7 @@ export async function PATCH(request: Request) {
         tsSet.has(e.timestamp) ? { ...e, copiedAt: nowISO } : e
       )
       await saveLogs(logs)
+      audit({ category: 'user_action', action: 'registro.mark_copied', result: 'success', actor: 'human', component: 'api/log', message: `${timestamps.length} entradas copiadas` })
       return NextResponse.json({ success: true })
     }
 
@@ -50,6 +52,7 @@ export async function PATCH(request: Request) {
 
     logs.registroLog[idx] = entry
     appendActivity(logs, 'human', 'registro_editado', { timestamp, customerName, cuit, orderNumber, storeName })
+    audit({ category: 'user_action', action: 'registro.edit', result: 'success', actor: 'human', component: 'api/log', message: `Entrada editada: ${timestamp}`, meta: { customerName, cuit, orderNumber, storeName } })
     await saveLogs(logs)
 
     return NextResponse.json({ success: true })

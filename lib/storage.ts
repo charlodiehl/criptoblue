@@ -13,7 +13,7 @@ import { HARD_CUTOFF_PAYMENTS, HARD_CUTOFF_ORDERS } from './config'
 
 // Cliente Supabase cacheado a nivel de módulo — reutiliza conexiones HTTP (#9)
 let _client: ReturnType<typeof createClient> | null = null
-function getClient() {
+export function getClient() {
   if (_client) return _client
   const url = process.env.SUPABASE_URL
   const key = process.env.SUPABASE_SERVICE_KEY
@@ -126,7 +126,7 @@ const STORE_NAME_OVERRIDES: Record<string, string> = {
 // Capa base de Supabase
 // ─────────────────────────────────────────────
 
-async function kvGet<T>(key: string): Promise<T | null> {
+export async function kvGet<T>(key: string): Promise<T | null> {
   const supabase = getClient()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data, error } = await (supabase.from('kv_store') as any)
@@ -139,7 +139,7 @@ async function kvGet<T>(key: string): Promise<T | null> {
   return (data?.value as T) ?? null
 }
 
-async function kvSet(key: string, value: unknown): Promise<void> {
+export async function kvSet(key: string, value: unknown): Promise<void> {
   const supabase = getClient()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { error } = await (supabase.from('kv_store') as any)

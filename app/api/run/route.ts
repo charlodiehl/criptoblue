@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { processMPPayments } from '@/lib/cycle'
 import { runAutoMatchCore } from '@/lib/auto-match-runner'
+import { audit } from '@/lib/audit'
+import { cleanupAuditLogs } from '@/lib/audit'
 
 export const maxDuration = 300
 
@@ -10,8 +12,23 @@ export const maxDuration = 300
 // - processMPPayments (sync) es seguro concurrentemente (tiene merge protection)
 // - runAutoMatchCore adquiere lock por cada candidato individual
 async function runCycle(triggeredBy: 'cron' | 'manual_button') {
+  await audit({
+    category: 'system', action: 'cron_cycle.start', result: 'success',
+    actor: triggeredBy === 'cron' ? 'cron' : 'human', component: 'run',
+    message: `Inicio ciclo run (${triggeredBy})`,
+  })
+
   const syncResult = await processMPPayments()
   const autoMatch = await runAutoMatchCore(syncResult.stores, triggeredBy)
+
+  await cleanupAuditLogs()
+  await audit({
+    category: 'system', action: 'cron_cycle.end', result: syncResult.errors.length > 0 ? 'partial' : 'success',
+    actor: triggeredBy === 'cron' ? 'cron' : 'human', component: 'run',
+    message: `Ciclo run finalizado (${triggeredBy}): ${syncResult.processed} pagos, ${autoMatch.matched} matched`,
+    meta: { processed: syncResult.processed, matched: autoMatch.matched, errors: syncResult.errors.length },
+  })
+
   return { success: true, ...syncResult, autoMatch }
 }
 
@@ -19,6 +36,12 @@ export async function GET() {
   try {
     return NextResponse.json(await runCycle('cron'))
   } catch (err) {
+    await audit({
+      category: 'error', action: 'cron_cycle.error', result: 'failure',
+      actor: 'cron', component: 'run',
+      message: `Error en ciclo cron GET: ${String(err)}`,
+      error: String(err),
+    })
     return NextResponse.json({ success: false, error: String(err) }, { status: 500 })
   }
 }
@@ -27,6 +50,12 @@ export async function POST() {
   try {
     return NextResponse.json(await runCycle('manual_button'))
   } catch (err) {
+    await audit({
+      category: 'error', action: 'cron_cycle.error', result: 'failure',
+      actor: 'human', component: 'run',
+      message: `Error en ciclo manual POST: ${String(err)}`,
+      error: String(err),
+    })
     return NextResponse.json({ success: false, error: String(err) }, { status: 500 })
   }
 }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { loadHotState, saveHotState, loadProcessed, saveProcessed, loadLogs, saveLogs, appendActivity, acquireLock, releaseLock } from '@/lib/storage'
+import { audit } from '@/lib/audit'
 
 const LOCK_HOLDER = 'mark-payment-received'
 
@@ -31,6 +32,7 @@ export async function POST(req: NextRequest) {
       mpPaymentId,
       monto: payment?.monto,
     })
+    audit({ category: 'user_action', action: 'mark_received.payment', result: 'success', actor: 'human', component: 'api/mark-payment-received', message: `Pago recibido: ${mpPaymentId}`, mpPaymentId, amount: payment?.monto })
 
     await Promise.all([saveHotState(hot), saveProcessed(processed), saveLogs(logs)])
     return NextResponse.json({ success: true })

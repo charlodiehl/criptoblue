@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { processMPPayments } from '@/lib/cycle'
 import { loadHotState, saveHotState, loadProcessed, saveProcessed, loadLogs, saveLogs, getStores, appendError, appendActivity } from '@/lib/storage'
 import { runAutoMatchCore } from '@/lib/auto-match-runner'
+import { audit } from '@/lib/audit'
 
 export const maxDuration = 300
 
@@ -9,6 +10,12 @@ export const maxDuration = 300
 
 // Ciclo completo: sync + auto-match (solo desde botón manual)
 async function runFullCycle(triggeredBy: 'cron' | 'manual_button') {
+  await audit({
+    category: 'system', action: 'reevaluar.start', result: 'success',
+    actor: triggeredBy === 'cron' ? 'cron' : 'human', component: 'reevaluar',
+    message: `Inicio reevaluación completa (${triggeredBy})`,
+  })
+
   // Fase 1: resetear estado para reevaluación fresca
   const [hot, processed, logs] = await Promise.all([loadHotState(), loadProcessed(), loadLogs()])
 
@@ -37,6 +44,12 @@ async function runFullCycle(triggeredBy: 'cron' | 'manual_button') {
     }
     restoreHot.currentPhase = 'idle'
     appendError(restoreLogs, 'reevaluar', 'error', `Sync falló, restaurando datos: ${String(err)}`)
+    await audit({
+      category: 'system', action: 'reevaluar.restore', result: 'failure',
+      actor: triggeredBy === 'cron' ? 'cron' : 'human', component: 'reevaluar',
+      message: `Sync falló, restaurando backup: ${String(err)}`,
+      error: String(err),
+    })
     await Promise.all([saveHotState(restoreHot), saveProcessed(restoreProcessed), saveLogs(restoreLogs)])
     throw err
   }

@@ -3,6 +3,7 @@ import { loadHotState, saveHotState, loadLogs, saveLogs, loadMatchLog, saveMatch
 import { markOrderAsPaid as markTNOrderAsPaid } from '@/lib/tiendanube'
 import { markOrderAsPaid as markShopifyOrderAsPaid } from '@/lib/shopify'
 import type { LogEntry, Payment } from '@/lib/types'
+import { auditMatch } from '@/lib/audit'
 
 const LOCK_HOLDER = 'mark-order-paid-manual'
 
@@ -108,6 +109,7 @@ export async function POST(req: NextRequest) {
       medioPago,
       nombrePagador: nombrePagador || order?.customerName,
     })
+    auditMatch({ action: 'mark_order_manual.paid', actor: 'human', component: 'api/mark-order-paid-manual', mpPaymentId: fakeMpPaymentId, orderId, orderNumber: order?.orderNumber, storeId, storeName: store.storeName, amount: Number(monto), result: 'success', message: `Orden pagada manual: ${nombrePagador || ''}` })
 
     // registroLog primero — es la fuente de verdad; si falla, el endpoint devuelve error
     await saveLogs(logs)

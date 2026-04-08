@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { loadHotState, saveHotState, loadLogs, saveLogs, appendActivity, acquireLock, releaseLock } from '@/lib/storage'
+import { audit } from '@/lib/audit'
 
 const LOCK_HOLDER = 'dismiss'
 
@@ -26,6 +27,7 @@ export async function POST(req: NextRequest) {
     }
 
     appendActivity(logs, 'human', 'par_descartado', { mpPaymentId, orderId, storeId })
+    audit({ category: 'user_action', action: 'dismiss.pair', result: 'success', actor: 'human', component: 'api/dismiss', message: `Par descartado: ${mpPaymentId} + ${orderId}`, mpPaymentId, orderId, storeId })
 
     await Promise.all([saveHotState(hot), saveLogs(logs)])
 

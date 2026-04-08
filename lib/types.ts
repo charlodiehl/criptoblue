@@ -160,3 +160,30 @@ export interface ErrorEntry {
   context?: Record<string, unknown>
   resolved: boolean
 }
+
+// ─── Audit Log ──────────────────────────────────────────────────────────────
+
+export type AuditCategory = 'match' | 'user_action' | 'api_call' | 'system' | 'lock' | 'error' | 'data'
+export type AuditResult = 'success' | 'failure' | 'skipped' | 'partial' | 'warning'
+
+export interface AuditEntry {
+  id: string
+  ts: string                    // ISO 8601
+  category: AuditCategory
+  action: string                // machine-readable: 'auto_match.paid', 'api.tn.mark_paid', etc.
+  result: AuditResult
+  actor: 'system' | 'human' | 'cron'
+  component: string             // 'auto-match-runner' | 'cycle' | 'api/manual-match' | etc.
+  message: string               // human-readable
+  endpoint?: string
+  durationMs?: number
+  mpPaymentId?: string
+  orderId?: string
+  orderNumber?: string
+  storeId?: string
+  storeName?: string
+  amount?: number
+  error?: string
+  statusCode?: number
+  meta?: Record<string, unknown>
+}

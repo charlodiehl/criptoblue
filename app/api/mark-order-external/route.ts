@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { loadHotState, saveHotState, loadLogs, saveLogs, appendActivity, acquireLock, releaseLock } from '@/lib/storage'
+import { audit } from '@/lib/audit'
 
 const LOCK_HOLDER = 'mark-order-external'
 
@@ -22,6 +23,7 @@ export async function POST(req: NextRequest) {
     }
 
     appendActivity(logs, 'human', 'orden_marcada_externa', { orderId, storeId })
+    audit({ category: 'user_action', action: 'mark_external.order', result: 'success', actor: 'human', component: 'api/mark-order-external', message: `Orden marcada externa: ${orderId}`, orderId, storeId })
 
     await Promise.all([saveHotState(hot), saveLogs(logs)])
     return NextResponse.json({ success: true })

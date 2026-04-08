@@ -4,6 +4,7 @@ import { markOrderAsPaid as markTNOrderAsPaid, getPendingOrders as getTNOrders }
 import { markOrderAsPaid as markShopifyOrderAsPaid, getPendingOrders as getShopifyOrders } from '@/lib/shopify'
 import { HARD_CUTOFF_ORDERS } from '@/lib/config'
 import type { LogEntry } from '@/lib/types'
+import { audit, auditMatch } from '@/lib/audit'
 
 const LOCK_HOLDER = 'manual-match'
 
@@ -35,6 +36,7 @@ export async function POST(req: NextRequest) {
       (e.action === 'manual_paid' || e.action === 'auto_paid')
     )
     if (alreadyMatched) {
+      audit({ category: 'match', action: 'manual_match.duplicate_blocked', result: 'skipped', actor: 'human', component: 'api/manual-match', message: `Duplicado: ${mpPaymentId}`, mpPaymentId, orderId })
       return NextResponse.json({ error: 'Este pago ya fue emparejado con esta orden' }, { status: 409 })
     }
 
@@ -123,6 +125,7 @@ export async function POST(req: NextRequest) {
       orderId,
       storeName: store.storeName,
     })
+    auditMatch({ action: 'manual_match.paid', actor: 'human', component: 'api/manual-match', mpPaymentId: payment.mpPaymentId, orderId, orderNumber: order?.orderNumber, storeId, storeName: store.storeName, amount: payment.monto, result: 'success', message: `Match manual: ${payment.mpPaymentId} → #${order?.orderNumber}` })
 
     await saveLogs(logs)
     await Promise.all([saveHotState(hot), saveMatchLog(matchLogData)])

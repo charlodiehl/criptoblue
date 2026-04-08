@@ -4,6 +4,7 @@ import { getPendingOrders as getShopifyOrders } from './shopify'
 import { loadState, saveState, getStores, appendError, loadLogs, saveLogs } from './storage'
 import { HARD_CUTOFF_PAYMENTS, HARD_CUTOFF_ORDERS } from './config'
 import type { UnmatchedPayment, Store } from './types'
+import { audit, auditApiCall } from './audit'
 
 interface CycleResult {
   processed: number   // total pagos vistos en MP (puede incluir ya conocidos)
@@ -14,6 +15,12 @@ interface CycleResult {
 
 export async function processMPPayments(): Promise<CycleResult> {
   const result: CycleResult = { processed: 0, newUnmatched: 0, errors: [], stores: {} }
+
+  await audit({
+    category: 'system', action: 'sync.start', result: 'success',
+    actor: 'system', component: 'cycle',
+    message: 'Inicio de ciclo de sincronización MP + órdenes',
+  })
 
   const [state, stores] = await Promise.all([loadState(), getStores()])
 
@@ -28,9 +35,24 @@ export async function processMPPayments(): Promise<CycleResult> {
 
   // Traer pagos aprobados desde el cutoff efectivo
   let payments
+  const mpStart = Date.now()
   try {
     payments = await fetchAllPaymentsSince(sincePayments)
+    await auditApiCall({
+      action: 'mp.fetch_payments', component: 'cycle',
+      endpoint: 'mercadopago/search', result: 'success',
+      durationMs: Date.now() - mpStart,
+      message: `Fetched ${payments.length} pagos desde ${sincePayments.toISOString()}`,
+      meta: { count: payments.length, since: sincePayments.toISOString() },
+    })
   } catch (err) {
+    await auditApiCall({
+      action: 'mp.fetch_payments', component: 'cycle',
+      endpoint: 'mercadopago/search', result: 'failure',
+      durationMs: Date.now() - mpStart,
+      message: `Error al traer pagos de MP: ${String(err)}`,
+      error: String(err),
+    })
     result.errors.push(`MP fetch error: ${String(err)}`)
     // Solo guardar el error — no sobreescribir todo el estado para evitar pisar
     // cambios del usuario en registroLog (copiedAt, hidden, ediciones)
@@ -171,6 +193,13 @@ export async function processMPPayments(): Promise<CycleResult> {
   }
 
   await saveState(freshState)
+
+  await audit({
+    category: 'system', action: 'sync.end', result: result.errors.length > 0 ? 'partial' : 'success',
+    actor: 'system', component: 'cycle',
+    message: `Ciclo sync finalizado: ${result.processed} nuevos, ${result.newUnmatched} sin match, ${result.errors.length} errores`,
+    meta: { processed: result.processed, newUnmatched: result.newUnmatched, errorCount: result.errors.length },
+  })
 
   result.stores = stores
   return result
