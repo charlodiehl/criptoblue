@@ -21,7 +21,11 @@ async function runCycle(triggeredBy: 'cron' | 'manual_button') {
   const syncResult = await processMPPayments()
   const autoMatch = await runAutoMatchCore(syncResult.stores, triggeredBy)
 
-  await cleanupAuditLogs()
+  // Cleanup solo una vez por día (a las 03:00 UTC ± 1 minuto) para no gastar IO en cada ciclo
+  const nowUtc = new Date()
+  if (nowUtc.getUTCHours() === 3 && nowUtc.getUTCMinutes() <= 1) {
+    cleanupAuditLogs().catch(() => {})
+  }
   await audit({
     category: 'system', action: 'cron_cycle.end', result: syncResult.errors.length > 0 ? 'partial' : 'success',
     actor: triggeredBy === 'cron' ? 'cron' : 'human', component: 'run',

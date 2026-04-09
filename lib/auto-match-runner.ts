@@ -4,7 +4,8 @@ import { markOrderAsPaid as markTNOrderAsPaid } from './tiendanube'
 import { markOrderAsPaid as markShopifyOrderAsPaid } from './shopify'
 import { findAutoMatchCandidates } from './auto-match'
 import type { Store, LogEntry } from './types'
-import { audit, auditMatch } from './audit'
+import { auditBatch } from './audit'
+import type { AuditParams } from './audit'
 import { nowART } from './utils'
 
 interface AutoMatchResult {
@@ -39,7 +40,9 @@ export async function runAutoMatchCore(
     confirmedIds,
   )
 
-  audit({ category: 'system', action: 'auto_match.start', result: 'success', actor: triggeredBy === 'cron' ? 'cron' : 'human', component: 'auto-match-runner', message: `Auto-match iniciado: ${candidates.length} candidatos`, meta: { candidateCount: candidates.length, triggeredBy } })
+  // Cola de audit — se escribe toda junta al final del ciclo (1 read+write en vez de N)
+  const auditQueue: AuditParams[] = []
+  auditQueue.push({ category: 'system', action: 'auto_match.start', result: 'success', actor: triggeredBy === 'cron' ? 'cron' : 'human', component: 'auto-match-runner', message: `Auto-match iniciado: ${candidates.length} candidatos`, meta: { candidateCount: candidates.length, triggeredBy } })
 
   let matched = 0
   const errors: string[] = []
@@ -54,7 +57,7 @@ export async function runAutoMatchCore(
 
     if (usedOrderIds.has(candidate.orderId)) {
       console.log(`[auto-match] Orden #${candidate.order.orderNumber} ya emparejada en esta corrida — saltando pago ${candidate.mpPaymentId}`)
-      audit({ category: 'match', action: 'auto_match.skipped_order_used', result: 'skipped', actor: 'system', component: 'auto-match-runner', message: `Orden #${candidate.order.orderNumber} ya emparejada`, orderNumber: candidate.order.orderNumber, mpPaymentId: candidate.mpPaymentId })
+      auditQueue.push({ category: 'match', action: 'auto_match.skipped_order_used', result: 'skipped', actor: 'system', component: 'auto-match-runner', message: `Orden #${candidate.order.orderNumber} ya emparejada`, orderNumber: candidate.order.orderNumber, mpPaymentId: candidate.mpPaymentId })
       continue
     }
 
@@ -62,7 +65,7 @@ export async function runAutoMatchCore(
     const lockAcquired = await waitForLock(LOCK_HOLDER, `orden #${candidate.order.orderNumber}`, 15_000, 1000)
     if (!lockAcquired) {
       console.log(`[auto-match] No se pudo adquirir lock para #${candidate.order.orderNumber} — saltando`)
-      audit({ category: 'lock', action: 'lock.timeout', result: 'failure', actor: 'system', component: 'auto-match-runner', message: `Lock no adquirido para #${candidate.order.orderNumber}`, orderNumber: candidate.order.orderNumber })
+      auditQueue.push({ category: 'lock', action: 'lock.timeout', result: 'failure', actor: 'system', component: 'auto-match-runner', message: `Lock no adquirido para #${candidate.order.orderNumber}`, orderNumber: candidate.order.orderNumber })
       continue
     }
 
@@ -74,7 +77,7 @@ export async function runAutoMatchCore(
     )
     if (!stillExists) {
       console.log(`[auto-match] Pago ${candidate.mpPaymentId} ya no existe en unmatchedPayments — saltando`)
-      audit({ category: 'match', action: 'auto_match.skipped_gone', result: 'skipped', actor: 'system', component: 'auto-match-runner', message: `Pago ${candidate.mpPaymentId} ya no existe`, mpPaymentId: candidate.mpPaymentId })
+      auditQueue.push({ category: 'match', action: 'auto_match.skipped_gone', result: 'skipped', actor: 'system', component: 'auto-match-runner', message: `Pago ${candidate.mpPaymentId} ya no existe`, mpPaymentId: candidate.mpPaymentId })
       continue
     }
 
@@ -84,7 +87,7 @@ export async function runAutoMatchCore(
     )
     if (freshDismissedSet.has(`${candidate.mpPaymentId}|${candidate.orderId}|${candidate.storeId}`)) {
       console.log(`[auto-match] Par ${candidate.mpPaymentId}+${candidate.order.orderNumber} fue descartado — saltando`)
-      audit({ category: 'match', action: 'auto_match.skipped_dismissed', result: 'skipped', actor: 'system', component: 'auto-match-runner', message: `Par descartado`, mpPaymentId: candidate.mpPaymentId, orderNumber: candidate.order.orderNumber })
+      auditQueue.push({ category: 'match', action: 'auto_match.skipped_dismissed', result: 'skipped', actor: 'system', component: 'auto-match-runner', message: `Par descartado`, mpPaymentId: candidate.mpPaymentId, orderNumber: candidate.order.orderNumber })
       continue
     }
 
@@ -102,7 +105,7 @@ export async function runAutoMatchCore(
     )
     if (orderAlreadyInRegistro) {
       console.log(`[auto-match] Orden #${candidate.order.orderNumber} ya está en registroLog — saltando`)
-      audit({ category: 'match', action: 'auto_match.skipped_order_in_registro', result: 'skipped', actor: 'system', component: 'auto-match-runner', message: `Orden #${candidate.order.orderNumber} ya registrada`, orderNumber: candidate.order.orderNumber, mpPaymentId: candidate.mpPaymentId })
+      auditQueue.push({ category: 'match', action: 'auto_match.skipped_order_in_registro', result: 'skipped', actor: 'system', component: 'auto-match-runner', message: `Orden #${candidate.order.orderNumber} ya registrada`, orderNumber: candidate.order.orderNumber, mpPaymentId: candidate.mpPaymentId })
       continue
     }
 
@@ -132,7 +135,7 @@ export async function runAutoMatchCore(
       const isNotOpen = markError?.includes('422') && markError?.includes('OPEN')
       if (isNotOpen) {
         console.log(`[auto-match] Orden #${candidate.order.orderNumber} no está en estado OPEN — saltando`)
-        audit({ category: 'match', action: 'auto_match.skipped_not_open', result: 'skipped', actor: 'system', component: 'auto-match-runner', message: `Orden #${candidate.order.orderNumber} no está OPEN`, orderNumber: candidate.order.orderNumber, error: markError })
+        auditQueue.push({ category: 'match', action: 'auto_match.skipped_not_open', result: 'skipped', actor: 'system', component: 'auto-match-runner', message: `Orden #${candidate.order.orderNumber} no está OPEN`, orderNumber: candidate.order.orderNumber, error: markError })
         continue
       }
       appendError(freshLogs, 'auto-match', 'error',
@@ -140,7 +143,7 @@ export async function runAutoMatchCore(
         { orderId: candidate.orderId, storeId: candidate.storeId, error: markError }
       )
       errors.push(`${candidate.orderId}: ${markError}`)
-      audit({ category: 'error', action: 'auto_match.mark_failed', result: 'failure', actor: 'system', component: 'auto-match-runner', message: `Error al marcar #${candidate.order.orderNumber}`, orderNumber: candidate.order.orderNumber, storeId: candidate.storeId, error: markError })
+      auditQueue.push({ category: 'error', action: 'auto_match.mark_failed', result: 'failure', actor: 'system', component: 'auto-match-runner', message: `Error al marcar #${candidate.order.orderNumber}`, orderNumber: candidate.order.orderNumber, storeId: candidate.storeId, error: markError })
       await saveLogs(freshLogs)
       continue
     }
@@ -152,7 +155,7 @@ export async function runAutoMatchCore(
     if (idx < 0) {
       // Pago ya fue procesado por otro proceso concurrente — no duplicar stats/logs
       console.log(`[auto-match] Pago ${candidate.mpPaymentId} ya no está en unmatchedPayments después de marcar — saltando registro`)
-      audit({ category: 'match', action: 'auto_match.skipped_concurrent', result: 'skipped', actor: 'system', component: 'auto-match-runner', message: `Pago ${candidate.mpPaymentId} procesado concurrentemente`, mpPaymentId: candidate.mpPaymentId })
+      auditQueue.push({ category: 'match', action: 'auto_match.skipped_concurrent', result: 'skipped', actor: 'system', component: 'auto-match-runner', message: `Pago ${candidate.mpPaymentId} procesado concurrentemente`, mpPaymentId: candidate.mpPaymentId })
       continue
     }
     freshHot.unmatchedPayments.splice(idx, 1)
@@ -197,7 +200,7 @@ export async function runAutoMatchCore(
       orderId: candidate.orderId,
       storeName: store.storeName,
     })
-    auditMatch({ action: 'auto_match.paid', actor: triggeredBy === 'cron' ? 'cron' : 'human', component: 'auto-match-runner', mpPaymentId: candidate.mpPaymentId, orderId: candidate.orderId, orderNumber: candidate.order.orderNumber, storeId: candidate.storeId, storeName: store.storeName, amount: candidate.payment.monto, result: 'success', message: `Auto-match: ${candidate.mpPaymentId} → #${candidate.order.orderNumber} (${store.storeName})` })
+      auditQueue.push({ category: 'match', action: 'auto_match.paid', actor: triggeredBy === 'cron' ? 'cron' : 'human', component: 'auto-match-runner', mpPaymentId: candidate.mpPaymentId, orderId: candidate.orderId, orderNumber: candidate.order.orderNumber, storeId: candidate.storeId, storeName: store.storeName, amount: candidate.payment.monto, result: 'success', message: `Auto-match: ${candidate.mpPaymentId} → #${candidate.order.orderNumber} (${store.storeName})` })
 
     matched++
     usedOrderIds.add(candidate.orderId)
@@ -228,7 +231,7 @@ export async function runAutoMatchCore(
         verifyLogs.registroLog.push(entry)
         recovered++
         console.log(`[auto-match] Recuperada entrada faltante en registroLog: #${entry.orderNumber}`)
-        audit({ category: 'system', action: 'auto_match.recovery', result: 'warning', actor: 'system', component: 'auto-match-runner', message: `Recuperada entrada: #${entry.orderNumber}`, orderNumber: entry.orderNumber })
+        auditQueue.push({ category: 'system', action: 'auto_match.recovery', result: 'warning', actor: 'system', component: 'auto-match-runner', message: `Recuperada entrada: #${entry.orderNumber}`, orderNumber: entry.orderNumber })
       }
     }
     if (recovered > 0) {
@@ -245,6 +248,10 @@ export async function runAutoMatchCore(
   await saveHotState(finalHot)
 
   console.log(`[auto-match] matched: ${matched}, errors: ${errors.length}`)
-  audit({ category: 'system', action: 'auto_match.end', result: 'success', actor: triggeredBy === 'cron' ? 'cron' : 'human', component: 'auto-match-runner', message: `Auto-match fin: ${matched} emparejados, ${errors.length} errores`, meta: { matched, errorCount: errors.length } })
+  auditQueue.push({ category: 'system', action: 'auto_match.end', result: 'success', actor: triggeredBy === 'cron' ? 'cron' : 'human', component: 'auto-match-runner', message: `Auto-match fin: ${matched} emparejados, ${errors.length} errores`, meta: { matched, errorCount: errors.length } })
+
+  // Flush: escribe todos los eventos del ciclo en un solo read+write (reduce IO masivamente)
+  await auditBatch(auditQueue)
+
   return { matched, errors }
 }

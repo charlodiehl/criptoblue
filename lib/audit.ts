@@ -20,9 +20,9 @@ function auditKeyForDate(date: Date): string {
   return `${AUDIT_KEY_PREFIX}${arg.toISOString().slice(0, 10)}`
 }
 
-// ─── Core ────────────────────────────────────────────────────────────────────
+// ─── Types ───────────────────────────────────────────────────────────────────
 
-export async function audit(params: {
+export type AuditParams = {
   category: AuditCategory
   action: string
   result: AuditResult
@@ -40,7 +40,11 @@ export async function audit(params: {
   error?: string
   statusCode?: number
   meta?: Record<string, unknown>
-}): Promise<void> {
+}
+
+// ─── Core ────────────────────────────────────────────────────────────────────
+
+export async function audit(params: AuditParams): Promise<void> {
   try {
     const entry: AuditEntry = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -53,6 +57,27 @@ export async function audit(params: {
     await kvSet(key, existing)
   } catch {
     // Fire-and-forget: audit no debe romper la app
+  }
+}
+
+// auditBatch: escribe múltiples entradas en un solo read+write.
+// Usar en lugar de múltiples audit() seguidos (ej: loops de auto-match).
+export async function auditBatch(entries: AuditParams[]): Promise<void> {
+  if (entries.length === 0) return
+  try {
+    const now = Date.now()
+    const key = auditKeyForDate(new Date())
+    const existing = await kvGet<AuditEntry[]>(key) ?? []
+    entries.forEach((params, i) => {
+      existing.push({
+        id: `${now + i}-${Math.random().toString(36).slice(2, 7)}`,
+        ts: nowART(),
+        ...params,
+      })
+    })
+    await kvSet(key, existing)
+  } catch {
+    // Fire-and-forget
   }
 }
 
