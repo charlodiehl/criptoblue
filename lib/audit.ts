@@ -10,6 +10,7 @@
 
 import { kvGet, kvSet, getClient } from './storage'
 import type { AuditEntry, AuditCategory, AuditResult } from './types'
+import { nowART } from './utils'
 
 const AUDIT_KEY_PREFIX = 'criptoblue:audit:'
 
@@ -43,7 +44,7 @@ export async function audit(params: {
   try {
     const entry: AuditEntry = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      ts: new Date().toISOString(),
+      ts: nowART(),
       ...params,
     }
     const key = auditKeyForDate(new Date())

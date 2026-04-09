@@ -5,6 +5,7 @@ import { markOrderAsPaid as markShopifyOrderAsPaid, getPendingOrders as getShopi
 import { HARD_CUTOFF_ORDERS } from '@/lib/config'
 import type { LogEntry } from '@/lib/types'
 import { audit, auditMatch } from '@/lib/audit'
+import { nowART } from '@/lib/utils'
 
 const LOCK_HOLDER = 'manual-match'
 
@@ -30,14 +31,24 @@ export async function POST(req: NextRequest) {
     )
     if (unmatchedIndex < 0) return NextResponse.json({ error: 'Payment not found' }, { status: 404 })
 
-    // Validación de duplicados: verificar que este pago+orden no esté ya en el registro
-    const alreadyMatched = logs.registroLog.some(e =>
-      e.mpPaymentId === mpPaymentId && e.orderId === orderId &&
+    // Validación 1: la orden ya fue registrada como pagada (con cualquier pago)
+    const orderAlreadyPaid = logs.registroLog.some(e =>
+      e.orderId === orderId && !e.hidden &&
       (e.action === 'manual_paid' || e.action === 'auto_paid')
     )
-    if (alreadyMatched) {
-      audit({ category: 'match', action: 'manual_match.duplicate_blocked', result: 'skipped', actor: 'human', component: 'api/manual-match', message: `Duplicado: ${mpPaymentId}`, mpPaymentId, orderId })
-      return NextResponse.json({ error: 'Este pago ya fue emparejado con esta orden' }, { status: 409 })
+    if (orderAlreadyPaid) {
+      audit({ category: 'match', action: 'manual_match.order_already_paid_blocked', result: 'skipped', actor: 'human', component: 'api/manual-match', message: `Orden ya registrada: ${orderId}`, mpPaymentId, orderId })
+      return NextResponse.json({ error: 'Esta orden ya fue registrada como pagada' }, { status: 409 })
+    }
+
+    // Validación 2: el pago ya fue emparejado con alguna orden
+    const paymentAlreadyUsed = logs.registroLog.some(e =>
+      e.mpPaymentId === mpPaymentId && !e.hidden &&
+      (e.action === 'manual_paid' || e.action === 'auto_paid')
+    )
+    if (paymentAlreadyUsed) {
+      audit({ category: 'match', action: 'manual_match.payment_already_used_blocked', result: 'skipped', actor: 'human', component: 'api/manual-match', message: `Pago ya emparejado: ${mpPaymentId}`, mpPaymentId, orderId })
+      return NextResponse.json({ error: 'Este pago ya fue emparejado con otra orden' }, { status: 409 })
     }
 
     const unmatched = hot.unmatchedPayments[unmatchedIndex]
@@ -95,10 +106,10 @@ export async function POST(req: NextRequest) {
     incrementPersistedMonthStats(hot, payment.monto, 'emparejamiento')
 
     hot.recentMatches = hot.recentMatches ?? []
-    hot.recentMatches.push({ mpPaymentId: payment.mpPaymentId, matchedAt: new Date().toISOString(), orderId, storeId, order: order || undefined, payment })
+    hot.recentMatches.push({ mpPaymentId: payment.mpPaymentId, matchedAt: nowART(), orderId, storeId, order: order || undefined, payment })
 
     const logEntry: LogEntry = {
-      timestamp: new Date().toISOString(),
+      timestamp: nowART(),
       action: 'manual_paid',
       source: 'emparejamiento',
       triggeredBy: 'human',

@@ -5,6 +5,7 @@ import { markOrderAsPaid as markShopifyOrderAsPaid } from './shopify'
 import { findAutoMatchCandidates } from './auto-match'
 import type { Store, LogEntry } from './types'
 import { audit, auditMatch } from './audit'
+import { nowART } from './utils'
 
 interface AutoMatchResult {
   matched: number
@@ -94,6 +95,17 @@ export async function runAutoMatchCore(
     // Recargar logs frescos antes de cada iteración para no pisar cambios concurrentes (#A2)
     const [freshLogs, freshMatchLog] = await Promise.all([loadLogs(), loadMatchLog()])
 
+    // Validación extra: la orden no fue marcada como pagada manualmente mientras corría este ciclo
+    const orderAlreadyInRegistro = freshLogs.registroLog.some(e =>
+      e.orderId === candidate.orderId && !e.hidden &&
+      (e.action === 'manual_paid' || e.action === 'auto_paid')
+    )
+    if (orderAlreadyInRegistro) {
+      console.log(`[auto-match] Orden #${candidate.order.orderNumber} ya está en registroLog — saltando`)
+      audit({ category: 'match', action: 'auto_match.skipped_order_in_registro', result: 'skipped', actor: 'system', component: 'auto-match-runner', message: `Orden #${candidate.order.orderNumber} ya registrada`, orderNumber: candidate.order.orderNumber, mpPaymentId: candidate.mpPaymentId })
+      continue
+    }
+
     try {
       if (platform === 'shopify') {
         const result = await markShopifyOrderAsPaid(candidate.storeId, store.accessToken, candidate.orderId, candidate.order.total)
@@ -150,7 +162,7 @@ export async function runAutoMatchCore(
     freshHot.recentMatches = freshHot.recentMatches ?? []
     freshHot.recentMatches.push({
       mpPaymentId: candidate.mpPaymentId,
-      matchedAt: new Date().toISOString(),
+      matchedAt: nowART(),
       orderId: candidate.orderId,
       storeId: candidate.storeId,
       order: candidate.order,
@@ -158,7 +170,7 @@ export async function runAutoMatchCore(
     })
 
     const logEntry: LogEntry = {
-      timestamp: new Date().toISOString(),
+      timestamp: nowART(),
       action: 'auto_paid',
       source: 'emparejamiento',
       triggeredBy,
@@ -227,7 +239,7 @@ export async function runAutoMatchCore(
 
   // Recargar hot state una última vez y guardar estado final
   const finalHot = await loadHotState()
-  finalHot.lastAutoMatchAt = new Date().toISOString()
+  finalHot.lastAutoMatchAt = nowART()
   finalHot.lastAutoMatchMatched = matched
   finalHot.currentPhase = 'idle'
   await saveHotState(finalHot)

@@ -4,6 +4,7 @@ import { markOrderAsPaid as markTNOrderAsPaid } from '@/lib/tiendanube'
 import { markOrderAsPaid as markShopifyOrderAsPaid } from '@/lib/shopify'
 import type { LogEntry, Order } from '@/lib/types'
 import { auditMatch } from '@/lib/audit'
+import { nowART } from '@/lib/utils'
 
 const LOCK_HOLDER = 'manual-log'
 
@@ -24,6 +25,28 @@ export async function POST(req: NextRequest) {
     if (unmatchedIndex < 0) return NextResponse.json({ error: 'Payment not found' }, { status: 404 })
 
     const payment = hot.unmatchedPayments[unmatchedIndex].payment
+
+    // Validación 1: la orden ya fue registrada como pagada (con cualquier pago)
+    if (matchedOrder?.orderId) {
+      const orderAlreadyPaid = logs.registroLog.some(e =>
+        e.orderId === matchedOrder.orderId && !e.hidden &&
+        (e.action === 'manual_paid' || e.action === 'auto_paid')
+      )
+      if (orderAlreadyPaid) {
+        auditMatch({ action: 'manual_log.order_already_paid_blocked', actor: 'human', component: 'api/manual-log', mpPaymentId, orderId: matchedOrder.orderId, orderNumber: matchedOrder.orderNumber || orderNumber || '', storeId: matchedOrder.storeId || '', storeName: matchedOrder.storeName || storeName || '', amount: payment.monto, result: 'skipped', message: `Orden ya registrada: ${matchedOrder.orderId}` })
+        return NextResponse.json({ error: 'Esta orden ya fue registrada como pagada' }, { status: 409 })
+      }
+    }
+
+    // Validación 2: el pago ya fue emparejado con alguna orden
+    const paymentAlreadyUsed = logs.registroLog.some(e =>
+      e.mpPaymentId === mpPaymentId && !e.hidden &&
+      (e.action === 'manual_paid' || e.action === 'auto_paid')
+    )
+    if (paymentAlreadyUsed) {
+      auditMatch({ action: 'manual_log.payment_already_used_blocked', actor: 'human', component: 'api/manual-log', mpPaymentId, orderId: matchedOrder?.orderId || '', orderNumber: matchedOrder?.orderNumber || orderNumber || '', storeId: matchedOrder?.storeId || '', storeName: matchedOrder?.storeName || storeName || '', amount: payment.monto, result: 'skipped', message: `Pago ya emparejado: ${mpPaymentId}` })
+      return NextResponse.json({ error: 'Este pago ya fue emparejado con otra orden' }, { status: 409 })
+    }
 
     let markMethod: string | null = null
     let markError: string | undefined
@@ -75,7 +98,7 @@ export async function POST(req: NextRequest) {
     hot.recentMatches = hot.recentMatches || []
     hot.recentMatches.push({
       mpPaymentId: payment.mpPaymentId,
-      matchedAt: new Date().toISOString(),
+      matchedAt: nowART(),
       orderId: order?.orderId,
       storeId: order?.storeId,
       order,
@@ -83,7 +106,7 @@ export async function POST(req: NextRequest) {
     })
 
     const logEntry: LogEntry = {
-      timestamp: new Date().toISOString(),
+      timestamp: nowART(),
       action: 'manual_paid',
       source: 'manual_pagos',
       triggeredBy: 'human',

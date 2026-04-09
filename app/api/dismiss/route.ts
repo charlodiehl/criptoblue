@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { loadHotState, saveHotState, loadLogs, saveLogs, appendActivity, acquireLock, releaseLock } from '@/lib/storage'
 import { audit } from '@/lib/audit'
+import { nowART } from '@/lib/utils'
 
 const LOCK_HOLDER = 'dismiss'
 
@@ -23,7 +24,7 @@ export async function POST(req: NextRequest) {
     )
     if (!yaExiste) {
       hot.dismissedPairs = hot.dismissedPairs ?? []
-      hot.dismissedPairs.push({ mpPaymentId, orderId, storeId, dismissedAt: new Date().toISOString() })
+      hot.dismissedPairs.push({ mpPaymentId, orderId, storeId, dismissedAt: nowART() })
     }
 
     appendActivity(logs, 'human', 'par_descartado', { mpPaymentId, orderId, storeId })

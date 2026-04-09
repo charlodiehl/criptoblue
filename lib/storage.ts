@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 import type { AppState, Store, Payment, Order, LogEntry, UnmatchedPayment, RecentMatch, DismissedPair, ExternalPaymentMark, PersistedMonthStats, ErrorEntry, ActivityEntry } from './types'
 import { HARD_CUTOFF_PAYMENTS, HARD_CUTOFF_ORDERS } from './config'
+import { nowART } from './utils'
 
 // ─────────────────────────────────────────────
 // Supabase schema required:
@@ -586,7 +587,7 @@ export function appendError(
   target.errorLog = target.errorLog ?? []
   target.errorLog.push({
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-    timestamp: new Date().toISOString(),
+    timestamp: nowART(),
     source,
     level,
     message,
@@ -604,7 +605,7 @@ export function appendActivity(
   target.activityLog = target.activityLog ?? []
   target.activityLog.push({
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-    timestamp: new Date().toISOString(),
+    timestamp: nowART(),
     actor,
     action,
     details,

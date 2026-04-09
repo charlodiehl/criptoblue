@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { loadHotState, saveHotState, loadProcessed, saveProcessed, loadLogs, saveLogs, appendActivity, acquireLock, releaseLock } from '@/lib/storage'
 import { audit } from '@/lib/audit'
+import { nowART } from '@/lib/utils'
 
 const LOCK_HOLDER = 'mark-payment-received'
 
@@ -25,7 +26,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (!hot.externallyMarkedPayments.some(e => e.id === mpPaymentId)) {
-      hot.externallyMarkedPayments.push({ id: mpPaymentId, markedAt: new Date().toISOString() })
+      hot.externallyMarkedPayments.push({ id: mpPaymentId, markedAt: nowART() })
     }
 
     appendActivity(logs, 'human', 'pago_marcado_recibido', {

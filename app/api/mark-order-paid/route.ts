@@ -4,6 +4,7 @@ import { markOrderAsPaid as markTNOrderAsPaid } from '@/lib/tiendanube'
 import { markOrderAsPaid as markShopifyOrderAsPaid } from '@/lib/shopify'
 import type { LogEntry, RecentMatch } from '@/lib/types'
 import { auditMatch } from '@/lib/audit'
+import { nowART } from '@/lib/utils'
 
 const LOCK_HOLDER = 'mark-order-paid'
 
@@ -23,6 +24,15 @@ export async function POST(req: NextRequest) {
     ])
     const store = stores[storeId]
     if (!store) return NextResponse.json({ error: 'Store not found' }, { status: 404 })
+
+    // Validación: la orden ya fue registrada como pagada
+    const orderAlreadyPaid = logs.registroLog.some(e =>
+      e.orderId === orderId && !e.hidden &&
+      (e.action === 'manual_paid' || e.action === 'auto_paid')
+    )
+    if (orderAlreadyPaid) {
+      return NextResponse.json({ error: 'Esta orden ya fue registrada como pagada' }, { status: 409 })
+    }
 
     const platform = store.platform ?? 'tiendanube'
 
@@ -51,7 +61,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error }, { status: 500 })
     }
 
-    const now = new Date().toISOString()
+    const now = nowART()
     const fakeMpPaymentId = `manual_paid_${Date.now()}_${orderId}`
 
     const logEntry: LogEntry = {

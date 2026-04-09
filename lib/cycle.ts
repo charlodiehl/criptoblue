@@ -5,6 +5,7 @@ import { loadState, saveState, getStores, appendError, loadLogs, saveLogs } from
 import { HARD_CUTOFF_PAYMENTS, HARD_CUTOFF_ORDERS } from './config'
 import type { UnmatchedPayment, Store } from './types'
 import { audit, auditApiCall } from './audit'
+import { nowART } from './utils'
 
 interface CycleResult {
   processed: number   // total pagos vistos en MP (puede incluir ya conocidos)
@@ -119,7 +120,7 @@ export async function processMPPayments(): Promise<CycleResult> {
 
     newUnmatchedToAdd.push({
       payment,
-      timestamp: new Date().toISOString(),
+      timestamp: nowART(),
       mpPaymentId: payment.mpPaymentId,
     })
     result.newUnmatched++

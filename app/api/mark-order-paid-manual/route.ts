@@ -4,6 +4,7 @@ import { markOrderAsPaid as markTNOrderAsPaid } from '@/lib/tiendanube'
 import { markOrderAsPaid as markShopifyOrderAsPaid } from '@/lib/shopify'
 import type { LogEntry, Payment } from '@/lib/types'
 import { auditMatch } from '@/lib/audit'
+import { nowART } from '@/lib/utils'
 
 const LOCK_HOLDER = 'mark-order-paid-manual'
 
@@ -23,6 +24,15 @@ export async function POST(req: NextRequest) {
     ])
     const store = stores[storeId]
     if (!store) return NextResponse.json({ error: 'Tienda no encontrada' }, { status: 404 })
+
+    // Validación: la orden ya fue registrada como pagada
+    const orderAlreadyPaid = logs.registroLog.some(e =>
+      e.orderId === orderId && !e.hidden &&
+      (e.action === 'manual_paid' || e.action === 'auto_paid')
+    )
+    if (orderAlreadyPaid) {
+      return NextResponse.json({ error: 'Esta orden ya fue registrada como pagada' }, { status: 409 })
+    }
 
     // Marcar como pagada en la plataforma correspondiente
     const platform = store.platform ?? 'tiendanube'
@@ -47,7 +57,7 @@ export async function POST(req: NextRequest) {
     // Usar la fecha/hora ingresada por el usuario; si no viene, usar el momento actual
     // fechaPago viene del input datetime-local del browser en horario Argentina (UTC-3), sin zona horaria.
     // Se agrega ':00-03:00' para que new Date() lo interprete correctamente como ART y no como UTC.
-    const now = fechaPago ? new Date(fechaPago + ':00-03:00').toISOString() : new Date().toISOString()
+    const now = fechaPago ? new Date(fechaPago + ':00-03:00').toISOString() : nowART()
 
     // Payment sintético con los datos ingresados por el usuario
     const fakePayment: Payment = {
