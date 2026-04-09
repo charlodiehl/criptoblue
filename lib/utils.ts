@@ -17,14 +17,16 @@ export const ARS = new Intl.NumberFormat('es-AR', { style: 'currency', currency:
 export function fmtDate(iso: string): string {
   if (!iso) return '—'
   const d = new Date(iso)
-  const fmt = new Intl.DateTimeFormat('es-AR', {
-    timeZone: 'America/Argentina/Buenos_Aires',
-    day: '2-digit', month: '2-digit', year: 'numeric',
-    hour: '2-digit', minute: '2-digit', hour12: false,
-  })
-  const parts = fmt.formatToParts(d)
-  const get = (t: string) => parts.find(p => p.type === t)?.value ?? '00'
-  return `${get('day')}/${get('month')}/${get('year')} ${get('hour')}:${get('minute')}`
+  if (isNaN(d.getTime())) return '—'
+  // Argentina es UTC-3 fijo (sin DST) — calculamos manualmente para evitar
+  // que Intl.DateTimeFormat devuelva año en 2 dígitos en algunos browsers con locale es-AR
+  const arg = new Date(d.getTime() - 3 * 60 * 60 * 1000)
+  const dd   = String(arg.getUTCDate()).padStart(2, '0')
+  const mm   = String(arg.getUTCMonth() + 1).padStart(2, '0')
+  const yyyy = arg.getUTCFullYear()
+  const hh   = String(arg.getUTCHours()).padStart(2, '0')
+  const min  = String(arg.getUTCMinutes()).padStart(2, '0')
+  return `${dd}/${mm}/${yyyy} ${hh}:${min}`
 }
 
 export function matchesSearch(query: string, fields: (string | number | undefined | null)[]): boolean {
