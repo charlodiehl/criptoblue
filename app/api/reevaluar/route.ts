@@ -76,6 +76,10 @@ async function runFullCycle(triggeredBy: 'cron' | 'manual_button') {
 // No necesita lock global — processMPPayments tiene merge protection
 // y runAutoMatchCore adquiere lock por cada candidato individual.
 export async function GET() {
+  if (process.env.VERCEL_ENV && process.env.VERCEL_ENV !== 'production') {
+    return NextResponse.json({ skipped: true, reason: 'cron disabled on non-production deployments' })
+  }
+
   try {
     return await runFullCycle('cron')
   } catch (err) {

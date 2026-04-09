@@ -37,6 +37,11 @@ async function runCycle(triggeredBy: 'cron' | 'manual_button') {
 }
 
 export async function GET() {
+  // Solo permitir cron en producción — preview deployments (otras branches) no deben ejecutar ciclos
+  if (process.env.VERCEL_ENV && process.env.VERCEL_ENV !== 'production') {
+    return NextResponse.json({ skipped: true, reason: 'cron disabled on non-production deployments' })
+  }
+
   try {
     return NextResponse.json(await runCycle('cron'))
   } catch (err) {

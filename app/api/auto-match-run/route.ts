@@ -30,6 +30,10 @@ async function runAutoMatch(triggeredBy: 'cron' | 'manual_button') {
 
 // GET — disparado por el cron de Vercel
 export async function GET() {
+  if (process.env.VERCEL_ENV && process.env.VERCEL_ENV !== 'production') {
+    return NextResponse.json({ skipped: true, reason: 'cron disabled on non-production deployments' })
+  }
+
   try {
     return await runAutoMatch('cron')
   } catch (err) {
