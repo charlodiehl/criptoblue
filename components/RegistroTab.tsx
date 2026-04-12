@@ -346,6 +346,31 @@ export default function RegistroTab({ entries, onEntryEdited }: Props) {
 
   const hasFilters = dateFrom || dateTo || search.trim()
 
+  // Ventana deslizante de paginación
+  const WINDOW_SIZE = 10
+  const paginationItems = useMemo((): (number | '...')[] => {
+    if (totalPages <= WINDOW_SIZE) {
+      return Array.from({ length: totalPages }, (_, i) => i + 1)
+    }
+    let wStart = Math.max(1, safePage - Math.floor(WINDOW_SIZE / 2))
+    let wEnd = wStart + WINDOW_SIZE - 1
+    if (wEnd > totalPages) {
+      wEnd = totalPages
+      wStart = Math.max(1, wEnd - WINDOW_SIZE + 1)
+    }
+    const items: (number | '...')[] = []
+    if (wStart > 1) {
+      items.push(1)
+      if (wStart > 2) items.push('...')
+    }
+    for (let i = wStart; i <= wEnd; i++) items.push(i)
+    if (wEnd < totalPages) {
+      if (wEnd < totalPages - 1) items.push('...')
+      items.push(totalPages)
+    }
+    return items
+  }, [totalPages, safePage])
+
   return (
     <div>
       {/* Error de marcado copiado */}
@@ -586,12 +611,18 @@ export default function RegistroTab({ entries, onEntryEdited }: Props) {
                 style={{ padding: '6px 12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)', background: 'transparent', color: safePage === 1 ? 'rgba(148,163,184,0.2)' : 'rgba(148,163,184,0.5)', fontSize: '13px', cursor: safePage === 1 ? 'default' : 'pointer', transition: 'all 0.15s' }}>
                 ‹
               </button>
-              {Array.from({ length: totalPages }, (_, i) => i + 1).map(n => (
-                <button key={n} onClick={() => setPage(n)}
-                  style={{ minWidth: '34px', padding: '6px 4px', borderRadius: '8px', border: n === safePage ? '1px solid rgba(0,212,255,0.4)' : '1px solid rgba(255,255,255,0.06)', background: n === safePage ? 'rgba(0,212,255,0.1)' : 'transparent', color: n === safePage ? '#00d4ff' : 'rgba(148,163,184,0.45)', fontSize: '13px', fontWeight: n === safePage ? 700 : 400, cursor: 'pointer', transition: 'all 0.15s' }}>
-                  {n}
-                </button>
-              ))}
+              {paginationItems.map((item, idx) =>
+                item === '...' ? (
+                  <span key={`ellipsis-${idx}`} style={{ padding: '6px 2px', color: 'rgba(148,163,184,0.3)', fontSize: '13px', userSelect: 'none' }}>
+                    …
+                  </span>
+                ) : (
+                  <button key={item} onClick={() => setPage(item)}
+                    style={{ minWidth: '34px', padding: '6px 4px', borderRadius: '8px', border: item === safePage ? '1px solid rgba(0,212,255,0.4)' : '1px solid rgba(255,255,255,0.06)', background: item === safePage ? 'rgba(0,212,255,0.1)' : 'transparent', color: item === safePage ? '#00d4ff' : 'rgba(148,163,184,0.45)', fontSize: '13px', fontWeight: item === safePage ? 700 : 400, cursor: 'pointer', transition: 'all 0.15s' }}>
+                    {item}
+                  </button>
+                )
+              )}
               <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={safePage === totalPages}
                 style={{ padding: '6px 12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)', background: 'transparent', color: safePage === totalPages ? 'rgba(148,163,184,0.2)' : 'rgba(148,163,184,0.5)', fontSize: '13px', cursor: safePage === totalPages ? 'default' : 'pointer', transition: 'all 0.15s' }}>
                 ›
