@@ -128,6 +128,7 @@ export default function Dashboard() {
           externallyMarkedOrders: data.externallyMarkedOrders,
           externallyMarkedPayments: data.externallyMarkedPayments,
           recentMatches: data.recentMatches,
+          currentPhase: data.currentPhase ?? 'idle',
         })
         if (data.recentMatches) setRecentMatches(data.recentMatches)
         setUnmatchedPayments(data.unmatchedPayments)
@@ -193,6 +194,8 @@ export default function Dashboard() {
   // Cuando una key cambia en Supabase, solo recarga los datos afectados
   useRealtimeSync({
     onHotChange: () => {
+      // Mostrar spinner inmediatamente mientras dura el fetch (timing fix)
+      setStats(prev => prev ? { ...prev, currentPhase: 'syncing' } : prev)
       fetchSync()
     },
     onLogsChange: () => {
