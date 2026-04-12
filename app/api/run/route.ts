@@ -3,6 +3,7 @@ import { processMPPayments } from '@/lib/cycle'
 import { runAutoMatchCore } from '@/lib/auto-match-runner'
 import { audit } from '@/lib/audit'
 import { cleanupAuditLogs } from '@/lib/audit'
+import { loadHotState, saveHotState } from '@/lib/storage'
 
 export const maxDuration = 300
 
@@ -18,7 +19,18 @@ async function runCycle(triggeredBy: 'cron' | 'manual_button') {
     message: `Inicio ciclo run (${triggeredBy})`,
   })
 
+  // Fase 1: sync de pagos MP
+  const hotBeforeSync = await loadHotState()
+  hotBeforeSync.currentPhase = 'syncing'
+  await saveHotState(hotBeforeSync)
+
   const syncResult = await processMPPayments()
+
+  // Fase 2: auto-match (el runner setea 'idle' al finalizar)
+  const hotBeforeMatch = await loadHotState()
+  hotBeforeMatch.currentPhase = 'auto-matching'
+  await saveHotState(hotBeforeMatch)
+
   const autoMatch = await runAutoMatchCore(syncResult.stores, triggeredBy)
 
   // Cleanup solo una vez por día (a las 03:00 UTC ± 1 minuto) para no gastar IO en cada ciclo
