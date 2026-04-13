@@ -190,24 +190,24 @@ export default function Dashboard() {
     fetchStores()
   }, [fetchSync, fetchOrders, fetchLog, fetchStores])
 
-  // Supabase Realtime — reemplaza todo el polling
-  // Cuando una key cambia en Supabase, solo recarga los datos afectados
+  // Supabase Realtime — actualización inmediata cuando Supabase notifica un cambio
   useRealtimeSync({
     onHotChange: () => {
-      // Mostrar spinner inmediatamente mientras dura el fetch (timing fix)
       setStats(prev => prev ? { ...prev, currentPhase: 'syncing' } : prev)
       fetchSync()
     },
-    onLogsChange: () => {
-      fetchLog()
-    },
-    onOrdersChange: () => {
-      fetchOrders()
-    },
-    onStoresChange: () => {
-      fetchStores()
-    },
+    onLogsChange: () => fetchLog(),
+    onOrdersChange: () => fetchOrders(),
+    onStoresChange: () => fetchStores(),
   })
+
+  // Polling de respaldo cada 60s — cubre casos donde Realtime falla o se desconecta
+  useEffect(() => {
+    const id = setInterval(() => {
+      fetchSync()
+    }, 60_000)
+    return () => clearInterval(id)
+  }, [fetchSync])
 
   // Cargar datos específicos al cambiar de pestaña
   useEffect(() => {
