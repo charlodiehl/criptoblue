@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
     if (!locked) {
       return NextResponse.json({ error: 'El sistema está procesando otra operación. Esperá unos segundos.' }, { status: 409 })
     }
-    const { orderId, storeId, monto, medioPago, nombrePagador, cuitPagador, order: orderFromClient, fechaPago, skipMarkTN } = await req.json()
+    const { orderId, storeId, monto, medioPago, nombrePagador, cuitPagador, order: orderFromClient, fechaPago } = await req.json()
     if (!orderId || !storeId || !monto || !medioPago) {
       return NextResponse.json({ error: 'orderId, storeId, monto y medioPago son requeridos' }, { status: 400 })
     }
@@ -107,33 +107,31 @@ export async function POST(req: NextRequest) {
     // Si el log falla, se devuelve error sin haber tocado la plataforma.
     await saveLogs(logs)
 
-    // Marcar como pagada en la plataforma (salvo que ya esté marcada — skipMarkTN)
-    let tnError: string | undefined
-    if (!skipMarkTN) {
-      const platform = store.platform ?? 'tiendanube'
-      let markSuccess: boolean
-      let markError: string | undefined
+    // Marcar como pagada en la plataforma
+    const platform = store.platform ?? 'tiendanube'
+    let markSuccess: boolean
+    let markError: string | undefined
 
-      if (platform === 'shopify') {
-        const result = await markShopifyOrderAsPaid(storeId, store.accessToken, orderId, Number(monto))
-        markSuccess = result.success
-        markError = result.error
-      } else {
-        const result = await markTNOrderAsPaid(storeId, store.accessToken, orderId)
-        markSuccess = result.success
-        markError = result.error
-      }
+    if (platform === 'shopify') {
+      const result = await markShopifyOrderAsPaid(storeId, store.accessToken, orderId, Number(monto))
+      markSuccess = result.success
+      markError = result.error
+    } else {
+      const result = await markTNOrderAsPaid(storeId, store.accessToken, orderId)
+      markSuccess = result.success
+      markError = result.error
+    }
 
-      if (!markSuccess) {
-        // El log ya fue guardado — devolver success con advertencia para que el
-        // frontend lo informe al usuario sin bloquear el flujo.
-        tnError = markError
-      }
+    if (!markSuccess) {
+      // El log ya fue guardado — devolver success con advertencia para que el
+      // frontend lo informe al usuario sin bloquear el flujo.
+      await Promise.all([saveHotState(hot), saveMatchLog(matchLogData)])
+      return NextResponse.json({ success: true, logEntry, tnError: markError, recentMatch: { mpPaymentId: fakeMpPaymentId, matchedAt: now, orderId, storeId } })
     }
 
     await Promise.all([saveHotState(hot), saveMatchLog(matchLogData)])
 
-    return NextResponse.json({ success: true, logEntry, tnError, recentMatch: { mpPaymentId: fakeMpPaymentId, matchedAt: now, orderId, storeId } })
+    return NextResponse.json({ success: true, logEntry, recentMatch: { mpPaymentId: fakeMpPaymentId, matchedAt: now, orderId, storeId } })
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 })
   } finally {

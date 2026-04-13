@@ -464,21 +464,17 @@ export default function Dashboard() {
     }
   }
 
-  const handleMarkOrderManual = async (orderId: string, storeId: string, monto: number, medioPago: string, nombrePagador: string, order: import('@/lib/types').Order, cuitPagador?: string, fechaPago?: string, skipMarkTN?: boolean) => {
+  const handleMarkOrderManual = async (orderId: string, storeId: string, monto: number, medioPago: string, nombrePagador: string, order: import('@/lib/types').Order, cuitPagador?: string, fechaPago?: string) => {
     try {
       const res = await fetch('/api/mark-order-paid-manual', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orderId, storeId, monto, medioPago, nombrePagador, cuitPagador, order, fechaPago, skipMarkTN }),
+        body: JSON.stringify({ orderId, storeId, monto, medioPago, nombrePagador, cuitPagador, order, fechaPago }),
       })
       const data = await res.json()
       if (checkLockResponse(res, data)) return
       if (data.success) {
-        if (data.tnError) {
-          addToast('Registrado, pero no se pudo marcar en TN — hacelo manualmente', 'error')
-        } else {
-          addToast('Orden marcada como pagada', 'success')
-        }
+        addToast(data.tnError ? 'Registrado, pero no se pudo marcar en TN — hacelo manualmente' : 'Orden marcada como pagada', data.tnError ? 'error' : 'success')
         // Actualización optimista: verde inmediato, Realtime confirma y saca la orden de pendientes
         if (data.recentMatch) setRecentMatches(prev => [...prev, data.recentMatch])
         if (data.logEntry) setLogEntries(prev => [...prev, data.logEntry])
