@@ -51,7 +51,7 @@ export function normalizePayment(raw: any): Payment | null {
   }
 }
 
-export async function fetchAllPaymentsSince(sinceDate: Date): Promise<Payment[]> {
+async function fetchPaymentsByRange(sinceDate: Date, rangeField: 'date_approved' | 'date_created'): Promise<Payment[]> {
   const payments: Payment[] = []
   let offset = 0
   const limit = 50
@@ -59,9 +59,9 @@ export async function fetchAllPaymentsSince(sinceDate: Date): Promise<Payment[]>
   while (true) {
     const endDate = new Date()
     const url = new URL(`${CONFIG.mercadopago.apiBase}/v1/payments/search`)
-    url.searchParams.set('sort', 'date_approved')
+    url.searchParams.set('sort', rangeField)
     url.searchParams.set('criteria', 'desc')
-    url.searchParams.set('range', 'date_approved')
+    url.searchParams.set('range', rangeField)
     url.searchParams.set('begin_date', sinceDate.toISOString())
     url.searchParams.set('end_date', endDate.toISOString())
     url.searchParams.set('limit', String(limit))
@@ -93,4 +93,23 @@ export async function fetchAllPaymentsSince(sinceDate: Date): Promise<Payment[]>
   }
 
   return payments
+}
+
+export async function fetchAllPaymentsSince(sinceDate: Date): Promise<Payment[]> {
+  // Buscar por date_approved (pagos normales) y por date_created (transferencias CVU
+  // que pueden tener date_approved: null aunque estén aprobadas). Deduplicar por ID.
+  const [byApproved, byCreated] = await Promise.all([
+    fetchPaymentsByRange(sinceDate, 'date_approved'),
+    fetchPaymentsByRange(sinceDate, 'date_created'),
+  ])
+
+  const seen = new Set<string>()
+  const merged: Payment[] = []
+  for (const p of [...byApproved, ...byCreated]) {
+    if (!seen.has(p.mpPaymentId)) {
+      seen.add(p.mpPaymentId)
+      merged.push(p)
+    }
+  }
+  return merged
 }
