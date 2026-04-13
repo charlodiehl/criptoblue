@@ -39,7 +39,7 @@ interface Props {
   matchedIds?: Set<string>
   duplicateMap?: Map<string, DuplicateInfo>
   onMarkExternal?: (orderId: string, storeId: string) => Promise<void>
-  onMarkManual?: (orderId: string, storeId: string, monto: number, medioPago: string, nombrePagador: string, order: Order, cuitPagador?: string, fechaPago?: string) => Promise<void>
+  onMarkManual?: (orderId: string, storeId: string, monto: number, medioPago: string, nombrePagador: string, order: Order, cuitPagador?: string, fechaPago?: string, skipMarkTN?: boolean) => Promise<void>
   loading?: boolean
 }
 
@@ -59,6 +59,7 @@ export default function OrdersListTab({ orders, stores, matchedIds, duplicateMap
   const [validarResult, setValidarResult] = useState<BuscarOrdenResult | null>(null)
   const [validarManualOpen, setValidarManualOpen] = useState(false)
   const [validarManualForm, setValidarManualForm] = useState<ManualPayForm>({ medioPago: '', monto: '', nombrePagador: '', cuitPagador: '', fechaPago: '', loading: false })
+  const [validarAlreadyPaidInTN, setValidarAlreadyPaidInTN] = useState(false)
 
   const openValidar = () => {
     setValidarOpen(true)
@@ -67,6 +68,7 @@ export default function OrdersListTab({ orders, stores, matchedIds, duplicateMap
     setValidarError(null)
     setValidarResult(null)
     setValidarManualOpen(false)
+    setValidarAlreadyPaidInTN(false)
   }
 
   const handleBuscarOrden = async () => {
@@ -75,6 +77,7 @@ export default function OrdersListTab({ orders, stores, matchedIds, duplicateMap
     setValidarError(null)
     setValidarResult(null)
     setValidarManualOpen(false)
+    setValidarAlreadyPaidInTN(false)
     try {
       const res = await fetch('/api/buscar-orden', {
         method: 'POST',
@@ -96,7 +99,8 @@ export default function OrdersListTab({ orders, stores, matchedIds, duplicateMap
       if (os === 'cancelled') {
         setValidarError('⚠ Esta orden está cancelada.')
       } else if (ps === 'paid') {
-        setValidarError('⚠ Esta orden ya está marcada como pagada.')
+        setValidarError('⚠ Esta orden ya está marcada como pagada en TN. Si falta en el Registro podés registrarla igual.')
+        setValidarAlreadyPaidInTN(true)
       }
       setValidarResult(data)
       if (data.order) {
@@ -130,6 +134,7 @@ export default function OrdersListTab({ orders, stores, matchedIds, duplicateMap
         o,
         validarManualForm.cuitPagador.trim() || undefined,
         validarManualForm.fechaPago || undefined,
+        validarAlreadyPaidInTN, // skipMarkTN — no intentar marcar en TN si ya está pagada
       )
       setValidarOpen(false)
     } finally {
@@ -305,8 +310,8 @@ export default function OrdersListTab({ orders, stores, matchedIds, duplicateMap
                   </div>
                 )}
 
-                {/* Botón abrir form manual — solo si no está cancelada ni pagada */}
-                {!validarManualOpen && !validarError?.startsWith('⚠') && (
+                {/* Botón abrir form manual — solo bloquear si está cancelada */}
+                {!validarManualOpen && !validarError?.includes('cancelada') && (
                   <button
                     onClick={() => setValidarManualOpen(true)}
                     style={{ fontSize: '11px', padding: '6px 12px', borderRadius: '7px', border: '1px solid rgba(148,163,184,0.2)', background: 'transparent', color: 'rgba(148,163,184,0.55)', cursor: 'pointer' }}

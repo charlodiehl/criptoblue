@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
     if (!locked) {
       return NextResponse.json({ error: 'El sistema está procesando otra operación. Esperá unos segundos.' }, { status: 409 })
     }
-    const { orderId, storeId, monto, medioPago, nombrePagador, cuitPagador, order: orderFromClient, fechaPago } = await req.json()
+    const { orderId, storeId, monto, medioPago, nombrePagador, cuitPagador, order: orderFromClient, fechaPago, skipMarkTN } = await req.json()
     if (!orderId || !storeId || !monto || !medioPago) {
       return NextResponse.json({ error: 'orderId, storeId, monto y medioPago son requeridos' }, { status: 400 })
     }
@@ -32,25 +32,6 @@ export async function POST(req: NextRequest) {
     )
     if (orderAlreadyPaid) {
       return NextResponse.json({ error: 'Esta orden ya fue registrada como pagada' }, { status: 409 })
-    }
-
-    // Marcar como pagada en la plataforma correspondiente
-    const platform = store.platform ?? 'tiendanube'
-    let markSuccess: boolean
-    let markError: string | undefined
-
-    if (platform === 'shopify') {
-      const result = await markShopifyOrderAsPaid(storeId, store.accessToken, orderId, Number(monto))
-      markSuccess = result.success
-      markError = result.error
-    } else {
-      const result = await markTNOrderAsPaid(storeId, store.accessToken, orderId)
-      markSuccess = result.success
-      markError = result.error
-    }
-
-    if (!markSuccess) {
-      return NextResponse.json({ error: markError }, { status: 500 })
     }
 
     const fakeMpPaymentId = `manual_${Date.now()}_${orderId}`
@@ -121,11 +102,38 @@ export async function POST(req: NextRequest) {
     })
     auditMatch({ action: 'mark_order_manual.paid', actor: 'human', component: 'api/mark-order-paid-manual', mpPaymentId: fakeMpPaymentId, orderId, orderNumber: order?.orderNumber, storeId, storeName: store.storeName, amount: Number(monto), result: 'success', message: `Orden pagada manual: ${nombrePagador || ''}` })
 
-    // registroLog primero — es la fuente de verdad; si falla, el endpoint devuelve error
+    // Write-ahead: guardar el log ANTES de marcar en la plataforma.
+    // Si la llamada a TN/Shopify falla después, el registro ya existe y no se pierde.
+    // Si el log falla, se devuelve error sin haber tocado la plataforma.
     await saveLogs(logs)
+
+    // Marcar como pagada en la plataforma (salvo que ya esté marcada — skipMarkTN)
+    let tnError: string | undefined
+    if (!skipMarkTN) {
+      const platform = store.platform ?? 'tiendanube'
+      let markSuccess: boolean
+      let markError: string | undefined
+
+      if (platform === 'shopify') {
+        const result = await markShopifyOrderAsPaid(storeId, store.accessToken, orderId, Number(monto))
+        markSuccess = result.success
+        markError = result.error
+      } else {
+        const result = await markTNOrderAsPaid(storeId, store.accessToken, orderId)
+        markSuccess = result.success
+        markError = result.error
+      }
+
+      if (!markSuccess) {
+        // El log ya fue guardado — devolver success con advertencia para que el
+        // frontend lo informe al usuario sin bloquear el flujo.
+        tnError = markError
+      }
+    }
+
     await Promise.all([saveHotState(hot), saveMatchLog(matchLogData)])
 
-    return NextResponse.json({ success: true, logEntry, recentMatch: { mpPaymentId: fakeMpPaymentId, matchedAt: now, orderId, storeId } })
+    return NextResponse.json({ success: true, logEntry, tnError, recentMatch: { mpPaymentId: fakeMpPaymentId, matchedAt: now, orderId, storeId } })
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 })
   } finally {
