@@ -460,6 +460,25 @@ export async function saveHotState(state: HotState): Promise<void> {
         }
       }
     }
+
+    // Merge unmatchedPayments — preservar pagos agregados por procesos concurrentes.
+    // Escenario crítico: endpoint X carga hot state en T0, el cron agrega pagos nuevos
+    // y guarda en T1, endpoint X guarda en T2 con su versión T0 de unmatchedPayments,
+    // sobreescribiendo los pagos del cron. Sin este merge, esos pagos se pierden silenciosamente.
+    //
+    // Exclusión: un pago emparejado (auto o manual) SIEMPRE se agrega a recentMatches
+    // al mismo tiempo que se remueve de unmatchedPayments. Usamos cleaned.recentMatches
+    // como lista de exclusión para no re-agregar pagos ya emparejados.
+    if (current.unmatchedPayments?.length) {
+      const existingIds = new Set(cleaned.unmatchedPayments.map(u => u.payment.mpPaymentId))
+      const confirmedByRecentMatch = new Set((cleaned.recentMatches ?? []).map(m => m.mpPaymentId))
+      for (const u of current.unmatchedPayments) {
+        const id = u.payment.mpPaymentId
+        if (!existingIds.has(id) && !confirmedByRecentMatch.has(id)) {
+          cleaned.unmatchedPayments.push({ ...u, payment: stripRawData(u.payment) })
+        }
+      }
+    }
   }
 
   await kvSetConRetry(HOT_KEY, cleaned)
