@@ -192,8 +192,14 @@ export function findAutoMatchCandidates(
     // Excluir órdenes dismisseadas del conteo — ya fueron descartadas
     // intencionalmente y no deben inflar la ambigüedad del match.
     // Solo contar órdenes de las últimas 24hs creadas antes del pago.
-    const cutoff24h = Date.now() - 24 * 60 * 60 * 1000
+    // IMPORTANTE: el cutoff debe ser relativo al momento del PAGO, no al momento
+    // en que corre el auto-match. Si se usa Date.now(), órdenes que eran recientes
+    // al momento del pago pueden quedar fuera de la ventana cuando el auto-match
+    // corre con demora (ej: 24h después), haciendo que sameMontoCount = 0 aunque
+    // haya múltiples órdenes del mismo monto — caso real: órdenes 181378 y 181379
+    // el 12/4 quedaron fuera por 3-5 min cuando el cron corrió el 13/4.
     const payTime = u.payment.fechaPago ? new Date(u.payment.fechaPago).getTime() : null
+    const cutoff24h = (payTime ?? Date.now()) - 24 * 60 * 60 * 1000
     const sameMontoCount = Math.max(0, orders.filter(o =>
       Math.abs(o.total - u.payment.monto) <= 10 &&
       !dismissedSet.has(`${mpId}|${o.orderId}|${o.storeId}`) &&

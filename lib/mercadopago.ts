@@ -1,6 +1,16 @@
 import { CONFIG } from './config'
 import type { Payment } from './types'
 
+// MercadoPago devuelve fechas con offset incorrecto (-04:00) en lugar de ART (-03:00).
+// Esta función reexpresa el instante UTC en el offset correcto de Argentina.
+function toART(iso: string): string {
+  if (!iso) return iso
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return iso
+  const artMs = d.getTime() - 3 * 60 * 60 * 1000
+  return new Date(artMs).toISOString().replace('Z', '-03:00')
+}
+
 async function mpFetch(path: string, params?: Record<string, string>) {
   const url = new URL(`${CONFIG.mercadopago.apiBase}${path}`)
   if (params) {
@@ -44,7 +54,7 @@ export function normalizePayment(raw: any): Payment | null {
     referencia: raw.external_reference || '',
     operationId: raw.order?.id ? String(raw.order.id) : '',
     metodoPago: `${raw.payment_method_id || ''} / ${raw.payment_type_id || ''}`,
-    fechaPago: raw.date_approved || raw.date_created || '',
+    fechaPago: toART(raw.date_approved || raw.date_created || ''),
     status: raw.status || '',
     source: 'mercadopago',
     rawData: raw,
