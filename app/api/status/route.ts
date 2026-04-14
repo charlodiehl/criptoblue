@@ -12,9 +12,9 @@ export async function GET() {
     const monthKey = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`
     const stats = (hot.persistedMonthStats ?? {})[monthKey] ?? { matchedCount: 0, matchedVolume: 0, manualCount: 0, manualVolume: 0 }
 
-    const cutoff24h = Date.now() - 24 * 60 * 60 * 1000
+    const cutoff48h = Date.now() - 48 * 60 * 60 * 1000
     const recentMatches = (hot.recentMatches ?? []).filter(
-      m => new Date(m.matchedAt).getTime() >= cutoff24h
+      m => new Date(m.matchedAt).getTime() >= cutoff48h
     )
 
     return NextResponse.json({
