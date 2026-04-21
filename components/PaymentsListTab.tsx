@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useMemo } from 'react'
-import type { Payment, Order } from '@/lib/types'
+import { useState, useMemo, useRef, useEffect } from 'react'
+import type { Payment, Order, Store } from '@/lib/types'
 import { ARS, fmtDate, matchesSearch } from '@/lib/utils'
 
 const PAGE_SIZE = 100
@@ -10,15 +10,19 @@ type ManualStep = 'form' | 'confirm'
 
 interface ManualState {
   step: ManualStep
-  storeName: string
+  selectedStoreId: string | null   // null = nada seleccionado, 'otro' = texto libre
+  storeNameCustom: string           // texto libre cuando selectedStoreId === 'otro'
+  dropdownOpen: boolean
   orderNumber: string
   matchedOrder: Order | null
+  isOtroMode: boolean               // true cuando se avanzó en modo texto libre
   loading: boolean
 }
 
 interface Props {
   payments: Payment[]
   orders?: Order[]
+  stores?: Store[]
   matchedIds?: Set<string>
   externallyMarkedIds?: Set<string>
   title?: string
@@ -29,7 +33,8 @@ interface Props {
 }
 
 export default function PaymentsListTab({
-  payments, orders = [], matchedIds, externallyMarkedIds, title = 'Pagos · últimas 24hs',
+  payments, orders = [], stores = [], matchedIds, externallyMarkedIds,
+  title = 'Pagos · últimas 24hs',
   emptyText = 'No hay pagos en las últimas 24 horas',
   onMarkReceived, onManualLog, loading,
 }: Props) {
@@ -37,9 +42,23 @@ export default function PaymentsListTab({
   const [marking, setMarking] = useState<string | null>(null)
   const [manualOpen, setManualOpen] = useState<string | null>(null)
   const [manualState, setManualState] = useState<ManualState>({
-    step: 'form', storeName: '', orderNumber: '', matchedOrder: null, loading: false,
+    step: 'form', selectedStoreId: null, storeNameCustom: '', dropdownOpen: false,
+    orderNumber: '', matchedOrder: null, isOtroMode: false, loading: false,
   })
   const [search, setSearch] = useState('')
+  const dropdownRef = useRef<HTMLDivElement>(null)
+
+  // Cerrar dropdown al hacer click fuera
+  useEffect(() => {
+    if (!manualState.dropdownOpen) return
+    const handleClickOutside = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setManualState(s => ({ ...s, dropdownOpen: false }))
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [manualState.dropdownOpen])
 
   const allSorted = useMemo(() => [...payments].sort((a, b) => {
     const ta = a.fechaPago ? new Date(a.fechaPago).getTime() : 0
@@ -64,26 +83,41 @@ export default function PaymentsListTab({
 
   const openManual = (mpPaymentId: string) => {
     setManualOpen(mpPaymentId)
-    setManualState({ step: 'form', storeName: '', orderNumber: '', matchedOrder: null, loading: false })
+    setManualState({
+      step: 'form', selectedStoreId: null, storeNameCustom: '', dropdownOpen: false,
+      orderNumber: '', matchedOrder: null, isOtroMode: false, loading: false,
+    })
   }
 
   const closeManual = () => setManualOpen(null)
 
+  // Deriva el nombre de tienda según el modo seleccionado
+  const resolverStoreName = (ms: ManualState): string => {
+    if (ms.selectedStoreId === 'otro') return ms.storeNameCustom
+    return stores.find(s => s.storeId === ms.selectedStoreId)?.storeName ?? ''
+  }
+
   const handleManualConfirmForm = () => {
-    const { orderNumber } = manualState
-    // Búsqueda exacta por número de orden
-    const found = orders.find(o => o.orderNumber === orderNumber) || null
-    if (found) {
-      setManualState(s => ({ ...s, step: 'confirm', matchedOrder: found }))
-    } else {
-      // Sin match → confirmar directo sin TN
-      setManualState(s => ({ ...s, step: 'confirm', matchedOrder: null }))
+    const { orderNumber, selectedStoreId } = manualState
+
+    // Modo "Otro": sin validación, ir directo a confirmación
+    if (selectedStoreId === 'otro') {
+      setManualState(s => ({ ...s, step: 'confirm', matchedOrder: null, isOtroMode: true }))
+      return
     }
+
+    // Tienda seleccionada: buscar solo en esa tienda
+    const found = selectedStoreId
+      ? orders.find(o => o.orderNumber === orderNumber && o.storeId === selectedStoreId) ?? null
+      : orders.find(o => o.orderNumber === orderNumber) ?? null
+
+    setManualState(s => ({ ...s, step: 'confirm', matchedOrder: found, isOtroMode: false }))
   }
 
   const handleManualSubmit = async (mpPaymentId: string, withTN: boolean) => {
     if (!onManualLog) return
-    const { storeName, orderNumber, matchedOrder } = manualState
+    const { orderNumber, matchedOrder } = manualState
+    const storeName = resolverStoreName(manualState)
     setManualState(s => ({ ...s, loading: true }))
     try {
       await onManualLog(mpPaymentId, storeName, orderNumber, withTN ? matchedOrder : null)
@@ -97,6 +131,21 @@ export default function PaymentsListTab({
     width: '100%', fontSize: '12px', padding: '6px 10px', borderRadius: '7px',
     background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(0,212,255,0.15)',
     color: 'rgba(226,232,240,0.9)', outline: 'none',
+  }
+
+  // Etiqueta del botón del dropdown
+  const labelTiendaSeleccionada = (ms: ManualState): string => {
+    if (ms.selectedStoreId === null) return ''
+    if (ms.selectedStoreId === 'otro') return ms.storeNameCustom || 'Otro / texto libre'
+    return stores.find(s => s.storeId === ms.selectedStoreId)?.storeName ?? ''
+  }
+
+  // El formulario requiere tienda seleccionada y número de orden
+  const puedeConfirmar = (ms: ManualState): boolean => {
+    if (!ms.orderNumber.trim()) return false
+    if (ms.selectedStoreId === null) return false
+    if (ms.selectedStoreId === 'otro' && !ms.storeNameCustom.trim()) return false
+    return true
   }
 
   return (
@@ -215,25 +264,104 @@ export default function PaymentsListTab({
                         Marcar manualmente
                       </p>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '7px' }}>
-                        <input
-                          style={inputStyle}
-                          placeholder="Tienda (ej: Perla)"
-                          value={ms.storeName}
-                          onChange={e => setManualState(s => ({ ...s, storeName: e.target.value }))}
-                        />
+
+                        {/* Dropdown de tiendas */}
+                        <div ref={dropdownRef} style={{ position: 'relative' }}>
+                          <button
+                            type="button"
+                            onClick={() => setManualState(s => ({ ...s, dropdownOpen: !s.dropdownOpen }))}
+                            style={{
+                              ...inputStyle, textAlign: 'left', cursor: 'pointer',
+                              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                              color: ms.selectedStoreId ? 'rgba(226,232,240,0.9)' : 'rgba(148,163,184,0.4)',
+                            }}
+                          >
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {ms.selectedStoreId ? labelTiendaSeleccionada(ms) : 'Seleccionar tienda'}
+                            </span>
+                            <span style={{ marginLeft: '6px', fontSize: '10px', opacity: 0.5, flexShrink: 0 }}>
+                              {ms.dropdownOpen ? '▲' : '▼'}
+                            </span>
+                          </button>
+
+                          {ms.dropdownOpen && (
+                            <div style={{
+                              position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 50,
+                              background: '#0d1117', border: '1px solid rgba(0,212,255,0.2)',
+                              borderRadius: '8px', overflow: 'hidden',
+                              boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+                            }}>
+                              {/* Tiendas conectadas */}
+                              {stores.map(store => (
+                                <button
+                                  key={store.storeId}
+                                  type="button"
+                                  onClick={() => setManualState(s => ({
+                                    ...s,
+                                    selectedStoreId: store.storeId,
+                                    storeNameCustom: '',
+                                    dropdownOpen: false,
+                                  }))}
+                                  style={{
+                                    width: '100%', textAlign: 'left', padding: '8px 10px',
+                                    fontSize: '12px', background: ms.selectedStoreId === store.storeId ? 'rgba(0,212,255,0.1)' : 'transparent',
+                                    border: 'none', borderBottom: '1px solid rgba(255,255,255,0.04)',
+                                    color: ms.selectedStoreId === store.storeId ? 'rgba(0,212,255,0.9)' : 'rgba(226,232,240,0.8)',
+                                    cursor: 'pointer',
+                                  }}
+                                >
+                                  {store.storeName}
+                                </button>
+                              ))}
+
+                              {/* Separador + opción Otro */}
+                              <div style={{ borderTop: stores.length > 0 ? '1px solid rgba(255,255,255,0.08)' : 'none' }}>
+                                <button
+                                  type="button"
+                                  onClick={() => setManualState(s => ({
+                                    ...s,
+                                    selectedStoreId: 'otro',
+                                    dropdownOpen: false,
+                                  }))}
+                                  style={{
+                                    width: '100%', textAlign: 'left', padding: '8px 10px',
+                                    fontSize: '12px', background: ms.selectedStoreId === 'otro' ? 'rgba(148,163,184,0.08)' : 'transparent',
+                                    border: 'none',
+                                    color: ms.selectedStoreId === 'otro' ? 'rgba(148,163,184,0.8)' : 'rgba(148,163,184,0.5)',
+                                    cursor: 'pointer', fontStyle: 'italic',
+                                  }}
+                                >
+                                  ✎ Otro / texto libre
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Campo de texto libre cuando se eligió "Otro" */}
+                        {ms.selectedStoreId === 'otro' && (
+                          <input
+                            style={inputStyle}
+                            placeholder="Nombre de tienda o cliente..."
+                            value={ms.storeNameCustom}
+                            autoFocus
+                            onChange={e => setManualState(s => ({ ...s, storeNameCustom: e.target.value }))}
+                          />
+                        )}
+
                         <input
                           style={inputStyle}
                           placeholder="Nro de orden (ej: 67521)"
                           value={ms.orderNumber}
                           onChange={e => setManualState(s => ({ ...s, orderNumber: e.target.value }))}
-                          onKeyDown={e => { if (e.key === 'Enter' && ms.orderNumber) handleManualConfirmForm() }}
+                          onKeyDown={e => { if (e.key === 'Enter' && puedeConfirmar(ms)) handleManualConfirmForm() }}
                         />
                       </div>
                       <div style={{ display: 'flex', gap: '6px', marginTop: '10px' }}>
                         <button
                           onClick={handleManualConfirmForm}
-                          disabled={!ms.orderNumber && !ms.storeName}
-                          style={{ fontSize: '11px', padding: '5px 12px', borderRadius: '7px', border: '1px solid rgba(0,212,255,0.3)', background: 'rgba(0,212,255,0.08)', color: 'rgba(0,212,255,0.8)', cursor: (!ms.orderNumber && !ms.storeName) ? 'not-allowed' : 'pointer', opacity: (!ms.orderNumber && !ms.storeName) ? 0.4 : 1 }}>
+                          disabled={!puedeConfirmar(ms)}
+                          style={{ fontSize: '11px', padding: '5px 12px', borderRadius: '7px', border: '1px solid rgba(0,212,255,0.3)', background: 'rgba(0,212,255,0.08)', color: 'rgba(0,212,255,0.8)', cursor: !puedeConfirmar(ms) ? 'not-allowed' : 'pointer', opacity: !puedeConfirmar(ms) ? 0.4 : 1 }}>
                           Continuar →
                         </button>
                         <button onClick={closeManual}
@@ -246,7 +374,32 @@ export default function PaymentsListTab({
 
                   {ms.step === 'confirm' && (
                     <>
-                      {ms.matchedOrder ? (
+                      {ms.isOtroMode ? (
+                        /* Modo texto libre: confirmación directa sin validar */
+                        <>
+                          <p style={{ fontSize: '11px', fontWeight: 700, color: 'rgba(0,212,255,0.8)', marginBottom: '6px' }}>
+                            Confirmar registro
+                          </p>
+                          <p style={{ fontSize: '11px', color: 'rgba(148,163,184,0.5)', marginBottom: '10px' }}>
+                            Se registrará el pago con los datos ingresados sin marcar nada en TiendaNube.
+                          </p>
+                          <p style={{ fontSize: '11px', color: 'rgba(148,163,184,0.4)', marginBottom: '10px' }}>
+                            Tienda: <span style={{ color: 'rgba(226,232,240,0.7)' }}>{ms.storeNameCustom || '—'}</span>
+                            {' · '}Orden: <span style={{ color: 'rgba(226,232,240,0.7)' }}>{ms.orderNumber || '—'}</span>
+                          </p>
+                          <div style={{ display: 'flex', gap: '6px' }}>
+                            <button onClick={() => handleManualSubmit(p.mpPaymentId, false)} disabled={ms.loading}
+                              style={{ fontSize: '11px', padding: '5px 12px', borderRadius: '7px', border: '1px solid rgba(0,212,255,0.2)', background: 'rgba(0,212,255,0.06)', color: 'rgba(0,212,255,0.7)', cursor: ms.loading ? 'not-allowed' : 'pointer', opacity: ms.loading ? 0.5 : 1 }}>
+                              {ms.loading ? '...' : '✓ Confirmar'}
+                            </button>
+                            <button onClick={() => setManualState(s => ({ ...s, step: 'form' }))} disabled={ms.loading}
+                              style={{ fontSize: '11px', padding: '5px 10px', borderRadius: '7px', border: 'none', background: 'transparent', color: 'rgba(148,163,184,0.3)', cursor: 'pointer' }}>
+                              ← Volver
+                            </button>
+                          </div>
+                        </>
+                      ) : ms.matchedOrder ? (
+                        /* Orden encontrada en la tienda seleccionada */
                         <>
                           <p style={{ fontSize: '11px', fontWeight: 700, color: '#00ff88', marginBottom: '6px' }}>
                             ✓ Orden encontrada
@@ -276,15 +429,16 @@ export default function PaymentsListTab({
                           </div>
                         </>
                       ) : (
+                        /* Orden no encontrada en la tienda seleccionada */
                         <>
                           <p style={{ fontSize: '11px', color: 'rgba(255,180,0,0.7)', marginBottom: '6px' }}>
-                            ⚠ No se encontró ninguna orden con ese número
+                            ⚠ No se encontró ninguna orden con ese número en esa tienda
                           </p>
                           <p style={{ fontSize: '11px', color: 'rgba(148,163,184,0.5)', marginBottom: '10px' }}>
                             Se registrará el pago con los datos ingresados sin marcar nada en TiendaNube.
                           </p>
                           <p style={{ fontSize: '11px', color: 'rgba(148,163,184,0.4)', marginBottom: '10px' }}>
-                            Tienda: <span style={{ color: 'rgba(226,232,240,0.7)' }}>{ms.storeName || '—'}</span>
+                            Tienda: <span style={{ color: 'rgba(226,232,240,0.7)' }}>{resolverStoreName(ms) || '—'}</span>
                             {' · '}Orden: <span style={{ color: 'rgba(226,232,240,0.7)' }}>{ms.orderNumber || '—'}</span>
                           </p>
                           <div style={{ display: 'flex', gap: '6px' }}>
