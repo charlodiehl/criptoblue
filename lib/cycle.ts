@@ -127,28 +127,6 @@ export async function processMPPayments(): Promise<CycleResult> {
     result.newUnmatched++
   }
 
-  // ─── Enriquecimiento de nombres por CUIT (solo pagos nuevos) ──────────────
-  // Para nuevos pagos con CUIT pero sin nombre: consultar cuitonline.com
-  // Máximo 3 por ciclo para no saturar el servicio externo.
-  // Resultado se guarda en paymentOverrides (se aplica en paso 3 más abajo).
-  // "~" = CUIT consultado pero no encontrado → no reintentar.
-  const cuitLookupCandidatos = newUnmatchedToAdd
-    .filter(u => u.payment.cuitPagador && !u.payment.nombrePagador)
-    .slice(0, 3)
-
-  if (cuitLookupCandidatos.length > 0) {
-    for (const u of cuitLookupCandidatos) {
-      const nombre = await lookupNombreByCuit(u.payment.cuitPagador)
-      if (nombre) {
-        state.paymentOverrides = state.paymentOverrides || {}
-        state.paymentOverrides[u.payment.mpPaymentId] = {
-          ...state.paymentOverrides[u.payment.mpPaymentId],
-          nombrePagador: nombre,
-        }
-      }
-    }
-  }
-
   // ─── Re-cargar estado fresco antes de guardar ──────────────────────────────
   // Evita race condition: si un usuario hizo match/dismiss mientras este ciclo
   // corría, sus cambios en unmatchedPayments quedarían sobreescritos si usamos
@@ -166,6 +144,32 @@ export async function processMPPayments(): Promise<CycleResult> {
   for (const u of newUnmatchedToAdd) {
     if (!freshUnmatchedIds.has(u.payment.mpPaymentId)) {
       freshState.unmatchedPayments.push(u)
+    }
+  }
+
+  // ─── Enriquecimiento de nombres por CUIT (solo pagos nuevos) ──────────────
+  // Se hace DESPUÉS de cargar freshState para que los overrides queden en el
+  // estado que se va a guardar (antes estaban en state y se pisaban con freshState).
+  // Máximo 3 por ciclo para no saturar cuitonline.com.
+  // "~" = CUIT consultado pero no encontrado → no reintentar.
+  const cuitLookupCandidatos = newUnmatchedToAdd
+    .filter(u => {
+      if (!u.payment.cuitPagador || u.payment.nombrePagador) return false
+      const existing = freshState.paymentOverrides?.[u.payment.mpPaymentId]?.nombrePagador
+      return !existing // omitir si ya tiene override (incluyendo '~')
+    })
+    .slice(0, 3)
+
+  if (cuitLookupCandidatos.length > 0) {
+    freshState.paymentOverrides = freshState.paymentOverrides || {}
+    for (const u of cuitLookupCandidatos) {
+      const nombre = await lookupNombreByCuit(u.payment.cuitPagador)
+      if (nombre) {
+        freshState.paymentOverrides[u.payment.mpPaymentId] = {
+          ...freshState.paymentOverrides[u.payment.mpPaymentId],
+          nombrePagador: nombre,
+        }
+      }
     }
   }
 
