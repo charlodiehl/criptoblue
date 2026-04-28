@@ -6,6 +6,7 @@ import { HARD_CUTOFF_PAYMENTS, HARD_CUTOFF_ORDERS } from './config'
 import type { UnmatchedPayment, Store } from './types'
 import { audit, auditApiCall } from './audit'
 import { nowART } from './utils'
+import { lookupNombreByCuit } from './cuit-lookup'
 
 interface CycleResult {
   processed: number   // total pagos vistos en MP (puede incluir ya conocidos)
@@ -124,6 +125,28 @@ export async function processMPPayments(): Promise<CycleResult> {
       mpPaymentId: payment.mpPaymentId,
     })
     result.newUnmatched++
+  }
+
+  // ─── Enriquecimiento de nombres por CUIT (solo pagos nuevos) ──────────────
+  // Para nuevos pagos con CUIT pero sin nombre: consultar cuitonline.com
+  // Máximo 3 por ciclo para no saturar el servicio externo.
+  // Resultado se guarda en paymentOverrides (se aplica en paso 3 más abajo).
+  // "~" = CUIT consultado pero no encontrado → no reintentar.
+  const cuitLookupCandidatos = newUnmatchedToAdd
+    .filter(u => u.payment.cuitPagador && !u.payment.nombrePagador)
+    .slice(0, 3)
+
+  if (cuitLookupCandidatos.length > 0) {
+    for (const u of cuitLookupCandidatos) {
+      const nombre = await lookupNombreByCuit(u.payment.cuitPagador)
+      if (nombre) {
+        state.paymentOverrides = state.paymentOverrides || {}
+        state.paymentOverrides[u.payment.mpPaymentId] = {
+          ...state.paymentOverrides[u.payment.mpPaymentId],
+          nombrePagador: nombre,
+        }
+      }
+    }
   }
 
   // ─── Re-cargar estado fresco antes de guardar ──────────────────────────────
