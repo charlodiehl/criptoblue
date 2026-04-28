@@ -4,9 +4,10 @@
  * Consulta el meta description de cuitonline para obtener el nombre
  * del contribuyente asociado a un CUIT argentino.
  *
+ * Retorna el nombre capitalizado si lo encuentra.
  * Retorna null si no se encuentra o si hay un error de red.
- * Retorna "~" como sentinel si el CUIT no está en cuitonline
- * (para evitar reintentar en ciclos futuros).
+ * Si no se encuentra, no se guarda nada — el registro usa el nombre
+ * del cliente de la orden como siempre.
  */
 
 const CUIT_LOOKUP_TIMEOUT_MS = 5000
@@ -46,10 +47,10 @@ export async function lookupNombreByCuit(cuit: string): Promise<string | null> {
 
     const desc = metaMatch[1]
     const nameMatch = desc.match(/([A-Za-záéíóúÁÉÍÓÚüÜñÑ'\s]+)\s*-\s*\d{11}/)
-    if (!nameMatch) return '~' // CUIT consultado pero no encontrado
+    if (!nameMatch) return null // CUIT no encontrado — no guardar nada
 
     const nombre = nameMatch[1].trim()
-    if (!nombre) return '~'
+    if (!nombre) return null
 
     return capitalizarNombre(nombre)
   } catch {

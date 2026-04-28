@@ -156,7 +156,7 @@ export async function processMPPayments(): Promise<CycleResult> {
     .filter(u => {
       if (!u.payment.cuitPagador || u.payment.nombrePagador) return false
       const existing = freshState.paymentOverrides?.[u.payment.mpPaymentId]?.nombrePagador
-      return !existing // omitir si ya tiene override (incluyendo '~')
+      return !existing // omitir si ya tiene nombre guardado
     })
     .slice(0, 3)
 
