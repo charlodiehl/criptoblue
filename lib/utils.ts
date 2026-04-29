@@ -21,8 +21,8 @@ export function fmtDate(iso: string): string {
   // Argentina es UTC-3 fijo (sin DST) — calculamos manualmente para evitar
   // que Intl.DateTimeFormat devuelva año en 2 dígitos en algunos browsers con locale es-AR
   const arg = new Date(d.getTime() - 3 * 60 * 60 * 1000)
-  const dd   = String(arg.getUTCDate()).padStart(2, '0')
-  const mm   = String(arg.getUTCMonth() + 1).padStart(2, '0')
+  const dd   = String(arg.getUTCDate())
+  const mm   = String(arg.getUTCMonth() + 1)
   const yyyy = arg.getUTCFullYear()
   const hh   = String(arg.getUTCHours()).padStart(2, '0')
   const min  = String(arg.getUTCMinutes()).padStart(2, '0')
