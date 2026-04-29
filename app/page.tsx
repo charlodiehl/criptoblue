@@ -474,7 +474,7 @@ export default function Dashboard() {
       const data = await res.json()
       if (checkLockResponse(res, data)) return
       if (data.success) {
-        addToast(data.tnError ? 'Registrado, pero no se pudo marcar en TN — hacelo manualmente' : 'Orden marcada como pagada', data.tnError ? 'error' : 'success')
+        addToast(data.tnError ? 'Registrado, pero no se pudo marcar en la tienda — hacelo manualmente' : 'Orden marcada como pagada', data.tnError ? 'error' : 'success')
         // Actualización optimista: verde inmediato, Realtime confirma y saca la orden de pendientes
         if (data.recentMatch) setRecentMatches(prev => [...prev, data.recentMatch])
         if (data.logEntry) setLogEntries(prev => [...prev, data.logEntry])

@@ -119,9 +119,10 @@ export async function markOrderAsPaid(
       headers: shopifyHeaders(accessToken),
       body: JSON.stringify({
         transaction: {
-          kind: 'capture',
+          kind: 'sale',
           status: 'success',
           amount: amount.toFixed(2),
+          gateway: 'manual',
         },
       }),
     })
