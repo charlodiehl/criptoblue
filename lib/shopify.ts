@@ -111,20 +111,45 @@ export async function markOrderAsPaid(
   orderId: string,
   amount: number,
 ): Promise<{ success: boolean; error?: string }> {
-  const url = `${apiBase(storeId)}/orders/${orderId}/transactions.json`
+  const txUrl = `${apiBase(storeId)}/orders/${orderId}/transactions.json`
 
   try {
-    const res = await fetch(url, {
+    // Buscar si existe una autorización pendiente para capturar en vez de crear un sale nuevo
+    let kind = 'sale'
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let parentId: number | undefined
+
+    const txListRes = await fetch(txUrl, { headers: shopifyHeaders(accessToken) })
+    if (txListRes.ok) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const txData: any = await txListRes.json()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const existing: any[] = txData.transactions || []
+      const auth = existing.find(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (t: any) => t.kind === 'authorization' && (t.status === 'success' || t.status === 'pending')
+      )
+      if (auth) {
+        kind = 'capture'
+        parentId = auth.id
+      }
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const transaction: any = {
+      kind,
+      status: 'success',
+      amount: amount.toFixed(2),
+      gateway: 'manual',
+    }
+    if (parentId) transaction.parent_id = parentId
+
+    console.log(`[shopify] markOrderAsPaid orderId=${orderId} kind=${kind} parentId=${parentId}`)
+
+    const res = await fetch(txUrl, {
       method: 'POST',
       headers: shopifyHeaders(accessToken),
-      body: JSON.stringify({
-        transaction: {
-          kind: 'sale',
-          status: 'success',
-          amount: amount.toFixed(2),
-          gateway: 'manual',
-        },
-      }),
+      body: JSON.stringify({ transaction }),
     })
 
     if (res.ok) return { success: true }
