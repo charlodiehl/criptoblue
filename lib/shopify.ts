@@ -125,13 +125,15 @@ export async function markOrderAsPaid(
       const txData: any = await txListRes.json()
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const existing: any[] = txData.transactions || []
-      const auth = existing.find(
+      // Órdenes con pago manual (ej: Transferencia) tienen un sale/authorization en pending
+      // esperando confirmación — hay que capturarlo, no crear un sale nuevo
+      const pendingTx = existing.find(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (t: any) => t.kind === 'authorization' && (t.status === 'success' || t.status === 'pending')
+        (t: any) => t.status === 'pending' && (t.kind === 'sale' || t.kind === 'authorization')
       )
-      if (auth) {
+      if (pendingTx) {
         kind = 'capture'
-        parentId = auth.id
+        parentId = pendingTx.id
       }
     }
 
