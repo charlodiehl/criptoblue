@@ -138,9 +138,7 @@ export async function markOrderAsPaid(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const transaction: any = {
       kind,
-      status: 'success',
       amount: amount.toFixed(2),
-      gateway: 'manual',
     }
     if (parentId) transaction.parent_id = parentId
 
