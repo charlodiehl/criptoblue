@@ -306,7 +306,7 @@ export default function ManualMatchTab({
       const skipCount = 0
       // Precomputar cantidad de órdenes con mismo monto (±$10) creadas antes del pago y en las últimas 24hs
       const payTime = u.payment.fechaPago ? new Date(u.payment.fechaPago).getTime() : null
-      const cutoff24h = Date.now() - 24 * 60 * 60 * 1000
+      const cutoff24h = (payTime ?? Date.now()) - 24 * 60 * 60 * 1000
       const totalSameMonto = orders.filter(x =>
         Math.abs(x.total - u.payment.monto) <= 10 &&
         (x.createdAt ? new Date(x.createdAt).getTime() >= cutoff24h : true) &&
