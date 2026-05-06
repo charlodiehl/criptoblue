@@ -36,26 +36,43 @@ export async function processMPPayments(): Promise<CycleResult> {
   // Purge: igual que el rolling de pagos
   const purgeCutoff = new Date(Math.max(paymentsRollingMs, HARD_CUTOFF_PAYMENTS.getTime()))
 
-  // Cutoff de ÓRDENES: anclado al pago sin emparejar más viejo, para garantizar
-  // que el cache cubra siempre la ventana de detección de sameMontoCount (24h)
-  // de TODOS los pagos vivos. Si no hay pagos en cola, usa el rolling mínimo.
+  // Cutoff de ÓRDENES: anclado al pago sin emparejar más viejo VÁLIDO, para
+  // garantizar que el cache cubra la ventana de detección de sameMontoCount
+  // (24h) de los pagos vivos. Si no hay pagos en cola, usa el rolling mínimo.
   // Esto evita el bug donde una orden de borde quedaba fuera del cache cuando
   // el cron corría cerca de las 48h después del pago (caso #72784/#72787).
+  //
+  // CAP MÁXIMO: el cache nunca va más atrás de PAYMENT_CACHE + SAMEMONTO_WINDOW
+  // + buffer (= 73h por defecto). Si hay pagos pegados de hace 20 días por un
+  // bug de purge, no expandimos el cache hasta ahí — esos pagos ya no son
+  // emparejables igualmente. Esto evita explosiones de tamaño del cache.
   const ordersRollingMs = now.getTime() - ORDER_CACHE_MIN_HOURS * HOUR_MS
+  const maxCacheLookbackMs =
+    now.getTime() -
+    (PAYMENT_CACHE_HOURS + SAMEMONTO_WINDOW_HOURS + ORDER_CACHE_BUFFER_HOURS) * HOUR_MS
 
-  const oldestPaymentMs = state.unmatchedPayments.length > 0
-    ? Math.min(
-        ...state.unmatchedPayments.map(u => {
-          const t = u.payment.fechaPago ? new Date(u.payment.fechaPago).getTime() : NaN
-          return Number.isFinite(t) ? t : new Date(u.timestamp).getTime()
-        })
-      )
+  // Solo considerar pagos dentro del rango de purga válido para el cálculo
+  // del anchor del cache. Pagos más viejos que el rolling de pagos son "stuck"
+  // y no deberían influir.
+  const validUnmatchedTimes = state.unmatchedPayments
+    .map(u => {
+      const t = u.payment.fechaPago ? new Date(u.payment.fechaPago).getTime() : NaN
+      return Number.isFinite(t) ? t : new Date(u.timestamp).getTime()
+    })
+    .filter(t => Number.isFinite(t) && t >= paymentsRollingMs)
+
+  const oldestPaymentMs = validUnmatchedTimes.length > 0
+    ? Math.min(...validUnmatchedTimes)
     : now.getTime()
 
   const oldestDetectionStartMs =
     oldestPaymentMs - SAMEMONTO_WINDOW_HOURS * HOUR_MS - ORDER_CACHE_BUFFER_HOURS * HOUR_MS
 
-  const ordersCutoffMs = Math.min(ordersRollingMs, oldestDetectionStartMs)
+  // Aplicar el cap máximo
+  const ordersCutoffMs = Math.max(
+    Math.min(ordersRollingMs, oldestDetectionStartMs),
+    maxCacheLookbackMs
+  )
   const sinceOrders = new Date(Math.max(ordersCutoffMs, HARD_CUTOFF_ORDERS.getTime()))
 
   // Traer pagos aprobados desde el cutoff efectivo

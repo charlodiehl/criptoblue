@@ -466,17 +466,25 @@ export async function saveHotState(state: HotState): Promise<void> {
     // y guarda en T1, endpoint X guarda en T2 con su versión T0 de unmatchedPayments,
     // sobreescribiendo los pagos del cron. Sin este merge, esos pagos se pierden silenciosamente.
     //
-    // Exclusión: un pago emparejado (auto o manual) SIEMPRE se agrega a recentMatches
+    // Exclusión 1: un pago emparejado (auto o manual) SIEMPRE se agrega a recentMatches
     // al mismo tiempo que se remueve de unmatchedPayments. Usamos cleaned.recentMatches
     // como lista de exclusión para no re-agregar pagos ya emparejados.
+    //
+    // Exclusión 2: pagos cuya fechaPago está fuera de la ventana de retención
+    // (effectiveCutoffPaymentsMs). Sin esto, el merge re-agrega pagos que el cron
+    // intencionalmente purgó por antigüedad, infinitamente. Caso real: 1.560 pagos
+    // de hace 24 días seguían vivos porque el merge los reincorporaba en cada save.
     if (current.unmatchedPayments?.length) {
       const existingIds = new Set(cleaned.unmatchedPayments.map(u => u.payment.mpPaymentId))
       const confirmedByRecentMatch = new Set((cleaned.recentMatches ?? []).map(m => m.mpPaymentId))
+      const { effectiveCutoffPaymentsMs } = getCutoffs()
       for (const u of current.unmatchedPayments) {
         const id = u.payment.mpPaymentId
-        if (!existingIds.has(id) && !confirmedByRecentMatch.has(id)) {
-          cleaned.unmatchedPayments.push({ ...u, payment: stripRawData(u.payment) })
-        }
+        if (existingIds.has(id) || confirmedByRecentMatch.has(id)) continue
+        // Respetar el cutoff de purga: pagos viejos no deben re-aparecer
+        const fp = u.payment.fechaPago ? new Date(u.payment.fechaPago).getTime() : null
+        if (fp !== null && Number.isFinite(fp) && fp < effectiveCutoffPaymentsMs) continue
+        cleaned.unmatchedPayments.push({ ...u, payment: stripRawData(u.payment) })
       }
     }
   }
