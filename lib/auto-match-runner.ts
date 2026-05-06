@@ -33,11 +33,25 @@ export async function runAutoMatchCore(
     ...(hot.retainedPaymentIds ?? []),
   ])
 
+  // Órdenes ya registradas como pagadas — excluirlas del conteo de sameMontoCount
+  // para que no inflen la ambigüedad mientras el cache de TN aún no se actualizó
+  const confirmedOrderIds = new Set<string>([
+    ...logs.registroLog
+      .filter(e => e.orderId && e.storeId && (e.action === 'manual_paid' || e.action === 'auto_paid'))
+      .map(e => `${e.storeId}-${e.orderId}`)
+      .filter(Boolean) as string[],
+    ...matchLogData.matchLog
+      .filter(e => e.orderId && e.storeId && (e.action === 'manual_paid' || e.action === 'auto_paid'))
+      .map(e => `${e.storeId}-${e.orderId}`)
+      .filter(Boolean) as string[],
+  ])
+
   const candidates = findAutoMatchCandidates(
     hot.unmatchedPayments,
     ordersCache.cachedOrders ?? [],
     hot.dismissedPairs ?? [],
     confirmedIds,
+    confirmedOrderIds,
   )
 
   // Cola de audit — se escribe toda junta al final del ciclo (1 read+write en vez de N)

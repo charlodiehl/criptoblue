@@ -181,8 +181,12 @@ export function findAutoMatchCandidates(
   orders: Order[],
   dismissedPairs: { mpPaymentId: string; orderId: string; storeId: string }[],
   confirmedIds: Set<string>,
+  confirmedOrderIds: Set<string> = new Set(),
 ): AutoMatchCandidate[] {
   const dismissedSet = new Set(dismissedPairs.map(p => `${p.mpPaymentId}|${p.orderId}|${p.storeId}`))
+  // Filtrar órdenes ya pagadas del universo de candidatos — no deben ser candidatas
+  // ni inflar el conteo de sameMontoCount
+  orders = orders.filter(o => !confirmedOrderIds.has(`${o.storeId}-${o.orderId}`))
   const candidates: AutoMatchCandidate[] = []
 
   for (const u of unmatchedPayments) {

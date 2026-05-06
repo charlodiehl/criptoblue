@@ -587,7 +587,12 @@ export default function Dashboard() {
   const matchedOrderIds = useMemo(() => new Set([
     ...recentMatches.filter(m => m.orderId && m.storeId).map(m => `${m.storeId}-${m.orderId}`),
     ...(stats?.externallyMarkedOrders ?? []),
-  ]), [recentMatches, stats?.externallyMarkedOrders])
+    // Excluir órdenes ya registradas en el log — evita que inflen el conteo de
+    // "otras órdenes mismo monto" mientras el cache de TN aún no se actualizó
+    ...logEntries
+      .filter(e => e.orderId && e.storeId && (e.action === 'manual_paid' || e.action === 'auto_paid'))
+      .map(e => `${e.storeId}-${e.orderId}`),
+  ]), [recentMatches, stats?.externallyMarkedOrders, logEntries])
 
   // Arrays filtrados memoizados para ManualMatchTab (evitar nuevas referencias en cada render)
   const filteredUnmatched = useMemo(() =>
