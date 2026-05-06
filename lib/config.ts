@@ -7,6 +7,24 @@ export const HARD_CUTOFF_PAYMENTS = new Date('2026-03-28T00:00:00.000Z')
 // Órdenes: igual que pagos — 27/03/2026 21:00 ART → 00:00 UTC 28/03
 export const HARD_CUTOFF_ORDERS = new Date('2026-03-28T00:00:00.000Z')
 
+// ─── Ventanas de tiempo (centralizadas para evitar desincronización) ──────────
+
+// Ventana de detección de "monto duplicado": cuántas horas antes del pago
+// se buscan otras órdenes con el mismo monto al computar sameMontoCount.
+export const SAMEMONTO_WINDOW_HOURS = 24
+
+// Ventana mínima del cache de órdenes (rolling desde "ahora") cuando no hay
+// pagos viejos en cola. Si hay pagos sin emparejar, el cache se extiende
+// automáticamente para cubrir su ventana de detección.
+export const ORDER_CACHE_MIN_HOURS = 48
+
+// Buffer extra al fetchear órdenes para cubrir la ventana de detección,
+// para que órdenes creadas justo en el borde no queden fuera por segundos.
+export const ORDER_CACHE_BUFFER_HOURS = 1
+
+// Ventana del rolling de pagos en MP (cuántas horas hacia atrás se traen).
+export const PAYMENT_CACHE_HOURS = 48
+
 // Mapeo de fuente de pago → nombre amigable para el Registro
 // Para agregar un nuevo medio de pago, solo agregar una entrada acá
 export const PAYMENT_SOURCE_NAMES: Record<string, string> = {

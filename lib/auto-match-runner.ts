@@ -46,7 +46,7 @@ export async function runAutoMatchCore(
       .filter(Boolean) as string[],
   ])
 
-  const candidates = findAutoMatchCandidates(
+  const { candidates, diagnostics } = findAutoMatchCandidates(
     hot.unmatchedPayments,
     ordersCache.cachedOrders ?? [],
     hot.dismissedPairs ?? [],
@@ -56,7 +56,29 @@ export async function runAutoMatchCore(
 
   // Cola de audit — se escribe toda junta al final del ciclo (1 read+write en vez de N)
   const auditQueue: AuditParams[] = []
-  auditQueue.push({ category: 'system', action: 'auto_match.start', result: 'success', actor: triggeredBy === 'cron' ? 'cron' : 'human', component: 'auto-match-runner', message: `Auto-match iniciado: ${candidates.length} candidatos`, meta: { candidateCount: candidates.length, triggeredBy } })
+  auditQueue.push({ category: 'system', action: 'auto_match.start', result: 'success', actor: triggeredBy === 'cron' ? 'cron' : 'human', component: 'auto-match-runner', message: `Auto-match iniciado: ${candidates.length} candidatos`, meta: { candidateCount: candidates.length, triggeredBy, paymentsEvaluated: diagnostics.length, cacheSize: (ordersCache.cachedOrders ?? []).length, cacheUpdatedAt: ordersCache.cachedOrdersAt } })
+
+  // Loguear el diagnóstico de sameMontoCount por pago — permite auditar
+  // retroactivamente qué órdenes vio el sistema cuando computó la unicidad.
+  for (const d of diagnostics) {
+    auditQueue.push({
+      category: 'match',
+      action: 'auto_match.same_monto_computed',
+      result: 'success',
+      actor: 'system',
+      component: 'auto-match-runner',
+      mpPaymentId: d.mpPaymentId,
+      message: `sameMontoCount=${d.sameMontoCount} para ${d.mpPaymentId} (${d.orderIdsInWindow.length} órdenes en ventana)`,
+      meta: {
+        payTime: d.payTimeISO,
+        windowStart: d.windowStartISO,
+        windowEnd: d.windowEndISO,
+        sameMontoCount: d.sameMontoCount,
+        orderIdsInWindow: d.orderIdsInWindow,
+        totalOrdersInUniverse: d.totalOrdersInUniverse,
+      },
+    })
+  }
 
   let matched = 0
   const errors: string[] = []

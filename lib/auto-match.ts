@@ -5,6 +5,7 @@
  */
 
 import type { Payment, Order, UnmatchedPayment } from './types'
+import { SAMEMONTO_WINDOW_HOURS } from './config'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -176,18 +177,38 @@ export interface AutoMatchCandidate {
   order: Order
 }
 
+// Diagnóstico por pago — para auditar retroactivamente qué vio el sistema
+// cuando computó sameMontoCount. Se loguea en el audit log.
+export interface AutoMatchDiagnostic {
+  mpPaymentId: string
+  payTimeISO: string | null
+  windowStartISO: string
+  windowEndISO: string | null
+  sameMontoCount: number
+  orderIdsInWindow: string[]   // todas las órdenes con monto similar dentro de la ventana
+  totalOrdersInUniverse: number  // total de órdenes consideradas (post-filtros globales)
+}
+
+export interface AutoMatchResult {
+  candidates: AutoMatchCandidate[]
+  diagnostics: AutoMatchDiagnostic[]
+}
+
 export function findAutoMatchCandidates(
   unmatchedPayments: UnmatchedPayment[],
   orders: Order[],
   dismissedPairs: { mpPaymentId: string; orderId: string; storeId: string }[],
   confirmedIds: Set<string>,
   confirmedOrderIds: Set<string> = new Set(),
-): AutoMatchCandidate[] {
+): AutoMatchResult {
   const dismissedSet = new Set(dismissedPairs.map(p => `${p.mpPaymentId}|${p.orderId}|${p.storeId}`))
   // Filtrar órdenes ya pagadas del universo de candidatos — no deben ser candidatas
   // ni inflar el conteo de sameMontoCount
   orders = orders.filter(o => !confirmedOrderIds.has(`${o.storeId}-${o.orderId}`))
   const candidates: AutoMatchCandidate[] = []
+  const diagnostics: AutoMatchDiagnostic[] = []
+
+  const SAMEMONTO_WINDOW_MS = SAMEMONTO_WINDOW_HOURS * 60 * 60 * 1000
 
   for (const u of unmatchedPayments) {
     const mpId = u.payment.mpPaymentId || u.mpPaymentId || ''
@@ -195,20 +216,33 @@ export function findAutoMatchCandidates(
 
     // Excluir órdenes dismisseadas del conteo — ya fueron descartadas
     // intencionalmente y no deben inflar la ambigüedad del match.
-    // Solo contar órdenes de las últimas 24hs creadas antes del pago.
+    // Solo contar órdenes con monto similar creadas en la ventana
+    // [payTime - SAMEMONTO_WINDOW_HOURS, payTime].
     // IMPORTANTE: el cutoff debe ser relativo al momento del PAGO, no al momento
     // en que corre el auto-match. Si se usa Date.now(), órdenes que eran recientes
     // al momento del pago pueden quedar fuera de la ventana cuando el auto-match
     // corre con demora, haciendo que sameMontoCount = 0 aunque haya múltiples
     // órdenes del mismo monto — caso real: órdenes 181378 y 181379 el 12/4.
     const payTime = u.payment.fechaPago ? new Date(u.payment.fechaPago).getTime() : null
-    const cutoff24h = (payTime ?? Date.now()) - 24 * 60 * 60 * 1000
-    const sameMontoCount = Math.max(0, orders.filter(o =>
+    const windowStart = (payTime ?? Date.now()) - SAMEMONTO_WINDOW_MS
+
+    const ordersInWindow = orders.filter(o =>
       Math.abs(o.total - u.payment.monto) <= 10 &&
       !dismissedSet.has(`${mpId}|${o.orderId}|${o.storeId}`) &&
-      (o.createdAt ? new Date(o.createdAt).getTime() >= cutoff24h : true) &&
+      (o.createdAt ? new Date(o.createdAt).getTime() >= windowStart : true) &&
       (payTime && o.createdAt ? new Date(o.createdAt).getTime() <= payTime : true)
-    ).length - 1)
+    )
+    const sameMontoCount = Math.max(0, ordersInWindow.length - 1)
+
+    diagnostics.push({
+      mpPaymentId: mpId,
+      payTimeISO: payTime ? new Date(payTime).toISOString() : null,
+      windowStartISO: new Date(windowStart).toISOString(),
+      windowEndISO: payTime ? new Date(payTime).toISOString() : null,
+      sameMontoCount,
+      orderIdsInWindow: ordersInWindow.map(o => `${o.storeId}-${o.orderId}`),
+      totalOrdersInUniverse: orders.length,
+    })
 
     let bestOrder: Order | null = null
     let bestGreenCount = -1
@@ -218,7 +252,6 @@ export function findAutoMatchCandidates(
       if (dismissedSet.has(`${mpId}|${order.orderId}|${order.storeId}`)) continue
 
       // Regla dura: el pago no puede ser anterior a la creación de la orden
-      const payTime = u.payment.fechaPago ? new Date(u.payment.fechaPago).getTime() : 0
       const ordTime = order.createdAt ? new Date(order.createdAt).getTime() : 0
       if (payTime && ordTime && payTime < ordTime) continue
 
@@ -238,5 +271,5 @@ export function findAutoMatchCandidates(
     }
   }
 
-  return candidates
+  return { candidates, diagnostics }
 }

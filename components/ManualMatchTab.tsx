@@ -3,6 +3,7 @@
 import { useState, useMemo, useEffect } from 'react'
 import type { UnmatchedPayment, Order } from '@/lib/types'
 import { ARS, fmtDate } from '@/lib/utils'
+import { SAMEMONTO_WINDOW_HOURS } from '@/lib/config'
 
 
 
@@ -304,12 +305,13 @@ export default function ManualMatchTab({
     const allPairs = unmatchedPayments.map(u => {
       const id = u.mpPaymentId || u.payment.mpPaymentId || ''
       const skipCount = 0
-      // Precomputar cantidad de órdenes con mismo monto (±$10) creadas antes del pago y en las últimas 24hs
+      // Precomputar cantidad de órdenes con mismo monto (±$10) creadas antes del pago
+      // y dentro de la ventana de detección (SAMEMONTO_WINDOW_HOURS antes del pago).
       const payTime = u.payment.fechaPago ? new Date(u.payment.fechaPago).getTime() : null
-      const cutoff24h = (payTime ?? Date.now()) - 24 * 60 * 60 * 1000
+      const windowStart = (payTime ?? Date.now()) - SAMEMONTO_WINDOW_HOURS * 60 * 60 * 1000
       const totalSameMonto = orders.filter(x =>
         Math.abs(x.total - u.payment.monto) <= 10 &&
-        (x.createdAt ? new Date(x.createdAt).getTime() >= cutoff24h : true) &&
+        (x.createdAt ? new Date(x.createdAt).getTime() >= windowStart : true) &&
         (payTime && x.createdAt ? new Date(x.createdAt).getTime() <= payTime : true)
       ).length
 

@@ -2,7 +2,7 @@ import { fetchAllPaymentsSince } from './mercadopago'
 import { getPendingOrders as getTNOrders } from './tiendanube'
 import { getPendingOrders as getShopifyOrders } from './shopify'
 import { loadState, saveState, getStores, appendError, loadLogs, saveLogs } from './storage'
-import { HARD_CUTOFF_PAYMENTS, HARD_CUTOFF_ORDERS } from './config'
+import { HARD_CUTOFF_PAYMENTS, HARD_CUTOFF_ORDERS, SAMEMONTO_WINDOW_HOURS, ORDER_CACHE_MIN_HOURS, ORDER_CACHE_BUFFER_HOURS, PAYMENT_CACHE_HOURS } from './config'
 import type { UnmatchedPayment, Store } from './types'
 import { audit, auditApiCall } from './audit'
 import { nowART } from './utils'
@@ -27,13 +27,36 @@ export async function processMPPayments(): Promise<CycleResult> {
   const [state, stores] = await Promise.all([loadState(), getStores()])
 
   const now = new Date()
-  const cutoff48h = new Date(now.getTime() - 48 * 60 * 60 * 1000)
-  // Cutoffs separados para pagos y órdenes
-  const sincePayments = cutoff48h > HARD_CUTOFF_PAYMENTS ? cutoff48h : HARD_CUTOFF_PAYMENTS
-  const sinceOrders = cutoff48h > HARD_CUTOFF_ORDERS ? cutoff48h : HARD_CUTOFF_ORDERS
+  const HOUR_MS = 60 * 60 * 1000
 
-  // Purge pagos anteriores al cutoff efectivo de pagos
-  const purgeCutoff = cutoff48h > HARD_CUTOFF_PAYMENTS ? cutoff48h : HARD_CUTOFF_PAYMENTS
+  // Cutoff de pagos: rolling 48h hacia atrás
+  const paymentsRollingMs = now.getTime() - PAYMENT_CACHE_HOURS * HOUR_MS
+  const sincePayments = new Date(Math.max(paymentsRollingMs, HARD_CUTOFF_PAYMENTS.getTime()))
+
+  // Purge: igual que el rolling de pagos
+  const purgeCutoff = new Date(Math.max(paymentsRollingMs, HARD_CUTOFF_PAYMENTS.getTime()))
+
+  // Cutoff de ÓRDENES: anclado al pago sin emparejar más viejo, para garantizar
+  // que el cache cubra siempre la ventana de detección de sameMontoCount (24h)
+  // de TODOS los pagos vivos. Si no hay pagos en cola, usa el rolling mínimo.
+  // Esto evita el bug donde una orden de borde quedaba fuera del cache cuando
+  // el cron corría cerca de las 48h después del pago (caso #72784/#72787).
+  const ordersRollingMs = now.getTime() - ORDER_CACHE_MIN_HOURS * HOUR_MS
+
+  const oldestPaymentMs = state.unmatchedPayments.length > 0
+    ? Math.min(
+        ...state.unmatchedPayments.map(u => {
+          const t = u.payment.fechaPago ? new Date(u.payment.fechaPago).getTime() : NaN
+          return Number.isFinite(t) ? t : new Date(u.timestamp).getTime()
+        })
+      )
+    : now.getTime()
+
+  const oldestDetectionStartMs =
+    oldestPaymentMs - SAMEMONTO_WINDOW_HOURS * HOUR_MS - ORDER_CACHE_BUFFER_HOURS * HOUR_MS
+
+  const ordersCutoffMs = Math.min(ordersRollingMs, oldestDetectionStartMs)
+  const sinceOrders = new Date(Math.max(ordersCutoffMs, HARD_CUTOFF_ORDERS.getTime()))
 
   // Traer pagos aprobados desde el cutoff efectivo
   let payments
@@ -201,11 +224,31 @@ export async function processMPPayments(): Promise<CycleResult> {
   // 6. Campos exclusivos del ciclo
   freshState.lastMPCheck = now.toISOString()
 
-  // 7. Actualizar cache de órdenes (si al menos una tienda respondió)
+  // 7. Actualizar cache de órdenes — preservando tiendas que fallaron.
+  //
+  // Si una tienda falla el fetch, NO descartamos sus órdenes anteriores: las
+  // mantenemos del cache previo para que sameMontoCount siga siendo correcto.
+  // Solo se reescriben las órdenes de tiendas que respondieron OK.
+  const failedStoreIds = new Set<string>()
+  const successfulOrders: typeof freshState.cachedOrders = []
+
+  allOrdersPerStore.forEach((r, i) => {
+    const sid = storeEntries[i].storeId
+    if (r.status === 'fulfilled') {
+      successfulOrders.push(...r.value)
+    } else {
+      failedStoreIds.add(sid)
+    }
+  })
+
   const anyFulfilled = allOrdersPerStore.some(r => r.status === 'fulfilled')
-  if (anyFulfilled) {
-    freshState.cachedOrders = allOrdersPerStore.flatMap(r => r.status === 'fulfilled' ? r.value : [])
-    freshState.cachedOrdersAt = now.toISOString()
+  if (anyFulfilled || failedStoreIds.size > 0) {
+    const previousOrders = freshState.cachedOrders ?? []
+    const preservedOrders = failedStoreIds.size > 0
+      ? previousOrders.filter(o => failedStoreIds.has(o.storeId))
+      : []
+    freshState.cachedOrders = [...successfulOrders, ...preservedOrders]
+    if (anyFulfilled) freshState.cachedOrdersAt = now.toISOString()
   }
 
   // 8. Merge de errorLog agregado en este ciclo
