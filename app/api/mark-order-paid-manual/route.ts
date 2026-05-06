@@ -35,10 +35,12 @@ export async function POST(req: NextRequest) {
     }
 
     const fakeMpPaymentId = `manual_${Date.now()}_${orderId}`
-    // Usar la fecha/hora ingresada por el usuario; si no viene, usar el momento actual
+    // entryTimestamp: momento real en que se ejecuta la acción (para el log).
+    const entryTimestamp = nowART()
+    // fechaPagoISO: fecha/hora del pago ingresada por el usuario (para payment.fechaPago).
     // fechaPago viene del input datetime-local del browser en horario Argentina (UTC-3), sin zona horaria.
     // Se agrega ':00-03:00' para que new Date() lo interprete correctamente como ART y no como UTC.
-    const now = fechaPago ? new Date(fechaPago + ':00-03:00').toISOString() : nowART()
+    const fechaPagoISO = fechaPago ? new Date(fechaPago + ':00-03:00').toISOString() : entryTimestamp
 
     // Payment sintético con los datos ingresados por el usuario
     const fakePayment: Payment = {
@@ -50,7 +52,7 @@ export async function POST(req: NextRequest) {
       referencia: '',
       operationId: '',
       metodoPago: medioPago,
-      fechaPago: now,
+      fechaPago: fechaPagoISO,
       status: 'approved',
       source: medioPago,
       rawData: {},
@@ -64,7 +66,7 @@ export async function POST(req: NextRequest) {
     hot.recentMatches = hot.recentMatches || []
     hot.recentMatches.push({
       mpPaymentId: fakeMpPaymentId,
-      matchedAt: now,
+      matchedAt: entryTimestamp,
       orderId,
       storeId,
       order: order || undefined,
@@ -72,7 +74,7 @@ export async function POST(req: NextRequest) {
     })
 
     const logEntry: LogEntry = {
-      timestamp: now,
+      timestamp: entryTimestamp,
       action: 'manual_paid',
       source: 'manual_ordenes',
       triggeredBy: 'human',
@@ -126,12 +128,12 @@ export async function POST(req: NextRequest) {
       // El log ya fue guardado — devolver success con advertencia para que el
       // frontend lo informe al usuario sin bloquear el flujo.
       await Promise.all([saveHotState(hot), saveMatchLog(matchLogData)])
-      return NextResponse.json({ success: true, logEntry, tnError: markError, recentMatch: { mpPaymentId: fakeMpPaymentId, matchedAt: now, orderId, storeId } })
+      return NextResponse.json({ success: true, logEntry, tnError: markError, recentMatch: { mpPaymentId: fakeMpPaymentId, matchedAt: entryTimestamp, orderId, storeId } })
     }
 
     await Promise.all([saveHotState(hot), saveMatchLog(matchLogData)])
 
-    return NextResponse.json({ success: true, logEntry, recentMatch: { mpPaymentId: fakeMpPaymentId, matchedAt: now, orderId, storeId } })
+    return NextResponse.json({ success: true, logEntry, recentMatch: { mpPaymentId: fakeMpPaymentId, matchedAt: entryTimestamp, orderId, storeId } })
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 })
   } finally {
