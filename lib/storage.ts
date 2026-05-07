@@ -461,6 +461,34 @@ export async function saveHotState(state: HotState): Promise<void> {
       }
     }
 
+    // Merge recentMatches — preservar matches manuales agregados por procesos concurrentes.
+    // Sin esto, si el cron carga el estado ANTES de que manual-match guarde, su versión
+    // de recentMatches no tiene el nuevo match y lo sobreescribe al guardar — borrando
+    // la entrada. Consecuencia: el pago matcheado reaparece en la cola (no está en
+    // confirmedByRecentMatch) y el badge del frontend no lo filtra. Caso real: pagos
+    // 157055175149 y 158008514494 el 7/5.
+    if (current.recentMatches?.length) {
+      const cleanedMatchIds = new Set((cleaned.recentMatches ?? []).map(m => m.mpPaymentId))
+      for (const m of current.recentMatches) {
+        if (m.mpPaymentId && !cleanedMatchIds.has(m.mpPaymentId)) {
+          cleaned.recentMatches = cleaned.recentMatches ?? []
+          cleaned.recentMatches.push(m)
+        }
+      }
+    }
+
+    // Excluir de cleaned.unmatchedPayments los pagos que OTRO proceso ya confirmó
+    // (aparecen en cleaned.recentMatches, ya mergeado arriba). Sin esto, el cron puede
+    // re-agregar un pago que manual-match removió entre el load y el save del cron:
+    // el cron tenía el pago en su versión inicial, y el merge de unmatchedPayments
+    // solo AGREGA lo que falta en current — no QUITA lo que el manual-match removió.
+    if (cleaned.recentMatches?.length) {
+      const allMatchedIds = new Set(cleaned.recentMatches.map(m => m.mpPaymentId).filter(Boolean))
+      cleaned.unmatchedPayments = cleaned.unmatchedPayments.filter(
+        u => !allMatchedIds.has(u.payment.mpPaymentId)
+      )
+    }
+
     // Merge unmatchedPayments — preservar pagos agregados por procesos concurrentes.
     // Escenario crítico: endpoint X carga hot state en T0, el cron agrega pagos nuevos
     // y guarda en T1, endpoint X guarda en T2 con su versión T0 de unmatchedPayments,
@@ -468,7 +496,7 @@ export async function saveHotState(state: HotState): Promise<void> {
     //
     // Exclusión 1: un pago emparejado (auto o manual) SIEMPRE se agrega a recentMatches
     // al mismo tiempo que se remueve de unmatchedPayments. Usamos cleaned.recentMatches
-    // como lista de exclusión para no re-agregar pagos ya emparejados.
+    // (ya mergeado arriba) como lista de exclusión para no re-agregar pagos ya emparejados.
     //
     // Exclusión 2: pagos cuya fechaPago está fuera de la ventana de retención
     // (effectiveCutoffPaymentsMs). Sin esto, el merge re-agrega pagos que el cron
