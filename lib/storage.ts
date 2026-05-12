@@ -504,9 +504,16 @@ export async function saveHotState(state: HotState): Promise<void> {
     // la entrada. Consecuencia: el pago matcheado reaparece en la cola (no está en
     // confirmedByRecentMatch) y el badge del frontend no lo filtra. Caso real: pagos
     // 157055175149 y 158008514494 el 7/5.
+    //
+    // IMPORTANTE: solo mergear entradas dentro de la ventana de 48h (effectiveCutoffMinMs).
+    // Sin este filtro, el merge re-agregaba entries viejos que cleanHotData ya había
+    // filtrado de cleaned.recentMatches, anulando la limpieza temporal y dejando que
+    // el array creciera indefinidamente (caso real: 1.789 entradas acumuladas de 7 días).
     if (current.recentMatches?.length) {
+      const { effectiveCutoffMinMs } = getCutoffs()
       const cleanedMatchIds = new Set((cleaned.recentMatches ?? []).map(m => m.mpPaymentId))
       for (const m of current.recentMatches) {
+        if (new Date(m.matchedAt).getTime() < effectiveCutoffMinMs) continue
         if (m.mpPaymentId && !cleanedMatchIds.has(m.mpPaymentId)) {
           cleaned.recentMatches = cleaned.recentMatches ?? []
           cleaned.recentMatches.push(m)
