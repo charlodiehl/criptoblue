@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getStores, loadOrdersCache, loadLogs } from '@/lib/storage'
+import { getStores, loadOrdersCache, loadLogs, loadArchivedRegistroLog } from '@/lib/storage'
 import { CONFIG } from '@/lib/config'
-import type { Order } from '@/lib/types'
+import type { Order, LogEntry } from '@/lib/types'
 
 function tnHeaders(accessToken: string) {
   return {
@@ -110,9 +110,21 @@ export async function POST(req: NextRequest) {
       (o: Order) => o.orderId === order!.orderId && o.storeId === order!.storeId
     )
 
-    // Buscar duplicado en registroLog de los últimos 30 días
-    // Criterios: misma tienda, mismo monto, y (email/CUIT coincidente = alta) o (nombre coincidente = media)
+    // Buscar duplicado en registroLog de los últimos 30 días.
+    // El log activo solo tiene rolling 15 días, así que cargamos también el
+    // archivo del mes anterior para cubrir la ventana completa de 30 días.
     const cutoff30d = Date.now() - 30 * 24 * 60 * 60 * 1000
+    const prevMonth = (() => {
+      const d = new Date(Date.now() - 3 * 60 * 60 * 1000)
+      d.setUTCDate(1)
+      d.setUTCMonth(d.getUTCMonth() - 1)
+      return d.toISOString().slice(0, 7)
+    })()
+    const archivedPrev = await loadArchivedRegistroLog(prevMonth).catch(() => [] as LogEntry[])
+    const allRegistroEntries: LogEntry[] = [
+      ...(logs.registroLog ?? []),
+      ...archivedPrev,
+    ]
     const normName = (s: string) => (s || '').toLowerCase().trim().replace(/\s+/g, ' ')
     const normCuit = (s: string) => (s || '').replace(/\D/g, '')
 
@@ -123,7 +135,7 @@ export async function POST(req: NextRequest) {
 
     let logDuplicate: { orderNumber: string; storeName: string; timestamp: string; confidence: 'alta' | 'media' } | null = null
 
-    for (const entry of logs.registroLog) {
+    for (const entry of allRegistroEntries) {
       if (entry.hidden) continue
       if (entry.action !== 'auto_paid' && entry.action !== 'manual_paid') continue
       if (new Date(entry.timestamp).getTime() < cutoff30d) continue

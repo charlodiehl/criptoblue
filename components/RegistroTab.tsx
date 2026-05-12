@@ -17,6 +17,13 @@ function fmtCuit(s: string) {
   return (s || '').replace(/\D/g, '')
 }
 
+const MONTH_NAMES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
+function fmtMonth(ym: string): string {
+  if (!ym) return ''
+  const [y, m] = ym.split('-')
+  return `${MONTH_NAMES[parseInt(m, 10) - 1]} ${y}`
+}
+
 function billetera(entry: LogEntry): string {
   const source = entry.payment?.source
   if (source && PAYMENT_SOURCE_NAMES[source]) return PAYMENT_SOURCE_NAMES[source]
@@ -126,19 +133,51 @@ export default function RegistroTab({ entries, onEntryEdited }: Props) {
   const onEntryEditedRef = useRef(onEntryEdited)
   useEffect(() => { onEntryEditedRef.current = onEntryEdited }, [onEntryEdited])
 
+  // Selector de mes archivado
+  const [selectedMonth, setSelectedMonth] = useState<string>('')
+  const [currentMonth, setCurrentMonth] = useState<string>('')
+  const [availableMonths, setAvailableMonths] = useState<string[]>([])
+  const [archivedEntries, setArchivedEntries] = useState<LogEntry[]>([])
+  const [loadingArchive, setLoadingArchive] = useState(false)
+
+  useEffect(() => {
+    fetch('/api/log-months')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data) {
+          setCurrentMonth(data.currentMonth)
+          setAvailableMonths(data.months)
+          setSelectedMonth(data.currentMonth)
+        }
+      })
+      .catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    if (!selectedMonth || selectedMonth === currentMonth) return
+    setLoadingArchive(true)
+    fetch(`/api/log?month=${selectedMonth}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data) setArchivedEntries(data.entries ?? []) })
+      .catch(() => {})
+      .finally(() => setLoadingArchive(false))
+  }, [selectedMonth, currentMonth])
+
+  const displayEntries = (selectedMonth && selectedMonth !== currentMonth) ? archivedEntries : entries
+
   // Filtros
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [search, setSearch] = useState('')
 
   // Flush pendientes al server
-  async function flushPending(timestamps: string[]) {
+  async function flushPending(timestamps: string[], month?: string) {
     if (timestamps.length === 0) return
     try {
       const res = await fetch('/api/log', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'mark_copied', timestamps }),
+        body: JSON.stringify({ action: 'mark_copied', timestamps, month }),
       })
       if (!res.ok) return
       localPendingRemove(timestamps)
@@ -185,8 +224,8 @@ export default function RegistroTab({ entries, onEntryEdited }: Props) {
 
   // Entradas filtradas por acción (solo emparejamientos)
   const paidAll = useMemo(() =>
-    entries.filter(e => e.action === 'manual_paid' || e.action === 'auto_paid' || e.action === 'no_match'),
-  [entries])
+    displayEntries.filter(e => e.action === 'manual_paid' || e.action === 'auto_paid' || e.action === 'no_match'),
+  [displayEntries])
 
   // Aplicar filtros de fecha y búsqueda
   const filtered = useMemo(() => {
@@ -290,7 +329,7 @@ export default function RegistroTab({ entries, onEntryEdited }: Props) {
       const res = await fetch('/api/log', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'mark_copied', timestamps }),
+        body: JSON.stringify({ action: 'mark_copied', timestamps, month: selectedMonth }),
       })
       if (!res.ok) throw new Error(`Error ${res.status}`)
       localPendingRemove(timestamps)
@@ -387,6 +426,24 @@ export default function RegistroTab({ entries, onEntryEdited }: Props) {
 
       {/* Filtros */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center', marginBottom: '12px' }}>
+        {/* Selector de mes */}
+        {availableMonths.length > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <span style={{ fontSize: '11px', color: 'rgba(148,163,184,0.5)', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 600 }}>Mes</span>
+            <select
+              value={selectedMonth}
+              onChange={e => { setSelectedMonth(e.target.value); setPage(1) }}
+              style={{ ...filterInputStyle, cursor: 'pointer', paddingRight: '24px' }}
+            >
+              <option value={currentMonth}>{fmtMonth(currentMonth)} (actual)</option>
+              {[...availableMonths].reverse().map(m => (
+                <option key={m} value={m}>{fmtMonth(m)}</option>
+              ))}
+            </select>
+            {loadingArchive && <span style={{ fontSize: '12px', color: 'rgba(148,163,184,0.5)' }}>Cargando…</span>}
+          </div>
+        )}
+
         {/* Búsqueda */}
         <div style={{ flex: '1 1 200px', minWidth: '180px' }}>
           <input
