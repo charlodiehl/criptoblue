@@ -737,13 +737,21 @@ export async function saveState(state: AppState): Promise<void> {
   // estas funciones hacen su propio read+merge justo antes de escribir,
   // evitando la race condition donde el auto-match guarda entradas entre
   // el momento en que saveState() lee los logs y el momento en que escribe.
+  //
+  // CRÍTICO: processedPayments se guarda DESPUÉS de saveHotState y los demás.
+  // Si saveHotState falla (kvSetConRetry agota reintentos), processedPayments
+  // NO debe quedar actualizado — de lo contrario el pago queda fantasma:
+  // marcado como procesado pero nunca agregado al queue ni a los logs, y los
+  // ciclos siguientes lo filtran por estar en processedSet.
+  // El próximo ciclo re-fetcha el pago y lo procesa de nuevo. El merge de
+  // saveHotState deduplica por mpPaymentId si por alguna razón ya estaba.
   await Promise.all([
     saveHotState(hotInput),
     saveLogs(cycleLogs),
     saveMatchLog({ matchLog: state.matchLog ?? [] }),
-    kvSetConRetry(PROCESSED_KEY, processed),
     kvSetConRetry(ORDERS_KEY, orders),
   ])
+  await kvSetConRetry(PROCESSED_KEY, processed)
 }
 
 // ─────────────────────────────────────────────
