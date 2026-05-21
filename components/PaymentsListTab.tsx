@@ -3,6 +3,7 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
 import type { Payment, Order, Store } from '@/lib/types'
 import { ARS, fmtDate, matchesSearch } from '@/lib/utils'
+import { MONTO_DIFF_WARNING_THRESHOLD } from '@/lib/config'
 
 const PAGE_SIZE = 100
 
@@ -17,6 +18,7 @@ interface ManualState {
   matchedOrder: Order | null
   isOtroMode: boolean               // true cuando se avanzó en modo texto libre
   loading: boolean
+  confirmedDiff: boolean            // tildado por el operador para aceptar diferencia de monto
 }
 
 interface Props {
@@ -43,7 +45,7 @@ export default function PaymentsListTab({
   const [manualOpen, setManualOpen] = useState<string | null>(null)
   const [manualState, setManualState] = useState<ManualState>({
     step: 'form', selectedStoreId: null, storeNameCustom: '', dropdownOpen: false,
-    orderNumber: '', matchedOrder: null, isOtroMode: false, loading: false,
+    orderNumber: '', matchedOrder: null, isOtroMode: false, loading: false, confirmedDiff: false,
   })
   const [search, setSearch] = useState('')
   const dropdownRef = useRef<HTMLDivElement>(null)
@@ -85,11 +87,21 @@ export default function PaymentsListTab({
     setManualOpen(mpPaymentId)
     setManualState({
       step: 'form', selectedStoreId: null, storeNameCustom: '', dropdownOpen: false,
-      orderNumber: '', matchedOrder: null, isOtroMode: false, loading: false,
+      orderNumber: '', matchedOrder: null, isOtroMode: false, loading: false, confirmedDiff: false,
     })
   }
 
   const closeManual = () => setManualOpen(null)
+
+  // Diferencia entre monto del pago y total de la orden. Devuelve info si supera el umbral.
+  // Sirve para mostrar warning y bloquear confirmación hasta tildar checkbox explícito.
+  const calcularDiff = (paymentMonto: number, orderTotal: number | undefined) => {
+    if (!orderTotal || orderTotal <= 0) return null
+    const diff = paymentMonto - orderTotal
+    const abs = Math.abs(diff)
+    if (abs <= MONTO_DIFF_WARNING_THRESHOLD) return null
+    return { diff, abs, paymentMonto, orderTotal, paymentMenor: diff < 0 }
+  }
 
   // Deriva el nombre de tienda según el modo seleccionado
   const resolverStoreName = (ms: ManualState): string => {
@@ -400,34 +412,64 @@ export default function PaymentsListTab({
                         </>
                       ) : ms.matchedOrder ? (
                         /* Orden encontrada en la tienda seleccionada */
-                        <>
-                          <p style={{ fontSize: '11px', fontWeight: 700, color: '#00ff88', marginBottom: '6px' }}>
-                            ✓ Orden encontrada
-                          </p>
-                          <p style={{ fontSize: '12px', color: 'rgba(226,232,240,0.8)', marginBottom: '2px' }}>
-                            #{ms.matchedOrder.orderNumber} — {ms.matchedOrder.customerName || 'Sin nombre'}
-                          </p>
-                          <p style={{ fontSize: '11px', color: 'rgba(148,163,184,0.5)', marginBottom: '10px' }}>
-                            {ARS.format(ms.matchedOrder.total)} · {ms.matchedOrder.storeName}
-                          </p>
-                          <p style={{ fontSize: '11px', color: 'rgba(148,163,184,0.5)', marginBottom: '10px' }}>
-                            ¿Marcar como pagada en TiendaNube y registrar el match?
-                          </p>
-                          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                            <button onClick={() => handleManualSubmit(p.mpPaymentId, true)} disabled={ms.loading}
-                              style={{ fontSize: '11px', padding: '5px 12px', borderRadius: '7px', border: '1px solid rgba(0,255,136,0.3)', background: 'rgba(0,255,136,0.08)', color: '#00ff88', cursor: ms.loading ? 'not-allowed' : 'pointer', opacity: ms.loading ? 0.5 : 1 }}>
-                              {ms.loading ? '...' : '✓ Sí, marcar en TN'}
-                            </button>
-                            <button onClick={() => handleManualSubmit(p.mpPaymentId, false)} disabled={ms.loading}
-                              style={{ fontSize: '11px', padding: '5px 10px', borderRadius: '7px', border: '1px solid rgba(148,163,184,0.15)', background: 'transparent', color: 'rgba(148,163,184,0.5)', cursor: ms.loading ? 'not-allowed' : 'pointer' }}>
-                              Solo registrar
-                            </button>
-                            <button onClick={() => setManualState(s => ({ ...s, step: 'form' }))} disabled={ms.loading}
-                              style={{ fontSize: '11px', padding: '5px 10px', borderRadius: '7px', border: 'none', background: 'transparent', color: 'rgba(148,163,184,0.3)', cursor: 'pointer' }}>
-                              ← Volver
-                            </button>
-                          </div>
-                        </>
+                        (() => {
+                          const diffInfo = calcularDiff(p.monto, ms.matchedOrder.total)
+                          const bloqueado = diffInfo !== null && !ms.confirmedDiff
+                          return (
+                          <>
+                            <p style={{ fontSize: '11px', fontWeight: 700, color: '#00ff88', marginBottom: '6px' }}>
+                              ✓ Orden encontrada
+                            </p>
+                            <p style={{ fontSize: '12px', color: 'rgba(226,232,240,0.8)', marginBottom: '2px' }}>
+                              #{ms.matchedOrder.orderNumber} — {ms.matchedOrder.customerName || 'Sin nombre'}
+                            </p>
+                            <p style={{ fontSize: '11px', color: 'rgba(148,163,184,0.5)', marginBottom: '10px' }}>
+                              {ARS.format(ms.matchedOrder.total)} · {ms.matchedOrder.storeName}
+                            </p>
+                            {diffInfo && (
+                              <div style={{ padding: '8px 10px', background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.35)', borderRadius: '8px', marginBottom: '10px', lineHeight: 1.5 }}>
+                                <p style={{ fontSize: '11px', fontWeight: 700, color: '#f87171', marginBottom: '4px' }}>
+                                  ⚠ Los montos no coinciden
+                                </p>
+                                <p style={{ fontSize: '11px', color: 'rgba(226,232,240,0.85)', marginBottom: '6px' }}>
+                                  Pago: <strong>{ARS.format(p.monto)}</strong>{' · '}
+                                  Orden: <strong>{ARS.format(ms.matchedOrder.total)}</strong>{' · '}
+                                  Diferencia: <strong style={{ color: '#f87171' }}>{ARS.format(diffInfo.abs)}</strong>
+                                  {' '}({diffInfo.paymentMenor ? 'pago es menor' : 'pago es mayor'})
+                                </p>
+                                <label style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', cursor: 'pointer', fontSize: '11px', color: 'rgba(248,113,113,0.9)' }}>
+                                  <input
+                                    type="checkbox"
+                                    checked={ms.confirmedDiff}
+                                    onChange={e => setManualState(s => ({ ...s, confirmedDiff: e.target.checked }))}
+                                    style={{ marginTop: '2px', cursor: 'pointer' }}
+                                  />
+                                  <span>Sí, confirmo que la diferencia es correcta y quiero registrar el pago igual.</span>
+                                </label>
+                              </div>
+                            )}
+                            {!diffInfo && (
+                              <p style={{ fontSize: '11px', color: 'rgba(148,163,184,0.5)', marginBottom: '10px' }}>
+                                ¿Marcar como pagada en TiendaNube y registrar el match?
+                              </p>
+                            )}
+                            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                              <button onClick={() => handleManualSubmit(p.mpPaymentId, true)} disabled={ms.loading || bloqueado}
+                                style={{ fontSize: '11px', padding: '5px 12px', borderRadius: '7px', border: '1px solid rgba(0,255,136,0.3)', background: 'rgba(0,255,136,0.08)', color: '#00ff88', cursor: (ms.loading || bloqueado) ? 'not-allowed' : 'pointer', opacity: (ms.loading || bloqueado) ? 0.4 : 1 }}>
+                                {ms.loading ? '...' : '✓ Sí, marcar en TN'}
+                              </button>
+                              <button onClick={() => handleManualSubmit(p.mpPaymentId, false)} disabled={ms.loading || bloqueado}
+                                style={{ fontSize: '11px', padding: '5px 10px', borderRadius: '7px', border: '1px solid rgba(148,163,184,0.15)', background: 'transparent', color: 'rgba(148,163,184,0.5)', cursor: (ms.loading || bloqueado) ? 'not-allowed' : 'pointer', opacity: (ms.loading || bloqueado) ? 0.4 : 1 }}>
+                                Solo registrar
+                              </button>
+                              <button onClick={() => setManualState(s => ({ ...s, step: 'form', confirmedDiff: false }))} disabled={ms.loading}
+                                style={{ fontSize: '11px', padding: '5px 10px', borderRadius: '7px', border: 'none', background: 'transparent', color: 'rgba(148,163,184,0.3)', cursor: 'pointer' }}>
+                                ← Volver
+                              </button>
+                            </div>
+                          </>
+                          )
+                        })()
                       ) : (
                         /* Orden no encontrada en la tienda seleccionada */
                         <>

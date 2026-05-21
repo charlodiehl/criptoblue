@@ -3,6 +3,7 @@
 import { useState, useMemo } from 'react'
 import type { Order, Store } from '@/lib/types'
 import { ARS, fmtDate, matchesSearch } from '@/lib/utils'
+import { MONTO_DIFF_WARNING_THRESHOLD } from '@/lib/config'
 
 const PAGE_SIZE = 100
 
@@ -13,6 +14,19 @@ interface ManualPayForm {
   cuitPagador: string
   fechaPago: string
   loading: boolean
+  confirmedDiff: boolean   // tildado por el operador para aceptar diferencia de monto
+}
+
+// Calcula la diferencia entre lo ingresado y el total de la orden.
+// Devuelve null si la diferencia está dentro del umbral aceptable.
+function calcularDiffMonto(montoRaw: string, orderTotal: number) {
+  const monto = parseFloat(montoRaw.replace(',', '.'))
+  if (!Number.isFinite(monto) || monto <= 0) return null
+  if (!orderTotal || orderTotal <= 0) return null
+  const diff = monto - orderTotal
+  const abs = Math.abs(diff)
+  if (abs <= MONTO_DIFF_WARNING_THRESHOLD) return null
+  return { diff, abs, monto, orderTotal, paymentMenor: diff < 0 }
 }
 
 interface DuplicateInfo {
@@ -47,7 +61,7 @@ export default function OrdersListTab({ orders, stores, matchedIds, duplicateMap
   const [page, setPage] = useState(1)
   const [marking, setMarking] = useState<string | null>(null)
   const [manualOpen, setManualOpen] = useState<string | null>(null)
-  const [manualForm, setManualForm] = useState<ManualPayForm>({ medioPago: '', monto: '', nombrePagador: '', cuitPagador: '', fechaPago: '', loading: false })
+  const [manualForm, setManualForm] = useState<ManualPayForm>({ medioPago: '', monto: '', nombrePagador: '', cuitPagador: '', fechaPago: '', loading: false, confirmedDiff: false })
   const [search, setSearch] = useState('')
 
   // Estado del modal "Validar orden antigua"
@@ -58,7 +72,7 @@ export default function OrdersListTab({ orders, stores, matchedIds, duplicateMap
   const [validarError, setValidarError] = useState<string | null>(null)
   const [validarResult, setValidarResult] = useState<BuscarOrdenResult | null>(null)
   const [validarManualOpen, setValidarManualOpen] = useState(false)
-  const [validarManualForm, setValidarManualForm] = useState<ManualPayForm>({ medioPago: '', monto: '', nombrePagador: '', cuitPagador: '', fechaPago: '', loading: false })
+  const [validarManualForm, setValidarManualForm] = useState<ManualPayForm>({ medioPago: '', monto: '', nombrePagador: '', cuitPagador: '', fechaPago: '', loading: false, confirmedDiff: false })
 
   const openValidar = () => {
     setValidarOpen(true)
@@ -107,6 +121,7 @@ export default function OrdersListTab({ orders, stores, matchedIds, duplicateMap
           cuitPagador: data.order.customerCuit || '',
           fechaPago: toDatetimeLocal(new Date()),
           loading: false,
+          confirmedDiff: false,
         })
       }
     } catch (err) {
@@ -150,7 +165,7 @@ export default function OrdersListTab({ orders, stores, matchedIds, duplicateMap
 
   const openManual = (key: string, orderTotal: number) => {
     setManualOpen(key)
-    setManualForm({ medioPago: '', monto: String(orderTotal), nombrePagador: '', cuitPagador: '', fechaPago: toDatetimeLocal(new Date()), loading: false })
+    setManualForm({ medioPago: '', monto: String(orderTotal), nombrePagador: '', cuitPagador: '', fechaPago: toDatetimeLocal(new Date()), loading: false, confirmedDiff: false })
   }
 
   const handleManualSubmit = async (o: Order) => {
@@ -331,7 +346,7 @@ export default function OrdersListTab({ orders, stores, matchedIds, duplicateMap
                         <label style={{ fontSize: '10px', color: 'rgba(148,163,184,0.5)', letterSpacing: '0.08em', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>Monto recibido *</label>
                         <input type="number" placeholder="0"
                           value={validarManualForm.monto}
-                          onChange={e => setValidarManualForm(f => ({ ...f, monto: e.target.value }))}
+                          onChange={e => setValidarManualForm(f => ({ ...f, monto: e.target.value, confirmedDiff: false }))}
                           style={{ width: '100%', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(148,163,184,0.2)', borderRadius: '6px', padding: '6px 10px', fontSize: '12px', color: 'white', outline: 'none', boxSizing: 'border-box' }}
                         />
                       </div>
@@ -359,21 +374,52 @@ export default function OrdersListTab({ orders, stores, matchedIds, duplicateMap
                           style={{ width: '100%', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(148,163,184,0.2)', borderRadius: '6px', padding: '6px 10px', fontSize: '12px', color: 'white', outline: 'none', boxSizing: 'border-box', colorScheme: 'dark' }}
                         />
                       </div>
-                      <div style={{ display: 'flex', gap: '6px', marginTop: '2px' }}>
-                        <button
-                          onClick={handleValidarManualSubmit}
-                          disabled={validarManualForm.loading || !validarManualForm.medioPago.trim() || !validarManualForm.monto}
-                          style={{ flex: 1, fontSize: '12px', fontWeight: 700, padding: '7px 12px', borderRadius: '7px', border: '1px solid rgba(0,255,136,0.3)', background: 'rgba(0,255,136,0.08)', color: '#00ff88', cursor: 'pointer', opacity: (validarManualForm.loading || !validarManualForm.medioPago.trim() || !validarManualForm.monto) ? 0.4 : 1 }}
-                        >
-                          {validarManualForm.loading ? '...' : 'Confirmar'}
-                        </button>
-                        <button
-                          onClick={() => setValidarManualOpen(false)}
-                          style={{ fontSize: '12px', padding: '7px 12px', borderRadius: '7px', border: '1px solid rgba(148,163,184,0.15)', background: 'transparent', color: 'rgba(148,163,184,0.5)', cursor: 'pointer' }}
-                        >
-                          Cancelar
-                        </button>
-                      </div>
+                      {(() => {
+                        const diffInfo = calcularDiffMonto(validarManualForm.monto, validarResult.order.total)
+                        const bloqueado = diffInfo !== null && !validarManualForm.confirmedDiff
+                        const baseDisabled = validarManualForm.loading || !validarManualForm.medioPago.trim() || !validarManualForm.monto
+                        return (
+                          <>
+                            {diffInfo && (
+                              <div style={{ padding: '8px 10px', background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.35)', borderRadius: '8px', marginTop: '4px', lineHeight: 1.5 }}>
+                                <p style={{ fontSize: '11px', fontWeight: 700, color: '#f87171', marginBottom: '4px' }}>
+                                  ⚠ El monto no coincide con el total de la orden
+                                </p>
+                                <p style={{ fontSize: '11px', color: 'rgba(226,232,240,0.85)', marginBottom: '6px' }}>
+                                  Monto: <strong>{ARS.format(diffInfo.monto)}</strong>{' · '}
+                                  Orden: <strong>{ARS.format(diffInfo.orderTotal)}</strong>{' · '}
+                                  Diferencia: <strong style={{ color: '#f87171' }}>{ARS.format(diffInfo.abs)}</strong>
+                                  {' '}({diffInfo.paymentMenor ? 'monto es menor' : 'monto es mayor'})
+                                </p>
+                                <label style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', cursor: 'pointer', fontSize: '11px', color: 'rgba(248,113,113,0.9)' }}>
+                                  <input
+                                    type="checkbox"
+                                    checked={validarManualForm.confirmedDiff}
+                                    onChange={e => setValidarManualForm(f => ({ ...f, confirmedDiff: e.target.checked }))}
+                                    style={{ marginTop: '2px', cursor: 'pointer' }}
+                                  />
+                                  <span>Sí, confirmo que la diferencia es correcta y quiero registrar el pago igual.</span>
+                                </label>
+                              </div>
+                            )}
+                            <div style={{ display: 'flex', gap: '6px', marginTop: '2px' }}>
+                              <button
+                                onClick={handleValidarManualSubmit}
+                                disabled={baseDisabled || bloqueado}
+                                style={{ flex: 1, fontSize: '12px', fontWeight: 700, padding: '7px 12px', borderRadius: '7px', border: '1px solid rgba(0,255,136,0.3)', background: 'rgba(0,255,136,0.08)', color: '#00ff88', cursor: (baseDisabled || bloqueado) ? 'not-allowed' : 'pointer', opacity: (baseDisabled || bloqueado) ? 0.4 : 1 }}
+                              >
+                                {validarManualForm.loading ? '...' : 'Confirmar'}
+                              </button>
+                              <button
+                                onClick={() => setValidarManualOpen(false)}
+                                style={{ fontSize: '12px', padding: '7px 12px', borderRadius: '7px', border: '1px solid rgba(148,163,184,0.15)', background: 'transparent', color: 'rgba(148,163,184,0.5)', cursor: 'pointer' }}
+                              >
+                                Cancelar
+                              </button>
+                            </div>
+                          </>
+                        )
+                      })()}
                     </div>
                   </div>
                 )}
@@ -557,7 +603,7 @@ export default function OrdersListTab({ orders, stores, matchedIds, duplicateMap
                         type="number"
                         placeholder="0"
                         value={manualForm.monto}
-                        onChange={e => setManualForm(f => ({ ...f, monto: e.target.value }))}
+                        onChange={e => setManualForm(f => ({ ...f, monto: e.target.value, confirmedDiff: false }))}
                         style={{ width: '100%', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(148,163,184,0.2)', borderRadius: '6px', padding: '6px 10px', fontSize: '12px', color: 'white', outline: 'none', boxSizing: 'border-box' }}
                       />
                     </div>
@@ -590,21 +636,52 @@ export default function OrdersListTab({ orders, stores, matchedIds, duplicateMap
                         style={{ width: '100%', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(148,163,184,0.2)', borderRadius: '6px', padding: '6px 10px', fontSize: '12px', color: 'white', outline: 'none', boxSizing: 'border-box', colorScheme: 'dark' }}
                       />
                     </div>
-                    <div style={{ display: 'flex', gap: '6px', marginTop: '2px' }}>
-                      <button
-                        onClick={() => handleManualSubmit(o)}
-                        disabled={manualForm.loading || !manualForm.medioPago.trim() || !manualForm.monto}
-                        style={{ flex: 1, fontSize: '12px', fontWeight: 700, padding: '7px 12px', borderRadius: '7px', border: '1px solid rgba(0,255,136,0.3)', background: 'rgba(0,255,136,0.08)', color: '#00ff88', cursor: 'pointer', opacity: (manualForm.loading || !manualForm.medioPago.trim() || !manualForm.monto) ? 0.4 : 1 }}
-                      >
-                        {manualForm.loading ? '...' : 'Confirmar'}
-                      </button>
-                      <button
-                        onClick={() => setManualOpen(null)}
-                        style={{ fontSize: '12px', padding: '7px 12px', borderRadius: '7px', border: '1px solid rgba(148,163,184,0.15)', background: 'transparent', color: 'rgba(148,163,184,0.5)', cursor: 'pointer' }}
-                      >
-                        Cancelar
-                      </button>
-                    </div>
+                    {(() => {
+                      const diffInfo = calcularDiffMonto(manualForm.monto, o.total)
+                      const bloqueado = diffInfo !== null && !manualForm.confirmedDiff
+                      const baseDisabled = manualForm.loading || !manualForm.medioPago.trim() || !manualForm.monto
+                      return (
+                        <>
+                          {diffInfo && (
+                            <div style={{ padding: '8px 10px', background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.35)', borderRadius: '8px', marginTop: '4px', lineHeight: 1.5 }}>
+                              <p style={{ fontSize: '11px', fontWeight: 700, color: '#f87171', marginBottom: '4px' }}>
+                                ⚠ El monto no coincide con el total de la orden
+                              </p>
+                              <p style={{ fontSize: '11px', color: 'rgba(226,232,240,0.85)', marginBottom: '6px' }}>
+                                Monto: <strong>{ARS.format(diffInfo.monto)}</strong>{' · '}
+                                Orden: <strong>{ARS.format(diffInfo.orderTotal)}</strong>{' · '}
+                                Diferencia: <strong style={{ color: '#f87171' }}>{ARS.format(diffInfo.abs)}</strong>
+                                {' '}({diffInfo.paymentMenor ? 'monto es menor' : 'monto es mayor'})
+                              </p>
+                              <label style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', cursor: 'pointer', fontSize: '11px', color: 'rgba(248,113,113,0.9)' }}>
+                                <input
+                                  type="checkbox"
+                                  checked={manualForm.confirmedDiff}
+                                  onChange={e => setManualForm(f => ({ ...f, confirmedDiff: e.target.checked }))}
+                                  style={{ marginTop: '2px', cursor: 'pointer' }}
+                                />
+                                <span>Sí, confirmo que la diferencia es correcta y quiero registrar el pago igual.</span>
+                              </label>
+                            </div>
+                          )}
+                          <div style={{ display: 'flex', gap: '6px', marginTop: '2px' }}>
+                            <button
+                              onClick={() => handleManualSubmit(o)}
+                              disabled={baseDisabled || bloqueado}
+                              style={{ flex: 1, fontSize: '12px', fontWeight: 700, padding: '7px 12px', borderRadius: '7px', border: '1px solid rgba(0,255,136,0.3)', background: 'rgba(0,255,136,0.08)', color: '#00ff88', cursor: (baseDisabled || bloqueado) ? 'not-allowed' : 'pointer', opacity: (baseDisabled || bloqueado) ? 0.4 : 1 }}
+                            >
+                              {manualForm.loading ? '...' : 'Confirmar'}
+                            </button>
+                            <button
+                              onClick={() => setManualOpen(null)}
+                              style={{ fontSize: '12px', padding: '7px 12px', borderRadius: '7px', border: '1px solid rgba(148,163,184,0.15)', background: 'transparent', color: 'rgba(148,163,184,0.5)', cursor: 'pointer' }}
+                            >
+                              Cancelar
+                            </button>
+                          </div>
+                        </>
+                      )
+                    })()}
                   </div>
                 </div>
               )}

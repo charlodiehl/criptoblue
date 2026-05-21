@@ -25,6 +25,12 @@ export const ORDER_CACHE_BUFFER_HOURS = 1
 // Ventana del rolling de pagos en MP (cuántas horas hacia atrás se traen).
 export const PAYMENT_CACHE_HOURS = 48
 
+// Umbral de diferencia entre monto pagado y total de orden a partir del cual
+// los flujos de marcado manual exigen confirmación explícita adicional.
+// Aplica a manual-log (PaymentsListTab) y mark-order-paid-manual (OrdersListTab).
+// El flujo de Emparejamiento manual ya muestra la diferencia visualmente.
+export const MONTO_DIFF_WARNING_THRESHOLD = 5000
+
 // Mapeo de fuente de pago → nombre amigable para el Registro
 // Para agregar un nuevo medio de pago, solo agregar una entrada acá
 export const PAYMENT_SOURCE_NAMES: Record<string, string> = {
