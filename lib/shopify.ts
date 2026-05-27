@@ -105,58 +105,66 @@ export async function getPendingOrders(
   return allOrders
 }
 
+// Marca una orden de Shopify como pagada usando la mutation GraphQL orderMarkAsPaid.
+// Shopify decide internamente si crear un 'sale' nuevo (pago manual / transferencia)
+// o capturar una autorización existente, según el estado de pago de la orden.
+// Esto evita el error "Parent transaction should be a successful authorization" que
+// ocurría al intentar capturar manualmente una transacción 'sale' pendiente.
+// El parámetro `amount` se mantiene por compatibilidad de firma con TiendaNube; la
+// mutation marca el total pendiente completo, así que no se usa.
 export async function markOrderAsPaid(
   storeId: string,
   accessToken: string,
   orderId: string,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   amount: number,
 ): Promise<{ success: boolean; error?: string }> {
-  const txUrl = `${apiBase(storeId)}/orders/${orderId}/transactions.json`
+  const gqlUrl = `${apiBase(storeId)}/graphql.json`
+  const mutation = `mutation orderMarkAsPaid($input: OrderMarkAsPaidInput!) {
+    orderMarkAsPaid(input: $input) {
+      userErrors { field message }
+      order { id displayFinancialStatus }
+    }
+  }`
+  const variables = { input: { id: `gid://shopify/Order/${orderId}` } }
 
   try {
-    // Buscar si existe una autorización pendiente para capturar en vez de crear un sale nuevo
-    let kind = 'sale'
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let parentId: number | undefined
-
-    const txListRes = await fetch(txUrl, { headers: shopifyHeaders(accessToken) })
-    if (txListRes.ok) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const txData: any = await txListRes.json()
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const existing: any[] = txData.transactions || []
-      // Órdenes con pago manual (ej: Transferencia) tienen un sale/authorization en pending
-      // esperando confirmación — hay que capturarlo, no crear un sale nuevo
-      const pendingTx = existing.find(
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (t: any) => t.status === 'pending' && (t.kind === 'sale' || t.kind === 'authorization')
-      )
-      if (pendingTx) {
-        kind = 'capture'
-        parentId = pendingTx.id
-      }
-    }
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const transaction: any = {
-      kind,
-      amount: amount.toFixed(2),
-    }
-    if (parentId) transaction.parent_id = parentId
-
-    console.log(`[shopify] markOrderAsPaid orderId=${orderId} kind=${kind} parentId=${parentId}`)
-
-    const res = await fetch(txUrl, {
+    const res = await fetch(gqlUrl, {
       method: 'POST',
       headers: shopifyHeaders(accessToken),
-      body: JSON.stringify({ transaction }),
+      body: JSON.stringify({ query: mutation, variables }),
     })
 
-    if (res.ok) return { success: true }
+    if (!res.ok) {
+      const errText = await res.text()
+      console.error(`[shopify] orderMarkAsPaid HTTP ${res.status} for order ${orderId}:`, errText)
+      return { success: false, error: `Status ${res.status}: ${errText}` }
+    }
 
-    const errText = await res.text()
-    console.error(`[shopify] markOrderAsPaid got ${res.status} for order ${orderId}:`, errText)
-    return { success: false, error: `Status ${res.status}: ${errText}` }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data: any = await res.json()
+
+    // Errores de nivel GraphQL (sintaxis, permisos, throttling)
+    if (data.errors?.length) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const msg = data.errors.map((e: any) => e.message).join('; ')
+      console.error(`[shopify] orderMarkAsPaid GraphQL errors for order ${orderId}:`, msg)
+      return { success: false, error: `GraphQL: ${msg}` }
+    }
+
+    // userErrors de la mutation (ej: orden en estado que no permite marcar pagada)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const userErrors: any[] = data.data?.orderMarkAsPaid?.userErrors ?? []
+    if (userErrors.length) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const msg = userErrors.map((e: any) => `${(e.field || []).join('.')}: ${e.message}`).join('; ')
+      console.error(`[shopify] orderMarkAsPaid userErrors for order ${orderId}:`, msg)
+      return { success: false, error: msg }
+    }
+
+    const status = data.data?.orderMarkAsPaid?.order?.displayFinancialStatus
+    console.log(`[shopify] orderMarkAsPaid OK order=${orderId} status=${status}`)
+    return { success: true }
   } catch (err) {
     return { success: false, error: String(err) }
   }
