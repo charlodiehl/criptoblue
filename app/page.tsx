@@ -41,6 +41,8 @@ export default function Dashboard() {
   const [orders, setOrders] = useState<Order[]>([])
   const [unmatchedPayments, setUnmatchedPayments] = useState<UnmatchedPayment[]>([])
   const [toasts, setToasts] = useState<Toast[]>([])
+  // Modal de cierre obligatorio cuando un pago se registra pero NO se marca en la tienda
+  const [markFailModal, setMarkFailModal] = useState<{ orderNumber?: string; storeName?: string; error?: string } | null>(null)
   const [actionLoading, setActionLoading] = useState(false)
   const [systemLocked, setSystemLocked] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
@@ -416,10 +418,16 @@ export default function Dashboard() {
       const data = await res.json()
       if (checkLockResponse(res, data)) return
       if (data.success) {
-        const msg = data.markMethod
-          ? 'Orden marcada como pagada y registrada'
-          : 'Pago registrado manualmente'
-        addToast(msg, 'success')
+        // El pago se registró. Si había una orden para marcar y el marcado en la
+        // tienda falló (markError) o TN solo pudo agregar una nota (markMethod==='note'),
+        // mostrar un modal de cierre obligatorio para que quede claro que NO se marcó.
+        if (data.markError) {
+          setMarkFailModal({ orderNumber, storeName, error: data.markError })
+        } else if (data.markMethod === 'note') {
+          setMarkFailModal({ orderNumber, storeName, error: 'TiendaNube no permitió cambiar el estado vía API (solo se agregó una nota a la orden). Marcala como pagada manualmente en TiendaNube.' })
+        } else {
+          addToast(data.markMethod ? 'Orden marcada como pagada y registrada' : 'Pago registrado manualmente', 'success')
+        }
         // Actualización local instantánea
         setUnmatchedPayments(prev => prev.filter(u => (u.mpPaymentId || u.payment.mpPaymentId) !== mpPaymentId))
         if (data.logEntry) setLogEntries(prev => [...prev, data.logEntry])
@@ -474,7 +482,11 @@ export default function Dashboard() {
       const data = await res.json()
       if (checkLockResponse(res, data)) return
       if (data.success) {
-        addToast(data.tnError ? 'Registrado, pero no se pudo marcar en la tienda — hacelo manualmente' : 'Orden marcada como pagada', data.tnError ? 'error' : 'success')
+        if (data.tnError) {
+          setMarkFailModal({ orderNumber: order?.orderNumber, storeName: order?.storeName, error: data.tnError })
+        } else {
+          addToast('Orden marcada como pagada', 'success')
+        }
         // Actualización optimista: verde inmediato, Realtime confirma y saca la orden de pendientes
         if (data.recentMatch) setRecentMatches(prev => [...prev, data.recentMatch])
         if (data.logEntry) setLogEntries(prev => [...prev, data.logEntry])
@@ -974,6 +986,38 @@ export default function Dashboard() {
         </div>
 
         {/* Modal selección de plataforma */}
+        {/* Modal de cierre obligatorio: pago registrado pero NO marcado en la tienda */}
+        {markFailModal && (
+          <div
+            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          >
+            <div
+              onClick={e => e.stopPropagation()}
+              style={{ background: '#0f1923', border: '1px solid rgba(255,70,70,0.35)', borderRadius: '16px', padding: '32px', width: '440px', maxWidth: '90vw', boxShadow: '0 24px 64px rgba(0,0,0,0.6)' }}
+            >
+              <div style={{ fontSize: '40px', textAlign: 'center', marginBottom: '10px' }}>⚠️</div>
+              <h2 style={{ color: '#ff7070', fontSize: '18px', fontWeight: 700, marginBottom: '12px', textAlign: 'center' }}>
+                El pago se registró, pero NO se marcó en la tienda
+              </h2>
+              <p style={{ color: 'rgba(226,232,240,0.85)', fontSize: '14px', textAlign: 'center', marginBottom: '14px', lineHeight: 1.55 }}>
+                {markFailModal.orderNumber
+                  ? <>La orden <b>#{markFailModal.orderNumber}</b>{markFailModal.storeName ? <> de <b>{markFailModal.storeName}</b></> : null} quedó en el registro de CriptoBlue, pero <b>tenés que marcarla como pagada manualmente en la tienda</b>.</>
+                  : <>El pago quedó registrado en CriptoBlue, pero <b>tenés que marcar la orden como pagada manualmente en la tienda</b>.</>}
+              </p>
+              <div style={{ background: 'rgba(255,70,70,0.08)', border: '1px solid rgba(255,70,70,0.2)', borderRadius: '8px', padding: '10px 12px', marginBottom: '22px' }}>
+                <div style={{ color: 'rgba(148,163,184,0.6)', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '4px' }}>Detalle</div>
+                <div style={{ color: 'rgba(255,150,150,0.95)', fontSize: '13px', wordBreak: 'break-word' }}>{markFailModal.error}</div>
+              </div>
+              <button
+                onClick={() => setMarkFailModal(null)}
+                style={{ width: '100%', padding: '12px', borderRadius: '8px', border: 'none', background: '#ff5555', color: 'white', fontSize: '15px', fontWeight: 700, cursor: 'pointer' }}
+              >
+                Entendido
+              </button>
+            </div>
+          </div>
+        )}
+
         {platformModalOpen && (
           <div
             onClick={() => { setPlatformModalOpen(false); setShopifyDomainStep(false); setShopifyDomain('') }}
