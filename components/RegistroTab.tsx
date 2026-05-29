@@ -37,7 +37,7 @@ function nombrePagador(entry: LogEntry): string {
 type SortKey = 'fecha' | 'monto' | 'cuit' | 'nombre' | 'tienda' | 'orden' | 'billetera'
 type SortDir = 'asc' | 'desc'
 
-const PAGE_SIZE = 25
+const PAGE_SIZE = 100
 
 // Cache local para mark_copied — persiste aunque falle la conexión
 const PENDING_KEY = 'criptoblue:pending_copied'
@@ -56,23 +56,10 @@ function localPendingRemove(timestamps: string[]) {
   else localStorage.setItem(PENDING_KEY, JSON.stringify(updated))
 }
 
-// Convierte fecha ISO a formato YYYY-MM-DD para inputs date
-function toDateValue(iso: string): string {
-  try {
-    const d = new Date(iso)
-    if (isNaN(d.getTime())) return ''
-    // Hora Argentina (UTC-3)
-    const arg = new Date(d.getTime() - 3 * 60 * 60 * 1000)
-    return arg.toISOString().slice(0, 10)
-  } catch { return '' }
-}
-
-function getEntryDate(e: LogEntry): Date {
-  return new Date(e.payment?.fechaPago || e.timestamp)
-}
-
 interface Props {
-  entries: LogEntry[]
+  // Señal del padre: se incrementa cuando el log cambia (realtime / edición / cron)
+  // para que el Registro re-consulte su página actual.
+  refreshKey?: number
   onEntryEdited?: () => void
 }
 
@@ -85,18 +72,6 @@ const COLUMNS: { label: string; key: SortKey }[] = [
   { label: 'Número de orden',   key: 'orden'     },
   { label: 'Billetera',         key: 'billetera' },
 ]
-
-function getSortValue(e: LogEntry, key: SortKey): string | number {
-  switch (key) {
-    case 'fecha':     return new Date(e.payment?.fechaPago || e.timestamp).getTime()
-    case 'monto':     return e.payment?.monto ?? e.amount ?? 0
-    case 'cuit':      return Number(fmtCuit(e.payment?.cuitPagador || '')) || 0
-    case 'nombre':    return nombrePagador(e).toLowerCase()
-    case 'tienda':    return (e.storeName || e.order?.storeName || '').toLowerCase()
-    case 'orden':     return Number((e.orderNumber || e.order?.orderNumber || '').replace(/\D/g, '')) || 0
-    case 'billetera': return billetera(e).toLowerCase()
-  }
-}
 
 const DEFAULT_DIR: Record<SortKey, SortDir> = {
   fecha: 'desc', monto: 'desc', cuit: 'desc',
@@ -125,7 +100,7 @@ const filterInputStyle: React.CSSProperties = {
   outline: 'none',
 }
 
-export default function RegistroTab({ entries, onEntryEdited }: Props) {
+export default function RegistroTab({ refreshKey = 0, onEntryEdited }: Props) {
   const [copied, setCopied] = useState(false)
   const [markingCopied, setMarkingCopied] = useState(false)
   const [copyError, setCopyError] = useState<string | null>(null)
@@ -133,51 +108,98 @@ export default function RegistroTab({ entries, onEntryEdited }: Props) {
   const onEntryEditedRef = useRef(onEntryEdited)
   useEffect(() => { onEntryEditedRef.current = onEntryEdited }, [onEntryEdited])
 
-  // Selector de mes archivado
-  const [selectedMonth, setSelectedMonth] = useState<string>('')
-  const [currentMonth, setCurrentMonth] = useState<string>('')
+  // Mes actual en horario Argentina (UTC-3), calculado localmente para no esperar al fetch
+  const computedCurrentMonth = useMemo(
+    () => new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString().slice(0, 7), [])
+
+  // Selector de mes
+  const [selectedMonth, setSelectedMonth] = useState<string>(computedCurrentMonth)
+  const [currentMonth, setCurrentMonth] = useState<string>(computedCurrentMonth)
   const [availableMonths, setAvailableMonths] = useState<string[]>([])
-  const [archivedEntries, setArchivedEntries] = useState<LogEntry[]>([])
-  const [loadingArchive, setLoadingArchive] = useState(false)
 
   useEffect(() => {
     fetch('/api/log-months')
       .then(r => r.ok ? r.json() : null)
       .then(data => {
         if (data) {
-          setCurrentMonth(data.currentMonth)
-          setAvailableMonths(data.months)
-          setSelectedMonth(data.currentMonth)
+          if (data.currentMonth) setCurrentMonth(data.currentMonth)
+          setAvailableMonths(data.months ?? [])
         }
       })
       .catch(() => {})
   }, [])
 
-  useEffect(() => {
-    if (!selectedMonth || selectedMonth === currentMonth) return
-    setLoadingArchive(true)
-    fetch(`/api/log?month=${selectedMonth}`)
-      .then(r => r.ok ? r.json() : null)
-      .then(data => { if (data) setArchivedEntries(data.entries ?? []) })
-      .catch(() => {})
-      .finally(() => setLoadingArchive(false))
-  }, [selectedMonth, currentMonth])
-
-  const displayEntries = (selectedMonth && selectedMonth !== currentMonth) ? archivedEntries : entries
-
   // Filtros
+  const [search, setSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
-  const [search, setSearch] = useState('')
+
+  // Debounce de la búsqueda (evita una consulta por tecla)
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedSearch(search), 350)
+    return () => clearTimeout(id)
+  }, [search])
+
+  const [sortKey, setSortKey] = useState<SortKey>('fecha')
+  const [sortDir, setSortDir] = useState<SortDir>('desc')
+  const [page, setPage] = useState(1)
+
+  // Datos de la página actual (server-side)
+  const [rows, setRows] = useState<LogEntry[]>([])
+  const [total, setTotal] = useState(0)
+  const [newCount, setNewCount] = useState(0)
+  const [loading, setLoading] = useState(false)
+  const [reloadKey, setReloadKey] = useState(0)
+
+  const searching = debouncedSearch.trim().length > 0
+
+  // Construye los params de filtro compartidos (página y copia)
+  const buildFilterParams = (): URLSearchParams => {
+    const p = new URLSearchParams()
+    if (searching) p.set('q', debouncedSearch.trim())
+    else if (selectedMonth) p.set('month', selectedMonth)
+    if (dateFrom) p.set('from', dateFrom)
+    if (dateTo) p.set('to', dateTo)
+    return p
+  }
+
+  // Fetch de la página actual
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    const params = buildFilterParams()
+    params.set('paged', '1')
+    params.set('page', String(page))
+    params.set('sort', sortKey)
+    params.set('dir', sortDir)
+    fetch(`/api/log?${params.toString()}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (cancelled || !data) return
+        setRows(data.entries ?? [])
+        setTotal(data.total ?? 0)
+        setNewCount(data.newCount ?? 0)
+      })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, debouncedSearch, selectedMonth, dateFrom, dateTo, sortKey, sortDir, reloadKey, refreshKey])
+
+  // Reset de página al cambiar filtros/orden
+  useEffect(() => { setPage(1) }, [debouncedSearch, selectedMonth, dateFrom, dateTo, sortKey, sortDir])
+
+  const reload = () => setReloadKey(k => k + 1)
 
   // Flush pendientes al server
-  async function flushPending(timestamps: string[], month?: string) {
+  async function flushPending(timestamps: string[]) {
     if (timestamps.length === 0) return
     try {
       const res = await fetch('/api/log', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'mark_copied', timestamps, month }),
+        body: JSON.stringify({ action: 'mark_copied', timestamps }),
       })
       if (!res.ok) return
       localPendingRemove(timestamps)
@@ -187,6 +209,7 @@ export default function RegistroTab({ entries, onEntryEdited }: Props) {
         return next
       })
       onEntryEditedRef.current?.()
+      reload()
     } catch { /* reintentará en el próximo foco */ }
   }
 
@@ -218,70 +241,8 @@ export default function RegistroTab({ entries, onEntryEdited }: Props) {
   const [editSaving, setEditSaving] = useState(false)
   const [editError, setEditError] = useState<string | null>(null)
 
-  const [sortKey, setSortKey] = useState<SortKey>('fecha')
-  const [sortDir, setSortDir] = useState<SortDir>('desc')
-  const [page, setPage] = useState(1)
-
-  // Entradas filtradas por acción (solo emparejamientos)
-  const paidAll = useMemo(() =>
-    displayEntries.filter(e => e.action === 'manual_paid' || e.action === 'auto_paid' || e.action === 'no_match'),
-  [displayEntries])
-
-  // Aplicar filtros de fecha y búsqueda
-  const filtered = useMemo(() => {
-    let result = paidAll
-
-    // Filtro fecha desde
-    if (dateFrom) {
-      const from = new Date(dateFrom + 'T00:00:00-03:00') // AR timezone
-      result = result.filter(e => getEntryDate(e) >= from)
-    }
-
-    // Filtro fecha hasta (incluye todo el día)
-    if (dateTo) {
-      const to = new Date(dateTo + 'T23:59:59.999-03:00')
-      result = result.filter(e => getEntryDate(e) <= to)
-    }
-
-    // Búsqueda
-    if (search.trim()) {
-      const q = search.trim().toLowerCase()
-      result = result.filter(e => {
-        const nombre = nombrePagador(e).toLowerCase()
-        const orden = (e.orderNumber || e.order?.orderNumber || '').toLowerCase()
-        const tienda = (e.storeName || e.order?.storeName || '').toLowerCase()
-        const cuit = fmtCuit(e.payment?.cuitPagador || '')
-        const monto = fmtMontoDisplay(e.payment?.monto ?? e.amount ?? 0)
-        return nombre.includes(q) || orden.includes(q) || tienda.includes(q) || cuit.includes(q) || monto.includes(q)
-      })
-    }
-
-    return result
-  }, [paidAll, dateFrom, dateTo, search])
-
-  // Ordenar
-  const sorted = useMemo(() => {
-    return [...filtered].sort((a, b) => {
-      const va = getSortValue(a, sortKey)
-      const vb = getSortValue(b, sortKey)
-      let cmp = 0
-      if (typeof va === 'number' && typeof vb === 'number') cmp = va - vb
-      else cmp = String(va).localeCompare(String(vb), 'es-AR')
-      return sortDir === 'asc' ? cmp : -cmp
-    })
-  }, [filtered, sortKey, sortDir])
-
-  // Conteos sobre las entradas filtradas
-  const newInFilterCount = useMemo(() =>
-    filtered.filter(e => !e.copiedAt && !pendingCopied.has(e.timestamp)).length,
-  [filtered, pendingCopied])
-
-  const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE))
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
   const safePage = Math.min(page, totalPages)
-  const pageRows = sorted.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
-
-  // Reset page cuando cambian filtros
-  useEffect(() => { setPage(1) }, [dateFrom, dateTo, search])
 
   const handleSort = (key: SortKey) => {
     if (key === sortKey) {
@@ -290,15 +251,35 @@ export default function RegistroTab({ entries, onEntryEdited }: Props) {
       setSortKey(key)
       setSortDir(DEFAULT_DIR[key])
     }
-    setPage(1)
   }
 
-  // Copiar: solo entradas visibles (filtradas) que no tengan copiedAt
+  // Copiar: trae TODOS los pendientes (sin copiar) que cumplen los filtros actuales
   const handleCopy = async () => {
-    const newEntries = filtered.filter(e => !e.copiedAt && !pendingCopied.has(e.timestamp))
-    if (newEntries.length === 0) return
+    setMarkingCopied(true)
+    setCopyError(null)
+    let toCopy: LogEntry[] = []
+    try {
+      const params = buildFilterParams()
+      params.set('mode', 'copy')
+      const res = await fetch(`/api/log?${params.toString()}`)
+      if (res.ok) {
+        const data = await res.json()
+        toCopy = (data.entries ?? []).filter((e: LogEntry) => !pendingCopied.has(e.timestamp))
+      }
+    } catch {
+      setCopyError('No se pudieron obtener los pendientes — revisá la conexión.')
+      setMarkingCopied(false)
+      return
+    }
 
-    const rows = newEntries.map(e => [
+    if (toCopy.length === 0) { setMarkingCopied(false); return }
+
+    // Orden estable para el pegado: por fecha ascendente
+    toCopy.sort((a, b) =>
+      new Date(a.payment?.fechaPago || a.timestamp).getTime() -
+      new Date(b.payment?.fechaPago || b.timestamp).getTime())
+
+    const tsvRows = toCopy.map(e => [
       fmtDate(e.payment?.fechaPago || e.timestamp),
       fmtMontoTSV(e.payment?.monto ?? e.amount ?? 0),
       fmtCuit(e.payment?.cuitPagador || ''),
@@ -308,28 +289,27 @@ export default function RegistroTab({ entries, onEntryEdited }: Props) {
       billetera(e),
     ])
 
-    const tsv = rows.map(r => r.join('\t')).join('\n')
+    const tsv = tsvRows.map(r => r.join('\t')).join('\n')
     await navigator.clipboard.writeText(tsv)
     setCopied(true)
     setTimeout(() => setCopied(false), 2500)
 
-    // Marcar localmente solo las que se copiaron
-    const timestamps = newEntries.map(e => e.timestamp)
+    // Marcar localmente las copiadas (optimista)
+    const timestamps = toCopy.map(e => e.timestamp)
     localPendingAdd(timestamps)
     setPendingCopied(prev => {
       const next = new Set(prev)
       for (const ts of timestamps) next.add(ts)
       return next
     })
-    setCopyError(null)
+    setNewCount(0)
 
     // Sincronizar al servidor
-    setMarkingCopied(true)
     try {
       const res = await fetch('/api/log', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'mark_copied', timestamps, month: selectedMonth }),
+        body: JSON.stringify({ action: 'mark_copied', timestamps }),
       })
       if (!res.ok) throw new Error(`Error ${res.status}`)
       localPendingRemove(timestamps)
@@ -339,6 +319,7 @@ export default function RegistroTab({ entries, onEntryEdited }: Props) {
         return next
       })
       onEntryEdited?.()
+      reload()
     } catch {
       setCopyError('Conexión inestable — los registros se marcaron localmente y se sincronizarán al recuperar la conexión.')
     } finally {
@@ -376,6 +357,7 @@ export default function RegistroTab({ entries, onEntryEdited }: Props) {
       }
       setEditingTs(null)
       onEntryEdited?.()
+      reload()
     } catch {
       setEditError('Error de red')
     } finally {
@@ -383,7 +365,7 @@ export default function RegistroTab({ entries, onEntryEdited }: Props) {
     }
   }
 
-  const hasFilters = dateFrom || dateTo || search.trim()
+  const hasFilters = !!(dateFrom || dateTo || search.trim())
 
   // Ventana deslizante de paginación
   const WINDOW_SIZE = 10
@@ -427,28 +409,27 @@ export default function RegistroTab({ entries, onEntryEdited }: Props) {
       {/* Filtros */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center', marginBottom: '12px' }}>
         {/* Selector de mes */}
-        {availableMonths.length > 0 && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span style={{ fontSize: '11px', color: 'rgba(148,163,184,0.5)', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 600 }}>Mes</span>
-            <select
-              value={selectedMonth}
-              onChange={e => { setSelectedMonth(e.target.value); setPage(1) }}
-              style={{ ...filterInputStyle, cursor: 'pointer', paddingRight: '24px' }}
-            >
-              <option value={currentMonth}>{fmtMonth(currentMonth)} (actual)</option>
-              {[...availableMonths].reverse().map(m => (
-                <option key={m} value={m}>{fmtMonth(m)}</option>
-              ))}
-            </select>
-            {loadingArchive && <span style={{ fontSize: '12px', color: 'rgba(148,163,184,0.5)' }}>Cargando…</span>}
-          </div>
-        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <span style={{ fontSize: '11px', color: 'rgba(148,163,184,0.5)', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 600 }}>Mes</span>
+          <select
+            value={selectedMonth}
+            onChange={e => setSelectedMonth(e.target.value)}
+            disabled={searching}
+            title={searching ? 'La búsqueda abarca toda la historia' : undefined}
+            style={{ ...filterInputStyle, cursor: searching ? 'not-allowed' : 'pointer', paddingRight: '24px', opacity: searching ? 0.4 : 1 }}
+          >
+            <option value={currentMonth}>{fmtMonth(currentMonth)} (actual)</option>
+            {availableMonths.filter(m => m !== currentMonth).map(m => (
+              <option key={m} value={m}>{fmtMonth(m)}</option>
+            ))}
+          </select>
+        </div>
 
         {/* Búsqueda */}
         <div style={{ flex: '1 1 200px', minWidth: '180px' }}>
           <input
             type="text"
-            placeholder="Buscar por nombre, orden, tienda, CUIT, monto..."
+            placeholder="Buscar en toda la historia: nombre, orden, tienda, CUIT, monto..."
             value={search}
             onChange={e => setSearch(e.target.value)}
             style={{ ...filterInputStyle, width: '100%' }}
@@ -503,34 +484,33 @@ export default function RegistroTab({ entries, onEntryEdited }: Props) {
       {/* Header con conteo y botón copiar */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
         <span style={{ fontSize: '13px', color: 'rgba(148,163,184,0.4)' }}>
-          {sorted.length} emparejamiento{sorted.length !== 1 ? 's' : ''}
-          {hasFilters && paidAll.length !== sorted.length && (
-            <span style={{ marginLeft: '4px' }}>(de {paidAll.length} total)</span>
-          )}
-          {newInFilterCount > 0 && (
+          {total} emparejamiento{total !== 1 ? 's' : ''}
+          {searching && <span style={{ marginLeft: '4px' }}>(toda la historia)</span>}
+          {loading && <span style={{ marginLeft: '8px', color: 'rgba(148,163,184,0.5)' }}>Cargando…</span>}
+          {newCount > 0 && (
             <span style={{ marginLeft: '8px', color: 'rgba(226,232,240,0.75)', fontWeight: 600 }}>
-              · {newInFilterCount} nuevo{newInFilterCount !== 1 ? 's' : ''} en vista
+              · {newCount} nuevo{newCount !== 1 ? 's' : ''} sin copiar
             </span>
           )}
         </span>
         <button
           onClick={handleCopy}
-          disabled={newInFilterCount === 0 || markingCopied}
+          disabled={newCount === 0 || markingCopied}
           style={{
             display: 'flex', alignItems: 'center', gap: '7px',
             fontSize: '13px', fontWeight: 600, padding: '9px 18px', borderRadius: '10px',
             border: copied ? '1px solid rgba(0,255,136,0.4)' : '1px solid rgba(0,212,255,0.25)',
             background: copied ? 'rgba(0,255,136,0.08)' : 'rgba(0,212,255,0.06)',
             color: copied ? '#00ff88' : '#00d4ff',
-            cursor: newInFilterCount === 0 || markingCopied ? 'not-allowed' : 'pointer',
-            opacity: newInFilterCount === 0 || markingCopied ? 0.4 : 1, transition: 'all 0.2s',
+            cursor: newCount === 0 || markingCopied ? 'not-allowed' : 'pointer',
+            opacity: newCount === 0 || markingCopied ? 0.4 : 1, transition: 'all 0.2s',
           }}
         >
-          {copied ? '✓ Copiado' : `⧉ Copiar ${newInFilterCount > 0 ? newInFilterCount + ' ' : ''}nuevos`}
+          {copied ? '✓ Copiado' : `⧉ Copiar ${newCount > 0 ? newCount + ' ' : ''}nuevos`}
         </button>
       </div>
 
-      {sorted.length === 0 ? (
+      {rows.length === 0 ? (
         <div
           style={{
             display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -540,7 +520,7 @@ export default function RegistroTab({ entries, onEntryEdited }: Props) {
           }}
         >
           <p style={{ fontSize: '13px', color: 'rgba(148,163,184,0.35)' }}>
-            {hasFilters ? 'No hay resultados para los filtros aplicados' : 'No hay emparejamientos registrados'}
+            {loading ? 'Cargando…' : hasFilters ? 'No hay resultados para los filtros aplicados' : 'No hay emparejamientos registrados'}
           </p>
         </div>
       ) : (
@@ -571,7 +551,7 @@ export default function RegistroTab({ entries, onEntryEdited }: Props) {
               </tr>
             </thead>
             <tbody>
-              {pageRows.map((e, i) => {
+              {rows.map((e, i) => {
                 const isEditing = editingTs === e.timestamp
                 const isNew = !e.copiedAt && !pendingCopied.has(e.timestamp)
                 const fecha = fmtDate(e.payment?.fechaPago || e.timestamp)

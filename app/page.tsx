@@ -47,6 +47,7 @@ export default function Dashboard() {
   const [systemLocked, setSystemLocked] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [logEntries, setLogEntries] = useState<LogEntry[]>([])
+  const [logVersion, setLogVersion] = useState(0)
   const [recentMatches, setRecentMatches] = useState<RecentMatch[]>([])
   const [matchRefreshKey, setMatchRefreshKey] = useState(0)
   const toastIdRef = useRef(0)
@@ -170,6 +171,7 @@ export default function Dashboard() {
           setLogEntries(data.entries || [])
           setRecentMatches(data.recentMatches || [])
         }
+        setLogVersion(v => v + 1)
       }
     } catch { /* ignore */ }
   }, [])
@@ -1131,7 +1133,7 @@ export default function Dashboard() {
           {tab === 'ordenes' && <OrdersListTab orders={allRecentOrders} stores={stores} matchedIds={matchedOrderIds} duplicateMap={duplicateMap} onMarkExternal={handleMarkOrderExternal} onMarkManual={handleMarkOrderManual} loading={actionLoading || systemLocked} />}
           {tab === 'pagos' && <PaymentsListTab payments={allRecentPayments} orders={allRecentOrders} stores={stores} matchedIds={matchedPaymentIds} externallyMarkedIds={new Set(stats?.externallyMarkedPayments ?? [])} title="Pagos · últimas 48hs" emptyText="No hay pagos en las últimas 48 horas" onMarkReceived={handleMarkPaymentReceived} onManualLog={handleManualLog} loading={actionLoading || systemLocked} />}
           {tab === 'sin-coincidencia' && <PaymentsListTab payments={paymentsWithoutMatch} orders={allRecentOrders} stores={stores} externallyMarkedIds={new Set(stats?.externallyMarkedPayments ?? [])} title="Pagos sin coincidencia · últimas 48hs" emptyText="Todos los pagos de las últimas 48hs tienen una orden asignada" onMarkReceived={handleMarkPaymentReceived} onManualLog={handleManualLog} loading={actionLoading || systemLocked} />}
-          {tab === 'registro' && <RegistroTab entries={logEntries} onEntryEdited={fetchLog} />}
+          {tab === 'registro' && <RegistroTab refreshKey={logVersion} onEntryEdited={fetchLog} />}
         </div>
       </main>
     </div>

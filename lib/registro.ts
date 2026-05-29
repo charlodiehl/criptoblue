@@ -119,6 +119,142 @@ export async function queryRegistro(opts: {
   }
 }
 
+// ─────────────────────────────────────────────
+// Registro paginado del lado del servidor (pestaña Registro)
+// 100 por página, búsqueda global sobre toda la historia, orden global.
+// Filtra a las acciones que la UI del registro muestra (paid + no_match).
+// ─────────────────────────────────────────────
+
+export type RegistroSortKey = 'fecha' | 'monto' | 'cuit' | 'nombre' | 'tienda' | 'orden' | 'billetera'
+
+const REGISTRO_SORT_COLUMN: Record<RegistroSortKey, string> = {
+  fecha: 'ts',
+  monto: 'amount',
+  cuit: 'cuit_pagador',
+  nombre: 'customer_name',
+  tienda: 'store_name',
+  orden: 'order_number',
+  billetera: 'payment->>source',
+}
+
+// Acciones que la pestaña Registro muestra (espejo del filtro client-side viejo)
+const REGISTRO_VIEW_ACTIONS = ['manual_paid', 'auto_paid', 'no_match']
+
+export type RegistroQueryOpts = {
+  page?: number
+  pageSize?: number
+  month?: string          // 'YYYY-MM' AR — se ignora si hay search (búsqueda global)
+  search?: string
+  dateFrom?: string       // 'YYYY-MM-DD' AR (inclusive)
+  dateTo?: string         // 'YYYY-MM-DD' AR (inclusive, hasta fin del día)
+  sortKey?: RegistroSortKey
+  sortDir?: 'asc' | 'desc'
+  includeHidden?: boolean
+}
+
+// Aplica los filtros comunes (acción, hidden, búsqueda/mes, rango de fechas) a un
+// query builder de supabase-js. La búsqueda es global (ignora el mes).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function applyRegistroFilters(q: any, opts: RegistroQueryOpts): any {
+  if (!opts.includeHidden) q = q.eq('hidden', false)
+  q = q.in('action', REGISTRO_VIEW_ACTIONS)
+
+  const search = (opts.search ?? '').trim()
+  if (search) {
+    // Saneamos para no romper la sintaxis de PostgREST or() (separador `,` y paréntesis)
+    const safe = search.replace(/[,()]/g, ' ').trim()
+    const pat = `*${safe}*`
+    const ors = [
+      `order_number.ilike.${pat}`,
+      `customer_name.ilike.${pat}`,
+      `store_name.ilike.${pat}`,
+      `cuit_pagador.ilike.${pat}`,
+      `mp_payment_id.ilike.${pat}`,
+      `payment->>nombrePagador.ilike.${pat}`,
+    ]
+    if (/^\d+(\.\d+)?$/.test(safe)) ors.push(`amount.eq.${Number(safe)}`)
+    q = q.or(ors.join(','))
+    // search es global: NO se filtra por mes
+  } else if (opts.month && /^\d{4}-\d{2}$/.test(opts.month)) {
+    const start = new Date(`${opts.month}-01T00:00:00-03:00`)
+    const end = new Date(start)
+    end.setUTCMonth(end.getUTCMonth() + 1)
+    q = q.gte('ts', start.toISOString()).lt('ts', end.toISOString())
+  }
+
+  if (opts.dateFrom) {
+    const from = new Date(`${opts.dateFrom}T00:00:00.000-03:00`)
+    if (!Number.isNaN(from.getTime())) q = q.gte('ts', from.toISOString())
+  }
+  if (opts.dateTo) {
+    const to = new Date(`${opts.dateTo}T23:59:59.999-03:00`)
+    if (!Number.isNaN(to.getTime())) q = q.lte('ts', to.toISOString())
+  }
+  return q
+}
+
+export async function queryRegistroPaged(opts: RegistroQueryOpts = {}): Promise<{
+  entries: LogEntry[]; total: number; newCount: number; page: number; pageSize: number; hasMore: boolean
+}> {
+  const supabase = getClient()
+  const page = Math.max(1, opts.page ?? 1)
+  const pageSize = opts.pageSize ?? 100
+  const offset = (page - 1) * pageSize
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let q = (supabase.from(TABLE) as any).select('*', { count: 'exact' })
+  q = applyRegistroFilters(q, opts)
+  const sortKey = opts.sortKey ?? 'fecha'
+  const col = REGISTRO_SORT_COLUMN[sortKey] ?? 'ts'
+  const ascending = opts.sortDir === 'asc'
+  q = q.order(col, { ascending })
+  if (col !== 'ts') q = q.order('ts', { ascending: false }) // tie-breaker estable
+  q = q.range(offset, offset + pageSize - 1)
+
+  const { data, error, count } = await q
+  if (error) throw new Error(`queryRegistroPaged falló: ${error.message} [${error.code}]`)
+  const total = count ?? 0
+
+  // Conteo global de pendientes (sin copiar) con los mismos filtros — para "Copiar nuevos"
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let nc = (supabase.from(TABLE) as any).select('id', { count: 'exact', head: true })
+  nc = applyRegistroFilters(nc, opts).is('copied_at', null)
+  const { count: newCount, error: ncErr } = await nc
+  if (ncErr) throw new Error(`queryRegistroPaged(newCount) falló: ${ncErr.message} [${ncErr.code}]`)
+
+  return {
+    entries: (data ?? []).map(rowToEntry),
+    total,
+    newCount: newCount ?? 0,
+    page,
+    pageSize,
+    hasMore: offset + (data?.length ?? 0) < total,
+  }
+}
+
+// Trae TODAS las entradas sin copiar que cumplen los filtros (para "Copiar nuevos").
+// Pendientes = working set chico en la práctica; paginamos por las dudas, con tope de seguridad.
+export async function queryRegistroUncopied(opts: RegistroQueryOpts = {}): Promise<LogEntry[]> {
+  const supabase = getClient()
+  const out: LogEntry[] = []
+  const PAGE = 1000
+  let from = 0
+  for (;;) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let q = (supabase.from(TABLE) as any).select('*')
+    q = applyRegistroFilters(q, opts).is('copied_at', null)
+    q = q.order('ts', { ascending: false }).range(from, from + PAGE - 1)
+    const { data, error } = await q
+    if (error) throw new Error(`queryRegistroUncopied falló: ${error.message} [${error.code}]`)
+    const rows = (data ?? []) as Row[]
+    out.push(...rows.map(rowToEntry))
+    if (rows.length < PAGE) break
+    from += PAGE
+    if (from > 50000) break // tope de seguridad
+  }
+  return out
+}
+
 // Meses disponibles para el selector (derivados en JS desde la columna ts).
 // Se evita un RPC SQL para no depender de DDL: paginamos solo la columna `ts`
 // y agrupamos por mes en horario Argentina (UTC-3). Devuelve 'YYYY-MM' desc.

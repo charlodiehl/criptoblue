@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { loadHotState, loadLogs, saveLogs, appendActivity } from '@/lib/storage'
-import { queryRegistro, updateRegistroByTimestamp, markRegistroCopied } from '@/lib/registro'
+import { queryRegistro, queryRegistroPaged, queryRegistroUncopied, updateRegistroByTimestamp, markRegistroCopied } from '@/lib/registro'
+import type { RegistroSortKey } from '@/lib/registro'
 import { audit } from '@/lib/audit'
 
 // PATCH: edita campos de una entrada, o marca múltiples entradas como copiadas
@@ -42,11 +43,43 @@ export async function PATCH(request: Request) {
 // GET: devuelve el registro de un mes para el frontend (que filtra/ordena/pagina
 // del lado del cliente). Sin ?month se asume el mes actual (horario Argentina).
 // Límite alto para no truncar la vista — un mes está acotado a cientos de entradas.
+const VALID_SORT_KEYS: RegistroSortKey[] = ['fecha', 'monto', 'cuit', 'nombre', 'tienda', 'orden', 'billetera']
+
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url)
     const currentMonth = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString().slice(0, 7)
-    const month = searchParams.get('month') || currentMonth
+    const mode = searchParams.get('mode')
+
+    // Filtros compartidos por los modos paged/copy
+    const search = searchParams.get('q') ?? undefined
+    const monthParam = searchParams.get('month') ?? undefined
+    const dateFrom = searchParams.get('from') ?? undefined
+    const dateTo = searchParams.get('to') ?? undefined
+
+    // Modo "copy": todas las entradas sin copiar que cumplen los filtros (para "Copiar nuevos")
+    if (mode === 'copy') {
+      const entries = await queryRegistroUncopied({ search, month: monthParam, dateFrom, dateTo })
+      return NextResponse.json({ entries })
+    }
+
+    // Modo "paged": paginación de servidor (pestaña Registro)
+    if (searchParams.has('paged')) {
+      const page = Math.max(1, Number(searchParams.get('page') ?? '1') || 1)
+      const pageSize = Number(searchParams.get('pageSize') ?? '100') || 100
+      const sortRaw = searchParams.get('sort') as RegistroSortKey | null
+      const sortKey = sortRaw && VALID_SORT_KEYS.includes(sortRaw) ? sortRaw : 'fecha'
+      const sortDir = searchParams.get('dir') === 'asc' ? 'asc' : 'desc'
+
+      const result = await queryRegistroPaged({
+        page, pageSize, search, month: monthParam, dateFrom, dateTo, sortKey, sortDir,
+      })
+      return NextResponse.json({ ...result, currentMonth })
+    }
+
+    // Modo legacy (sin params): mes actual + recentMatches — lo consume app/page.tsx
+    // para derivar órdenes/pagos de las últimas 48hs y los IDs macheados.
+    const month = monthParam || currentMonth
     const limit = Number(searchParams.get('limit') ?? '5000')
     const offset = Number(searchParams.get('offset') ?? '0')
 
