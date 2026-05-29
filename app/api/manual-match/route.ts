@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { loadHotState, saveHotState, loadLogs, saveLogs, loadMatchLog, saveMatchLog, getStores, incrementPersistedMonthStats, appendError, appendActivity, acquireLock, releaseLock } from '@/lib/storage'
+import { loadHotState, saveHotState, loadLogs, saveLogs, getStores, incrementPersistedMonthStats, appendError, appendActivity, acquireLock, releaseLock } from '@/lib/storage'
+import { appendRegistroEntry, isOrderAlreadyPaid, isPaymentAlreadyUsed } from '@/lib/registro'
 import { markOrderAsPaid as markTNOrderAsPaid, getPendingOrders as getTNOrders } from '@/lib/tiendanube'
 import { markOrderAsPaid as markShopifyOrderAsPaid, getPendingOrders as getShopifyOrders } from '@/lib/shopify'
 import { HARD_CUTOFF_ORDERS } from '@/lib/config'
@@ -20,8 +21,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'mpPaymentId, orderId, storeId required' }, { status: 400 })
     }
 
-    const [hot, logs, matchLogData, stores] = await Promise.all([
-      loadHotState(), loadLogs(), loadMatchLog(), getStores()
+    const [hot, logs, stores] = await Promise.all([
+      loadHotState(), loadLogs(), getStores()
     ])
     const store = stores[storeId]
     if (!store) return NextResponse.json({ error: 'Store not found' }, { status: 404 })
@@ -32,21 +33,13 @@ export async function POST(req: NextRequest) {
     if (unmatchedIndex < 0) return NextResponse.json({ error: 'Payment not found' }, { status: 404 })
 
     // Validación 1: la orden ya fue registrada como pagada (con cualquier pago)
-    const orderAlreadyPaid = logs.registroLog.some(e =>
-      e.orderId === orderId && !e.hidden &&
-      (e.action === 'manual_paid' || e.action === 'auto_paid')
-    )
-    if (orderAlreadyPaid) {
+    if (await isOrderAlreadyPaid(orderId)) {
       audit({ category: 'match', action: 'manual_match.order_already_paid_blocked', result: 'skipped', actor: 'human', component: 'api/manual-match', message: `Orden ya registrada: ${orderId}`, mpPaymentId, orderId })
       return NextResponse.json({ error: 'Esta orden ya fue registrada como pagada' }, { status: 409 })
     }
 
     // Validación 2: el pago ya fue emparejado con alguna orden
-    const paymentAlreadyUsed = logs.registroLog.some(e =>
-      e.mpPaymentId === mpPaymentId && !e.hidden &&
-      (e.action === 'manual_paid' || e.action === 'auto_paid')
-    )
-    if (paymentAlreadyUsed) {
+    if (await isPaymentAlreadyUsed(mpPaymentId)) {
       audit({ category: 'match', action: 'manual_match.payment_already_used_blocked', result: 'skipped', actor: 'human', component: 'api/manual-match', message: `Pago ya emparejado: ${mpPaymentId}`, mpPaymentId, orderId })
       return NextResponse.json({ error: 'Este pago ya fue emparejado con otra orden' }, { status: 409 })
     }
@@ -126,8 +119,7 @@ export async function POST(req: NextRequest) {
       paymentReceivedAt: payment.fechaPago,
       orderCreatedAt: order?.createdAt,
     }
-    logs.registroLog.push(logEntry)
-    matchLogData.matchLog.push(logEntry)
+    await appendRegistroEntry(logEntry)
 
     appendActivity(logs, 'human', 'pago_emparejado', {
       mpPaymentId: payment.mpPaymentId,
@@ -139,7 +131,7 @@ export async function POST(req: NextRequest) {
     auditMatch({ action: 'manual_match.paid', actor: 'human', component: 'api/manual-match', mpPaymentId: payment.mpPaymentId, orderId, orderNumber: order?.orderNumber, storeId, storeName: store.storeName, amount: payment.monto, result: 'success', message: `Match manual: ${payment.mpPaymentId} → #${order?.orderNumber}` })
 
     await saveLogs(logs)
-    await Promise.all([saveHotState(hot), saveMatchLog(matchLogData)])
+    await saveHotState(hot)
 
     const recentMatch = { mpPaymentId: payment.mpPaymentId, matchedAt: logEntry.timestamp, orderId, storeId, order: order || undefined, payment }
     return NextResponse.json({ success: true, method: markMethod, logEntry, recentMatch })

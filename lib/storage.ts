@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
-import type { AppState, Store, Payment, Order, LogEntry, UnmatchedPayment, RecentMatch, DismissedPair, ExternalPaymentMark, PersistedMonthStats, ErrorEntry, ActivityEntry } from './types'
+import type { AppState, Store, Payment, Order, UnmatchedPayment, RecentMatch, DismissedPair, ExternalPaymentMark, PersistedMonthStats, ErrorEntry, ActivityEntry } from './types'
 import { HARD_CUTOFF_PAYMENTS, HARD_CUTOFF_ORDERS } from './config'
 import { nowART } from './utils'
 
@@ -30,42 +30,13 @@ const HOT_KEY        = 'criptoblue:state'
 const PROCESSED_KEY  = 'criptoblue:processed'
 const ORDERS_KEY     = 'criptoblue:orders-cache'
 const LOGS_KEY       = 'criptoblue:logs'
-const MATCH_LOG_KEY  = 'criptoblue:match-log'
 const STORES_KEY     = 'criptoblue:stores'
 const LOCK_KEY       = 'criptoblue:lock'
+const CRON_PAUSED_KEY = 'criptoblue:cron-paused'
 
-// Rolling window: las entradas más recientes viven en criptoblue:logs (lectura
-// rápida en cada ciclo). Las más viejas se archivan por mes calendario para que
-// la UI las pueda consultar. 15 días cubre todos los usos productivos:
-// - cycle.ts confirmedIds (respaldado además por matchLog + retainedPaymentIds)
-// - mark-order-paid / manual-match validaciones de duplicado
-// - buscar-orden busca duplicados hasta 30 días → carga el archivo del mes anterior
-const REGISTRO_ROLLING_DAYS = 15
-
-function getArchiveKey(month: string): string {
-  return `criptoblue:logs:${month}`
-}
-
-function getCurrentLogMonth(): string {
-  const now = new Date()
-  const arg = new Date(now.getTime() - 3 * 60 * 60 * 1000)
-  return arg.toISOString().slice(0, 7)
-}
-
-function getEntryTimestamp(entry: LogEntry): number {
-  const ts = entry.payment?.fechaPago || entry.timestamp
-  const t = new Date(ts).getTime()
-  return isNaN(t) ? Date.now() : t
-}
-
-function getEntryMonth(entry: LogEntry): string {
-  try {
-    const arg = new Date(getEntryTimestamp(entry) - 3 * 60 * 60 * 1000)
-    return arg.toISOString().slice(0, 7)
-  } catch {
-    return getCurrentLogMonth()
-  }
-}
+// NOTA: el registro (antes registroLog en criptoblue:logs y el blob
+// criptoblue:match-log) vive ahora en la tabla relacional `registro_log`
+// (ver lib/registro.ts). criptoblue:logs conserva solo errorLog + activityLog.
 
 // ─────────────────────────────────────────────
 // Tipos parciales por key
@@ -89,13 +60,8 @@ export type HotState = {
 }
 
 export type LogsState = {
-  registroLog: LogEntry[]
   errorLog: ErrorEntry[]
   activityLog: ActivityEntry[]
-}
-
-export type MatchLogState = {
-  matchLog: LogEntry[]
 }
 
 export type ProcessedState = {
@@ -128,13 +94,8 @@ const DEFAULT_HOT_STATE: HotState = {
 }
 
 const DEFAULT_LOGS_STATE: LogsState = {
-  registroLog: [],
   errorLog: [],
   activityLog: [],
-}
-
-const DEFAULT_MATCH_LOG_STATE: MatchLogState = {
-  matchLog: [],
 }
 
 const DEFAULT_PROCESSED_STATE: ProcessedState = {
@@ -268,60 +229,6 @@ function cleanHotData(state: HotState): HotState {
   return cleaned
 }
 
-// Merge de registroLog: preserva campos editados por el usuario (copiedAt, hidden, ediciones)
-// desde la versión actual de Supabase sobre la versión del ciclo.
-// Usa timestamp como clave primaria (único por entrada).
-function mergeRegistroLog(cycleEntries: LogEntry[], currentEntries: LogEntry[]): LogEntry[] {
-  const currentByTs = new Map(currentEntries.map(e => [e.timestamp, e]))
-
-  // Entradas del ciclo: preservar campos del usuario desde Supabase
-  const merged = cycleEntries.map(entry => {
-    const current = currentByTs.get(entry.timestamp)
-    if (!current) return entry // nueva del ciclo (ej: no_match), mantener
-
-    return {
-      ...entry,
-      // Campos que solo el usuario modifica — preservar la versión de Supabase
-      copiedAt: current.copiedAt ?? entry.copiedAt,
-      hidden: current.hidden !== undefined ? current.hidden : entry.hidden,
-      customerName: current.customerName ?? entry.customerName,
-      orderNumber: current.orderNumber ?? entry.orderNumber,
-      storeName: current.storeName ?? entry.storeName,
-      // Preservar ediciones del payment (nombre, CUIT)
-      payment: entry.payment ? {
-        ...entry.payment,
-        nombrePagador: current.payment?.nombrePagador || entry.payment.nombrePagador,
-        cuitPagador: current.payment?.cuitPagador || entry.payment.cuitPagador,
-      } : entry.payment,
-    }
-  })
-
-  // Entradas que existen en Supabase pero no en el ciclo
-  // (agregadas por otro proceso durante la ejecución del ciclo)
-  const cycleTs = new Set(cycleEntries.map(e => e.timestamp))
-  for (const current of currentEntries) {
-    if (!cycleTs.has(current.timestamp)) {
-      merged.push(current)
-    }
-  }
-
-  return merged
-}
-
-// Merge de matchLog: union por timestamp — asegura que entradas escritas por procesos
-// concurrentes no se pierdan cuando otro proceso guarda su versión del matchLog.
-// Mismo concepto que mergeRegistroLog pero sin campos editables por el usuario.
-function mergeMatchLog(incomingEntries: LogEntry[], currentEntries: LogEntry[]): LogEntry[] {
-  const incomingTs = new Set(incomingEntries.map(e => e.timestamp))
-  const merged = [...incomingEntries]
-  for (const current of currentEntries) {
-    if (!incomingTs.has(current.timestamp)) {
-      merged.push(current)
-    }
-  }
-  return merged
-}
-
 // Union-merge genérico por campo único (para errorLog/activityLog)
 function mergeByField<T extends { id: string }>(incoming: T[], current: T[]): T[] {
   const incomingIds = new Set(incoming.map(e => e.id))
@@ -337,24 +244,12 @@ function mergeByField<T extends { id: string }>(incoming: T[], current: T[]): T[
 function cleanLogsData(state: LogsState): LogsState {
   const { cutoff7dMs, cutoff30dMs } = getCutoffs()
   return {
-    // registroLog es permanente — no expira (#registro-permanente)
-    registroLog: (state.registroLog ?? [])
-      .map(e => ({ ...e, payment: e.payment ? stripRawData(e.payment) : undefined })),
     errorLog: (state.errorLog ?? [])
       .filter(e => !e.resolved || new Date(e.timestamp).getTime() >= cutoff7dMs)
       .slice(-500),
     activityLog: (state.activityLog ?? [])
       .filter(e => new Date(e.timestamp).getTime() >= cutoff30dMs)
       .slice(-1000),
-  }
-}
-
-function cleanMatchLogData(state: MatchLogState): MatchLogState {
-  const { effectiveCutoffMinMs } = getCutoffs()
-  return {
-    matchLog: (state.matchLog ?? [])
-      .filter(e => new Date(e.timestamp).getTime() >= effectiveCutoffMinMs)
-      .map(e => ({ ...e, payment: e.payment ? stripRawData(e.payment) : undefined })),
   }
 }
 
@@ -411,16 +306,9 @@ export async function loadLogs(): Promise<LogsState> {
   const data = await kvGet<LogsState>(LOGS_KEY)
   if (!data) return { ...DEFAULT_LOGS_STATE }
   return {
-    registroLog: data.registroLog ?? [],
     errorLog: data.errorLog ?? [],
     activityLog: data.activityLog ?? [],
   }
-}
-
-export async function loadMatchLog(): Promise<MatchLogState> {
-  const data = await kvGet<MatchLogState>(MATCH_LOG_KEY)
-  if (!data) return { ...DEFAULT_MATCH_LOG_STATE }
-  return { matchLog: data.matchLog ?? [] }
 }
 
 export async function loadProcessed(): Promise<ProcessedState> {
@@ -565,63 +453,21 @@ export async function saveHotState(state: HotState): Promise<void> {
 }
 
 export async function saveLogs(state: LogsState): Promise<void> {
-  // Rolling window: solo las entradas de los últimos REGISTRO_ROLLING_DAYS días
-  // viven en criptoblue:logs. Las más viejas se archivan por mes calendario.
-  // Esto reduce el blob activo de ~3.4 MB a ~1.2 MB y mantiene cobertura para
-  // todas las validaciones funcionales (deduplicación, confirmedIds, etc.).
-  const cutoffMs = Date.now() - REGISTRO_ROLLING_DAYS * 24 * 60 * 60 * 1000
-
-  const recentEntries: LogEntry[] = []
-  const oldByMonth: Record<string, LogEntry[]> = {}
-  for (const entry of (state.registroLog ?? [])) {
-    if (getEntryTimestamp(entry) >= cutoffMs) {
-      recentEntries.push(entry)
-    } else {
-      const month = getEntryMonth(entry)
-      ;(oldByMonth[month] ??= []).push(entry)
-    }
-  }
-
-  // Archivar entradas viejas por mes (idempotente — solo escribe si hay novedades)
-  const archiveOps = Object.entries(oldByMonth).map(
-    ([month, entries]) => archiveMonthEntries(month, entries),
-  )
-
-  // Merge con Supabase para no perder entradas escritas por procesos concurrentes
+  // criptoblue:logs conserva solo errorLog + activityLog. El registro vive
+  // en la tabla registro_log (ver lib/registro.ts).
+  // Merge con Supabase para no perder entradas escritas por procesos concurrentes.
   const current = await kvGet<LogsState>(LOGS_KEY)
-  let mergedState: LogsState
-  if (current) {
-    // Solo mergeamos las entradas recientes de Supabase (las viejas ya se archivaron)
-    const currentRecent = (current.registroLog ?? []).filter(
-      e => getEntryTimestamp(e) >= cutoffMs,
-    )
-    mergedState = cleanLogsData({
-      registroLog: mergeRegistroLog(recentEntries, currentRecent),
-      errorLog: mergeByField(state.errorLog, current.errorLog ?? []),
-      activityLog: mergeByField(state.activityLog, current.activityLog ?? []),
-    })
-  } else {
-    mergedState = cleanLogsData({
-      registroLog: recentEntries,
-      errorLog: state.errorLog ?? [],
-      activityLog: state.activityLog ?? [],
-    })
-  }
+  const mergedState: LogsState = current
+    ? cleanLogsData({
+        errorLog: mergeByField(state.errorLog, current.errorLog ?? []),
+        activityLog: mergeByField(state.activityLog, current.activityLog ?? []),
+      })
+    : cleanLogsData({
+        errorLog: state.errorLog ?? [],
+        activityLog: state.activityLog ?? [],
+      })
 
-  await Promise.all([
-    kvSetConRetry(LOGS_KEY, mergedState),
-    ...archiveOps,
-  ])
-}
-
-export async function saveMatchLog(state: MatchLogState): Promise<void> {
-  // Merge con la versión actual de Supabase para no perder entradas escritas
-  // por procesos concurrentes (misma protección que mergeRegistroLog para logs).
-  const current = await kvGet<MatchLogState>(MATCH_LOG_KEY)
-  if (current?.matchLog?.length) {
-    state = { matchLog: mergeMatchLog(state.matchLog, current.matchLog) }
-  }
-  await kvSetConRetry(MATCH_LOG_KEY, cleanMatchLogData(state))
+  await kvSetConRetry(LOGS_KEY, mergedState)
 }
 
 export async function saveProcessed(state: ProcessedState): Promise<void> {
@@ -633,44 +479,17 @@ export async function saveOrdersCache(state: OrdersCacheState): Promise<void> {
 }
 
 // ─────────────────────────────────────────────
-// Archivo de registroLog por mes — reduce IO en saveLogs
+// Pausa del cron — flag en kv_store leído por /api/run.
+// Se prende/apaga con SQL durante la migración. Instantáneo, sin redeploy.
 // ─────────────────────────────────────────────
 
-export function getCurrentLogMonthKey(): string {
-  return getCurrentLogMonth()
-}
-
-export async function loadArchivedRegistroLog(month: string): Promise<LogEntry[]> {
-  const data = await kvGet<{ registroLog: LogEntry[] }>(getArchiveKey(month))
-  return data?.registroLog ?? []
-}
-
-export async function saveArchivedRegistroLog(month: string, entries: LogEntry[]): Promise<void> {
-  await kvSetConRetry(getArchiveKey(month), { registroLog: entries })
-}
-
-export async function getAvailableLogMonths(): Promise<string[]> {
-  const supabase = getClient()
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data } = await (supabase.from('kv_store') as any)
-    .select('key')
-    .like('key', 'criptoblue:logs:20%')
-  if (!data) return []
-  return (data as { key: string }[])
-    .map(r => r.key.replace('criptoblue:logs:', ''))
-    .filter((m: string) => /^\d{4}-\d{2}$/.test(m))
-    .sort()
-}
-
-async function archiveMonthEntries(month: string, incomingEntries: LogEntry[]): Promise<void> {
-  const existing = await kvGet<{ registroLog: LogEntry[] }>(getArchiveKey(month))
-  if (!existing?.registroLog?.length) {
-    await kvSetConRetry(getArchiveKey(month), { registroLog: incomingEntries })
-    return
-  }
-  const merged = mergeRegistroLog(incomingEntries, existing.registroLog)
-  if (merged.length > existing.registroLog.length) {
-    await kvSetConRetry(getArchiveKey(month), { registroLog: merged })
+export async function isCronPaused(): Promise<boolean> {
+  try {
+    const val = await kvGet<unknown>(CRON_PAUSED_KEY)
+    return val === true || val === 'true'
+  } catch {
+    // Si la lectura falla, NO pausar — preferir que el cron siga corriendo
+    return false
   }
 }
 
@@ -679,10 +498,9 @@ async function archiveMonthEntries(month: string, incomingEntries: LogEntry[]): 
 // ─────────────────────────────────────────────
 
 export async function loadState(): Promise<AppState> {
-  const [hot, logs, matchLog, processed, orders] = await Promise.all([
+  const [hot, logs, processed, orders] = await Promise.all([
     loadHotState(),
     loadLogs(),
-    loadMatchLog(),
     loadProcessed(),
     loadOrdersCache(),
   ])
@@ -690,7 +508,6 @@ export async function loadState(): Promise<AppState> {
   return {
     ...hot,
     ...logs,
-    ...matchLog,
     ...processed,
     cachedOrders: orders.cachedOrders,
     cachedOrdersAt: orders.cachedOrdersAt, // fuente de verdad: OrdersCacheState (#5)
@@ -698,11 +515,6 @@ export async function loadState(): Promise<AppState> {
 }
 
 export async function saveState(state: AppState): Promise<void> {
-  const { effectiveCutoffPaymentsMs } = getCutoffs()
-
-  // Los pagos vencidos sin emparejar ya NO se agregan al registroLog
-  const registroLog = [...(state.registroLog ?? [])]
-
   // HOT_KEY: usar saveHotState para aprovechar el merge de paymentOverrides (#race-condition)
   const hotInput: HotState = {
     unmatchedPayments: state.unmatchedPayments ?? [],
@@ -721,7 +533,6 @@ export async function saveState(state: AppState): Promise<void> {
   }
 
   const cycleLogs: LogsState = {
-    registroLog,
     errorLog: state.errorLog ?? [],
     activityLog: state.activityLog ?? [],
   }
@@ -733,10 +544,8 @@ export async function saveState(state: AppState): Promise<void> {
     cachedOrdersAt: state.cachedOrdersAt ?? '',
   }
 
-  // Usar saveLogs() y saveMatchLog() en vez de escribir directamente —
-  // estas funciones hacen su propio read+merge justo antes de escribir,
-  // evitando la race condition donde el auto-match guarda entradas entre
-  // el momento en que saveState() lee los logs y el momento en que escribe.
+  // Usar saveLogs() en vez de escribir directamente — hace su propio read+merge
+  // justo antes de escribir, evitando race conditions con escrituras concurrentes.
   //
   // CRÍTICO: processedPayments se guarda DESPUÉS de saveHotState y los demás.
   // Si saveHotState falla (kvSetConRetry agota reintentos), processedPayments
@@ -748,7 +557,6 @@ export async function saveState(state: AppState): Promise<void> {
   await Promise.all([
     saveHotState(hotInput),
     saveLogs(cycleLogs),
-    saveMatchLog({ matchLog: state.matchLog ?? [] }),
     kvSetConRetry(ORDERS_KEY, orders),
   ])
   await kvSetConRetry(PROCESSED_KEY, processed)

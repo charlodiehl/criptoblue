@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { loadHotState, saveHotState, loadLogs, saveLogs, loadMatchLog, saveMatchLog, getStores, incrementPersistedMonthStats, appendActivity, acquireLock, releaseLock } from '@/lib/storage'
+import { loadHotState, saveHotState, loadLogs, saveLogs, getStores, incrementPersistedMonthStats, appendActivity, acquireLock, releaseLock } from '@/lib/storage'
+import { appendRegistroEntry, isOrderAlreadyPaid } from '@/lib/registro'
 import { markOrderAsPaid as markTNOrderAsPaid } from '@/lib/tiendanube'
 import { markOrderAsPaid as markShopifyOrderAsPaid } from '@/lib/shopify'
 import type { LogEntry, Payment } from '@/lib/types'
@@ -19,18 +20,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'orderId, storeId, monto y medioPago son requeridos' }, { status: 400 })
     }
 
-    const [hot, logs, matchLogData, stores] = await Promise.all([
-      loadHotState(), loadLogs(), loadMatchLog(), getStores()
+    const [hot, logs, stores] = await Promise.all([
+      loadHotState(), loadLogs(), getStores()
     ])
     const store = stores[storeId]
     if (!store) return NextResponse.json({ error: 'Tienda no encontrada' }, { status: 404 })
 
     // Validación: la orden ya fue registrada como pagada
-    const orderAlreadyPaid = logs.registroLog.some(e =>
-      e.orderId === orderId && !e.hidden &&
-      (e.action === 'manual_paid' || e.action === 'auto_paid')
-    )
-    if (orderAlreadyPaid) {
+    if (await isOrderAlreadyPaid(orderId)) {
       return NextResponse.json({ error: 'Esta orden ya fue registrada como pagada' }, { status: 409 })
     }
 
@@ -91,8 +88,8 @@ export async function POST(req: NextRequest) {
       cuitPagador: cuitPagador || undefined,
       orderCreatedAt: order?.createdAt,
     }
-    logs.registroLog.push(logEntry)
-    matchLogData.matchLog.push(logEntry)
+    // Write-ahead: insertar el registro ANTES de marcar en la plataforma.
+    await appendRegistroEntry(logEntry)
 
     appendActivity(logs, 'human', 'orden_pagada_manual', {
       orderId,
@@ -104,9 +101,7 @@ export async function POST(req: NextRequest) {
     })
     auditMatch({ action: 'mark_order_manual.paid', actor: 'human', component: 'api/mark-order-paid-manual', mpPaymentId: fakeMpPaymentId, orderId, orderNumber: order?.orderNumber, storeId, storeName: store.storeName, amount: Number(monto), result: 'success', message: `Orden pagada manual: ${nombrePagador || ''}` })
 
-    // Write-ahead: guardar el log ANTES de marcar en la plataforma.
-    // Si la llamada a TN/Shopify falla después, el registro ya existe y no se pierde.
-    // Si el log falla, se devuelve error sin haber tocado la plataforma.
+    // Persistir activityLog (el registro ya se insertó arriba con appendRegistroEntry).
     await saveLogs(logs)
 
     // Marcar como pagada en la plataforma
@@ -127,11 +122,11 @@ export async function POST(req: NextRequest) {
     if (!markSuccess) {
       // El log ya fue guardado — devolver success con advertencia para que el
       // frontend lo informe al usuario sin bloquear el flujo.
-      await Promise.all([saveHotState(hot), saveMatchLog(matchLogData)])
+      await saveHotState(hot)
       return NextResponse.json({ success: true, logEntry, tnError: markError, recentMatch: { mpPaymentId: fakeMpPaymentId, matchedAt: entryTimestamp, orderId, storeId } })
     }
 
-    await Promise.all([saveHotState(hot), saveMatchLog(matchLogData)])
+    await saveHotState(hot)
 
     return NextResponse.json({ success: true, logEntry, recentMatch: { mpPaymentId: fakeMpPaymentId, matchedAt: entryTimestamp, orderId, storeId } })
   } catch (err) {

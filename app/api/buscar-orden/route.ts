@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getStores, loadOrdersCache, loadLogs, loadArchivedRegistroLog } from '@/lib/storage'
+import { getStores, loadOrdersCache } from '@/lib/storage'
+import { findRegistroByStoreSince } from '@/lib/registro'
 import { CONFIG } from '@/lib/config'
 import type { Order, LogEntry } from '@/lib/types'
 
@@ -105,26 +106,15 @@ export async function POST(req: NextRequest) {
     }
 
     // Verificar si ya está en el cache activo (ya está en el flujo normal)
-    const [ordersCache, logs] = await Promise.all([loadOrdersCache(), loadLogs()])
+    const ordersCache = await loadOrdersCache()
     const alreadyInCache = (ordersCache.cachedOrders || []).some(
       (o: Order) => o.orderId === order!.orderId && o.storeId === order!.storeId
     )
 
-    // Buscar duplicado en registroLog de los últimos 30 días.
-    // El log activo solo tiene rolling 15 días, así que cargamos también el
-    // archivo del mes anterior para cubrir la ventana completa de 30 días.
+    // Buscar duplicado en el registro de los últimos 30 días (tabla registro_log),
+    // acotado a la misma tienda.
     const cutoff30d = Date.now() - 30 * 24 * 60 * 60 * 1000
-    const prevMonth = (() => {
-      const d = new Date(Date.now() - 3 * 60 * 60 * 1000)
-      d.setUTCDate(1)
-      d.setUTCMonth(d.getUTCMonth() - 1)
-      return d.toISOString().slice(0, 7)
-    })()
-    const archivedPrev = await loadArchivedRegistroLog(prevMonth).catch(() => [] as LogEntry[])
-    const allRegistroEntries: LogEntry[] = [
-      ...(logs.registroLog ?? []),
-      ...archivedPrev,
-    ]
+    const allRegistroEntries: LogEntry[] = await findRegistroByStoreSince(order!.storeId, cutoff30d)
     const normName = (s: string) => (s || '').toLowerCase().trim().replace(/\s+/g, ' ')
     const normCuit = (s: string) => (s || '').replace(/\D/g, '')
 

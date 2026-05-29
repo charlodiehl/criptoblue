@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { loadHotState, saveHotState, loadLogs, saveLogs, loadMatchLog, saveMatchLog, getStores, incrementPersistedMonthStats, appendActivity, appendError, acquireLock, releaseLock } from '@/lib/storage'
+import { loadHotState, saveHotState, loadLogs, saveLogs, getStores, incrementPersistedMonthStats, appendActivity, appendError, acquireLock, releaseLock } from '@/lib/storage'
+import { appendRegistroEntry, isOrderAlreadyPaid } from '@/lib/registro'
 import { markOrderAsPaid as markTNOrderAsPaid } from '@/lib/tiendanube'
 import { markOrderAsPaid as markShopifyOrderAsPaid } from '@/lib/shopify'
 import type { LogEntry, RecentMatch } from '@/lib/types'
@@ -19,18 +20,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'storeId and orderId required' }, { status: 400 })
     }
 
-    const [hot, logs, matchLogData, stores] = await Promise.all([
-      loadHotState(), loadLogs(), loadMatchLog(), getStores()
+    const [hot, logs, stores] = await Promise.all([
+      loadHotState(), loadLogs(), getStores()
     ])
     const store = stores[storeId]
     if (!store) return NextResponse.json({ error: 'Store not found' }, { status: 404 })
 
     // Validación: la orden ya fue registrada como pagada
-    const orderAlreadyPaid = logs.registroLog.some(e =>
-      e.orderId === orderId && !e.hidden &&
-      (e.action === 'manual_paid' || e.action === 'auto_paid')
-    )
-    if (orderAlreadyPaid) {
+    if (await isOrderAlreadyPaid(orderId)) {
       return NextResponse.json({ error: 'Esta orden ya fue registrada como pagada' }, { status: 409 })
     }
 
@@ -75,8 +72,7 @@ export async function POST(req: NextRequest) {
       amount: total ?? undefined,
       orderTotal: total ?? undefined,
     }
-    logs.registroLog.push(logEntry)
-    matchLogData.matchLog.push(logEntry)
+    await appendRegistroEntry(logEntry)
     if (total != null) incrementPersistedMonthStats(hot, total, 'manual_ordenes')
 
     // recentMatches: para que la orden quede verde en la pestaña Órdenes
@@ -97,9 +93,9 @@ export async function POST(req: NextRequest) {
     })
     auditMatch({ action: 'mark_order.paid', actor: 'human', component: 'api/mark-order-paid', mpPaymentId: fakeMpPaymentId, orderId, storeId, storeName: store.storeName, amount: total, result: 'success', message: 'Orden marcada pagada manualmente' })
 
-    // registroLog primero — es la fuente de verdad; si falla, el endpoint devuelve error
+    // El registro ya se insertó en registro_log (appendRegistroEntry).
     await saveLogs(logs)
-    await Promise.all([saveHotState(hot), saveMatchLog(matchLogData)])
+    await saveHotState(hot)
 
     return NextResponse.json({ success: true, logEntry, recentMatch })
   } catch (err) {

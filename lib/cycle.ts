@@ -2,6 +2,7 @@ import { fetchAllPaymentsSince } from './mercadopago'
 import { getPendingOrders as getTNOrders } from './tiendanube'
 import { getPendingOrders as getShopifyOrders } from './shopify'
 import { loadState, saveState, getStores, appendError, loadLogs, saveLogs } from './storage'
+import { getConfirmedMarks } from './registro'
 import { HARD_CUTOFF_PAYMENTS, HARD_CUTOFF_ORDERS, SAMEMONTO_WINDOW_HOURS, ORDER_CACHE_MIN_HOURS, ORDER_CACHE_BUFFER_HOURS, PAYMENT_CACHE_HOURS } from './config'
 import type { UnmatchedPayment, Store } from './types'
 import { audit, auditApiCall } from './audit'
@@ -113,18 +114,12 @@ export async function processMPPayments(): Promise<CycleResult> {
   // Los externallyMarkedPayments ("no es de tiendas") se excluyen a propósito:
   // deben seguir en unmatchedPayments para que la pestaña Pagos los muestre en amarillo,
   // y el frontend los filtra de emparejamiento/sin-coincidencias via matchedPaymentIds.
-  // Leer IDs confirmados de AMBOS logs (registroLog + matchLog) + retainedPaymentIds
-  // registroLog: log permanente del UI
-  // matchLog: log backend con expiración 48h (puede contener entradas que aún no están en registroLog)
-  // retainedPaymentIds: backup de IDs preservados al borrar registro
+  // Fuente: tabla registro_log (getConfirmedMarks) + retainedPaymentIds (backup
+  // de IDs preservados al borrar registro).
+  const confirmedMarks = await getConfirmedMarks()
   const confirmedIds = new Set<string>([
-    ...state.registroLog
-      .filter(e => e.action === 'manual_paid' || e.action === 'auto_paid' || e.action === 'dismissed')
-      .map(e => e.mpPaymentId)
-      .filter((id): id is string => !!id),
-    ...state.matchLog
-      .filter(e => e.action === 'manual_paid' || e.action === 'auto_paid' || e.action === 'dismissed')
-      .map(e => e.mpPaymentId)
+    ...confirmedMarks
+      .map(m => m.mpPaymentId)
       .filter((id): id is string => !!id),
     ...(state.retainedPaymentIds || []),
   ])

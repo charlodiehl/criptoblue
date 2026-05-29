@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { loadHotState, saveHotState, loadLogs, saveLogs, loadMatchLog, saveMatchLog, getStores, incrementPersistedMonthStats, appendActivity, acquireLock, releaseLock } from '@/lib/storage'
+import { loadHotState, saveHotState, loadLogs, saveLogs, getStores, incrementPersistedMonthStats, appendActivity, acquireLock, releaseLock } from '@/lib/storage'
+import { appendRegistroEntry, isOrderAlreadyPaid, isPaymentAlreadyUsed } from '@/lib/registro'
 import { markOrderAsPaid as markTNOrderAsPaid } from '@/lib/tiendanube'
 import { markOrderAsPaid as markShopifyOrderAsPaid } from '@/lib/shopify'
 import type { LogEntry, Order } from '@/lib/types'
@@ -17,7 +18,7 @@ export async function POST(req: NextRequest) {
     const { mpPaymentId, storeName, orderNumber, matchedOrder } = await req.json()
     if (!mpPaymentId) return NextResponse.json({ error: 'mpPaymentId required' }, { status: 400 })
 
-    const [hot, logs, matchLogData] = await Promise.all([loadHotState(), loadLogs(), loadMatchLog()])
+    const [hot, logs] = await Promise.all([loadHotState(), loadLogs()])
 
     const unmatchedIndex = hot.unmatchedPayments.findIndex(
       u => (u.mpPaymentId || u.payment?.mpPaymentId || '') === mpPaymentId
@@ -28,22 +29,14 @@ export async function POST(req: NextRequest) {
 
     // Validación 1: la orden ya fue registrada como pagada (con cualquier pago)
     if (matchedOrder?.orderId) {
-      const orderAlreadyPaid = logs.registroLog.some(e =>
-        e.orderId === matchedOrder.orderId && !e.hidden &&
-        (e.action === 'manual_paid' || e.action === 'auto_paid')
-      )
-      if (orderAlreadyPaid) {
+      if (await isOrderAlreadyPaid(matchedOrder.orderId)) {
         auditMatch({ action: 'manual_log.order_already_paid_blocked', actor: 'human', component: 'api/manual-log', mpPaymentId, orderId: matchedOrder.orderId, orderNumber: matchedOrder.orderNumber || orderNumber || '', storeId: matchedOrder.storeId || '', storeName: matchedOrder.storeName || storeName || '', amount: payment.monto, result: 'skipped', message: `Orden ya registrada: ${matchedOrder.orderId}` })
         return NextResponse.json({ error: 'Esta orden ya fue registrada como pagada' }, { status: 409 })
       }
     }
 
     // Validación 2: el pago ya fue emparejado con alguna orden
-    const paymentAlreadyUsed = logs.registroLog.some(e =>
-      e.mpPaymentId === mpPaymentId && !e.hidden &&
-      (e.action === 'manual_paid' || e.action === 'auto_paid')
-    )
-    if (paymentAlreadyUsed) {
+    if (await isPaymentAlreadyUsed(mpPaymentId)) {
       auditMatch({ action: 'manual_log.payment_already_used_blocked', actor: 'human', component: 'api/manual-log', mpPaymentId, orderId: matchedOrder?.orderId || '', orderNumber: matchedOrder?.orderNumber || orderNumber || '', storeId: matchedOrder?.storeId || '', storeName: matchedOrder?.storeName || storeName || '', amount: payment.monto, result: 'skipped', message: `Pago ya emparejado: ${mpPaymentId}` })
       return NextResponse.json({ error: 'Este pago ya fue emparejado con otra orden' }, { status: 409 })
     }
@@ -123,8 +116,7 @@ export async function POST(req: NextRequest) {
       paymentReceivedAt: payment.fechaPago,
       orderCreatedAt: order?.createdAt,
     }
-    logs.registroLog.push(logEntry)
-    matchLogData.matchLog.push(logEntry)
+    await appendRegistroEntry(logEntry)
 
     appendActivity(logs, 'human', 'pago_registrado_manual', {
       mpPaymentId: payment.mpPaymentId,
@@ -134,9 +126,9 @@ export async function POST(req: NextRequest) {
     })
     auditMatch({ action: 'manual_log.paid', actor: 'human', component: 'api/manual-log', mpPaymentId: payment.mpPaymentId, orderId: order?.orderId || '', orderNumber: order?.orderNumber || orderNumber || '', storeId: order?.storeId || '', storeName: order?.storeName || storeName || '', amount: payment.monto, result: 'success', message: `Log manual: ${payment.mpPaymentId}` })
 
-    // registroLog primero — es la fuente de verdad; si falla, el endpoint devuelve error
+    // El registro ya se insertó en registro_log (appendRegistroEntry).
     await saveLogs(logs)
-    await Promise.all([saveHotState(hot), saveMatchLog(matchLogData)])
+    await saveHotState(hot)
 
     const recentMatch = {
       mpPaymentId: payment.mpPaymentId,

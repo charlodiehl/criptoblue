@@ -1,5 +1,6 @@
 // Lógica central del auto-match — compartida por el cron (reevaluar) y el botón manual
-import { loadHotState, saveHotState, loadLogs, saveLogs, loadMatchLog, saveMatchLog, loadOrdersCache, incrementPersistedMonthStats, appendError, appendActivity, waitForLock, releaseLock } from './storage'
+import { loadHotState, saveHotState, loadLogs, saveLogs, loadOrdersCache, incrementPersistedMonthStats, appendError, appendActivity, waitForLock, releaseLock } from './storage'
+import { getConfirmedMarks, appendRegistroEntry, isOrderAlreadyPaid } from './registro'
 import { markOrderAsPaid as markTNOrderAsPaid } from './tiendanube'
 import { markOrderAsPaid as markShopifyOrderAsPaid } from './shopify'
 import { findAutoMatchCandidates } from './auto-match'
@@ -17,34 +18,25 @@ export async function runAutoMatchCore(
   stores: Record<string, Store>,
   triggeredBy: 'cron' | 'manual_button',
 ): Promise<AutoMatchResult> {
-  const [hot, logs, matchLogData, ordersCache] = await Promise.all([
-    loadHotState(), loadLogs(), loadMatchLog(), loadOrdersCache()
+  const [hot, ordersCache, confirmedMarks] = await Promise.all([
+    loadHotState(), loadOrdersCache(), getConfirmedMarks()
   ])
 
+  // IDs de pagos confirmados (tabla registro_log) + retainedPaymentIds
   const confirmedIds = new Set<string>([
-    ...logs.registroLog
-      .filter(e => e.action === 'manual_paid' || e.action === 'auto_paid' || e.action === 'dismissed')
-      .map(e => e.mpPaymentId)
-      .filter(Boolean) as string[],
-    ...matchLogData.matchLog
-      .filter(e => e.action === 'manual_paid' || e.action === 'auto_paid' || e.action === 'dismissed')
-      .map(e => e.mpPaymentId)
+    ...confirmedMarks
+      .map(m => m.mpPaymentId)
       .filter(Boolean) as string[],
     ...(hot.retainedPaymentIds ?? []),
   ])
 
   // Órdenes ya registradas como pagadas — excluirlas del conteo de sameMontoCount
   // para que no inflen la ambigüedad mientras el cache de TN aún no se actualizó
-  const confirmedOrderIds = new Set<string>([
-    ...logs.registroLog
-      .filter(e => e.orderId && e.storeId && (e.action === 'manual_paid' || e.action === 'auto_paid'))
-      .map(e => `${e.storeId}-${e.orderId}`)
-      .filter(Boolean) as string[],
-    ...matchLogData.matchLog
-      .filter(e => e.orderId && e.storeId && (e.action === 'manual_paid' || e.action === 'auto_paid'))
-      .map(e => `${e.storeId}-${e.orderId}`)
-      .filter(Boolean) as string[],
-  ])
+  const confirmedOrderIds = new Set<string>(
+    confirmedMarks
+      .filter(m => m.orderId && m.storeId && (m.action === 'manual_paid' || m.action === 'auto_paid'))
+      .map(m => `${m.storeId}-${m.orderId}`)
+  )
 
   const { candidates, diagnostics } = findAutoMatchCandidates(
     hot.unmatchedPayments,
@@ -132,13 +124,10 @@ export async function runAutoMatchCore(
     let markError: string | undefined
 
     // Recargar logs frescos antes de cada iteración para no pisar cambios concurrentes (#A2)
-    const [freshLogs, freshMatchLog] = await Promise.all([loadLogs(), loadMatchLog()])
+    const freshLogs = await loadLogs()
 
     // Validación extra: la orden no fue marcada como pagada manualmente mientras corría este ciclo
-    const orderAlreadyInRegistro = freshLogs.registroLog.some(e =>
-      e.orderId === candidate.orderId && !e.hidden &&
-      (e.action === 'manual_paid' || e.action === 'auto_paid')
-    )
+    const orderAlreadyInRegistro = await isOrderAlreadyPaid(candidate.orderId)
     if (orderAlreadyInRegistro) {
       console.log(`[auto-match] Orden #${candidate.order.orderNumber} ya está en registroLog — saltando`)
       auditQueue.push({ category: 'match', action: 'auto_match.skipped_order_in_registro', result: 'skipped', actor: 'system', component: 'auto-match-runner', message: `Orden #${candidate.order.orderNumber} ya registrada`, orderNumber: candidate.order.orderNumber, mpPaymentId: candidate.mpPaymentId })
@@ -226,8 +215,7 @@ export async function runAutoMatchCore(
       paymentReceivedAt: candidate.payment.fechaPago,
       orderCreatedAt: candidate.order.createdAt,
     }
-    freshLogs.registroLog.push(logEntry)
-    freshMatchLog.matchLog.push(logEntry)
+    await appendRegistroEntry(logEntry)
 
     appendActivity(freshLogs, 'system', 'pago_auto_emparejado', {
       mpPaymentId: candidate.mpPaymentId,
@@ -241,9 +229,10 @@ export async function runAutoMatchCore(
     matched++
     usedOrderIds.add(candidate.orderId)
 
-    // registroLog primero — es la fuente de verdad; si falla, se propaga el error
+    // El registro ya se insertó en registro_log (appendRegistroEntry).
+    // saveLogs persiste errorLog/activityLog; saveHotState el estado caliente.
     await saveLogs(freshLogs)
-    await Promise.all([saveHotState(freshHot), saveMatchLog(freshMatchLog)])
+    await saveHotState(freshHot)
 
     } finally {
       await releaseLock(LOCK_HOLDER)
@@ -255,26 +244,8 @@ export async function runAutoMatchCore(
     }
   }
 
-  // Verificación post-auto-match: asegurar que todo lo que está en matchLog
-  // también esté en registroLog. Si falta algo, recuperarlo.
-  if (matched > 0) {
-    const [verifyLogs, verifyMatchLog] = await Promise.all([loadLogs(), loadMatchLog()])
-    const registroTs = new Set(verifyLogs.registroLog.map(e => e.timestamp))
-    const registroOrders = new Set(verifyLogs.registroLog.map(e => e.orderNumber).filter(Boolean))
-    let recovered = 0
-    for (const entry of verifyMatchLog.matchLog) {
-      if (!registroTs.has(entry.timestamp) && !registroOrders.has(entry.orderNumber)) {
-        verifyLogs.registroLog.push(entry)
-        recovered++
-        console.log(`[auto-match] Recuperada entrada faltante en registroLog: #${entry.orderNumber}`)
-        auditQueue.push({ category: 'system', action: 'auto_match.recovery', result: 'warning', actor: 'system', component: 'auto-match-runner', message: `Recuperada entrada: #${entry.orderNumber}`, orderNumber: entry.orderNumber })
-      }
-    }
-    if (recovered > 0) {
-      await saveLogs(verifyLogs)
-      console.log(`[auto-match] ${recovered} entrada(s) recuperada(s) en registroLog`)
-    }
-  }
+  // (El bloque de recovery matchLog→registroLog se eliminó: registro_log es
+  // ahora la única fuente de verdad y appendRegistroEntry inserta directo.)
 
   // Recargar hot state una última vez y guardar estado final
   const finalHot = await loadHotState()

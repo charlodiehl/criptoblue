@@ -106,12 +106,8 @@ export interface DismissedPair {
 
 export interface AppState {
   processedPayments: string[]
-  // registroLog: Registro visible en la UI — nunca expira automáticamente, solo se borra con el botón "Borrar Registro"
-  // Incluye: todos los emparejamientos (manuales y automáticos) + pagos vencidos sin emparejar
-  registroLog: LogEntry[]
-  // matchLog: log de backend para consultas del sistema — se borra automáticamente a las 48hs
-  // Solo incluye emparejamientos (NO no_match). Independiente del Registro.
-  matchLog: LogEntry[]
+  // El registro (emparejamientos manuales y automáticos) vive en la tabla
+  // relacional registro_log — ya no forma parte de AppState. Ver lib/registro.ts.
   recentMatches: RecentMatch[]
   unmatchedPayments: UnmatchedPayment[]
   // Órdenes y pagos marcados manualmente como gestionados por fuera de la app

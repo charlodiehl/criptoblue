@@ -3,7 +3,7 @@ import { processMPPayments } from '@/lib/cycle'
 import { runAutoMatchCore } from '@/lib/auto-match-runner'
 import { audit } from '@/lib/audit'
 import { cleanupAuditLogs } from '@/lib/audit'
-import { loadHotState, saveHotState } from '@/lib/storage'
+import { loadHotState, saveHotState, isCronPaused } from '@/lib/storage'
 
 export const maxDuration = 300
 
@@ -52,6 +52,12 @@ export async function GET() {
   // Solo permitir cron en producción — preview deployments (otras branches) no deben ejecutar ciclos
   if (process.env.VERCEL_ENV && process.env.VERCEL_ENV !== 'production') {
     return NextResponse.json({ skipped: true, reason: 'cron disabled on non-production deployments' })
+  }
+
+  // Pausa de cron (flag kv criptoblue:cron-paused) — usada durante migraciones/mantenimiento.
+  // Evita que el ciclo procese pagos/órdenes mientras se opera la base de datos.
+  if (await isCronPaused()) {
+    return NextResponse.json({ skipped: true, reason: 'cron paused (criptoblue:cron-paused)' })
   }
 
   try {
