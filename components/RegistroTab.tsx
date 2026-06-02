@@ -17,13 +17,6 @@ function fmtCuit(s: string) {
   return (s || '').replace(/\D/g, '')
 }
 
-const MONTH_NAMES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
-function fmtMonth(ym: string): string {
-  if (!ym) return ''
-  const [y, m] = ym.split('-')
-  return `${MONTH_NAMES[parseInt(m, 10) - 1]} ${y}`
-}
-
 function billetera(entry: LogEntry): string {
   const source = entry.payment?.source
   if (source && PAYMENT_SOURCE_NAMES[source]) return PAYMENT_SOURCE_NAMES[source]
@@ -108,27 +101,6 @@ export default function RegistroTab({ refreshKey = 0, onEntryEdited }: Props) {
   const onEntryEditedRef = useRef(onEntryEdited)
   useEffect(() => { onEntryEditedRef.current = onEntryEdited }, [onEntryEdited])
 
-  // Mes actual en horario Argentina (UTC-3), calculado localmente para no esperar al fetch
-  const computedCurrentMonth = useMemo(
-    () => new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString().slice(0, 7), [])
-
-  // Selector de mes
-  const [selectedMonth, setSelectedMonth] = useState<string>(computedCurrentMonth)
-  const [currentMonth, setCurrentMonth] = useState<string>(computedCurrentMonth)
-  const [availableMonths, setAvailableMonths] = useState<string[]>([])
-
-  useEffect(() => {
-    fetch('/api/log-months')
-      .then(r => r.ok ? r.json() : null)
-      .then(data => {
-        if (data) {
-          if (data.currentMonth) setCurrentMonth(data.currentMonth)
-          setAvailableMonths(data.months ?? [])
-        }
-      })
-      .catch(() => {})
-  }, [])
-
   // Filtros
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
@@ -152,13 +124,11 @@ export default function RegistroTab({ refreshKey = 0, onEntryEdited }: Props) {
   const [loading, setLoading] = useState(false)
   const [reloadKey, setReloadKey] = useState(0)
 
-  const searching = debouncedSearch.trim().length > 0
-
-  // Construye los params de filtro compartidos (página y copia)
+  // Construye los params de filtro compartidos (página y copia).
+  // Sin filtro por mes: la lista abarca toda la historia, paginada.
   const buildFilterParams = (): URLSearchParams => {
     const p = new URLSearchParams()
-    if (searching) p.set('q', debouncedSearch.trim())
-    else if (selectedMonth) p.set('month', selectedMonth)
+    if (debouncedSearch.trim()) p.set('q', debouncedSearch.trim())
     if (dateFrom) p.set('from', dateFrom)
     if (dateTo) p.set('to', dateTo)
     return p
@@ -185,10 +155,10 @@ export default function RegistroTab({ refreshKey = 0, onEntryEdited }: Props) {
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, debouncedSearch, selectedMonth, dateFrom, dateTo, sortKey, sortDir, reloadKey, refreshKey])
+  }, [page, debouncedSearch, dateFrom, dateTo, sortKey, sortDir, reloadKey, refreshKey])
 
   // Reset de página al cambiar filtros/orden
-  useEffect(() => { setPage(1) }, [debouncedSearch, selectedMonth, dateFrom, dateTo, sortKey, sortDir])
+  useEffect(() => { setPage(1) }, [debouncedSearch, dateFrom, dateTo, sortKey, sortDir])
 
   const reload = () => setReloadKey(k => k + 1)
 
@@ -408,23 +378,6 @@ export default function RegistroTab({ refreshKey = 0, onEntryEdited }: Props) {
 
       {/* Filtros */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center', marginBottom: '12px' }}>
-        {/* Selector de mes */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <span style={{ fontSize: '11px', color: 'rgba(148,163,184,0.5)', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 600 }}>Mes</span>
-          <select
-            value={selectedMonth}
-            onChange={e => setSelectedMonth(e.target.value)}
-            disabled={searching}
-            title={searching ? 'La búsqueda abarca toda la historia' : undefined}
-            style={{ ...filterInputStyle, cursor: searching ? 'not-allowed' : 'pointer', paddingRight: '24px', opacity: searching ? 0.4 : 1 }}
-          >
-            <option value={currentMonth}>{fmtMonth(currentMonth)} (actual)</option>
-            {availableMonths.filter(m => m !== currentMonth).map(m => (
-              <option key={m} value={m}>{fmtMonth(m)}</option>
-            ))}
-          </select>
-        </div>
-
         {/* Búsqueda */}
         <div style={{ flex: '1 1 200px', minWidth: '180px' }}>
           <input
@@ -485,7 +438,6 @@ export default function RegistroTab({ refreshKey = 0, onEntryEdited }: Props) {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
         <span style={{ fontSize: '13px', color: 'rgba(148,163,184,0.4)' }}>
           {total} emparejamiento{total !== 1 ? 's' : ''}
-          {searching && <span style={{ marginLeft: '4px' }}>(toda la historia)</span>}
           {loading && <span style={{ marginLeft: '8px', color: 'rgba(148,163,184,0.5)' }}>Cargando…</span>}
           {newCount > 0 && (
             <span style={{ marginLeft: '8px', color: 'rgba(226,232,240,0.75)', fontWeight: 600 }}>
