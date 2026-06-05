@@ -4,6 +4,7 @@ import { useState, useMemo, useRef, useEffect } from 'react'
 import type { Payment, Order, Store } from '@/lib/types'
 import { ARS, fmtDate, matchesSearch } from '@/lib/utils'
 import { MONTO_DIFF_WARNING_THRESHOLD } from '@/lib/config'
+import BuscarPagoModal from './BuscarPagoModal'
 
 const PAGE_SIZE = 100
 
@@ -31,6 +32,8 @@ interface Props {
   emptyText?: string
   onMarkReceived?: (mpPaymentId: string) => Promise<void>
   onManualLog?: (mpPaymentId: string, storeName: string, orderNumber: string, matchedOrder: Order | null) => Promise<void>
+  showBuscarPagos?: boolean
+  onEmparejado?: (msg: string) => void
   loading?: boolean
 }
 
@@ -38,8 +41,9 @@ export default function PaymentsListTab({
   payments, orders = [], stores = [], matchedIds, externallyMarkedIds,
   title = 'Pagos · últimas 24hs',
   emptyText = 'No hay pagos en las últimas 24 horas',
-  onMarkReceived, onManualLog, loading,
+  onMarkReceived, onManualLog, showBuscarPagos, onEmparejado, loading,
 }: Props) {
+  const [buscarPagoOpen, setBuscarPagoOpen] = useState(false)
   const [page, setPage] = useState(1)
   const [marking, setMarking] = useState<string | null>(null)
   const [manualOpen, setManualOpen] = useState<string | null>(null)
@@ -162,6 +166,29 @@ export default function PaymentsListTab({
 
   return (
     <div>
+      {/* Botón Buscar Pagos (solo pestaña Pagos) */}
+      {showBuscarPagos && stores.length > 0 && (
+        <div style={{ marginBottom: '12px' }}>
+          <button
+            onClick={() => setBuscarPagoOpen(true)}
+            style={{
+              fontSize: '12px', fontWeight: 600, padding: '7px 14px', borderRadius: '8px',
+              border: '1px solid rgba(0,212,255,0.3)', background: 'rgba(0,212,255,0.07)',
+              color: 'rgba(0,212,255,0.85)', cursor: 'pointer', letterSpacing: '0.02em',
+            }}
+          >
+            🔎 Buscar Pagos
+          </button>
+        </div>
+      )}
+      {buscarPagoOpen && (
+        <BuscarPagoModal
+          stores={stores}
+          onClose={() => setBuscarPagoOpen(false)}
+          onEmparejado={msg => onEmparejado?.(msg)}
+        />
+      )}
+
       {/* Buscador */}
       <div style={{ marginBottom: '12px', position: 'relative' }}>
         <span style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', fontSize: '14px', color: 'rgba(0,212,255,0.4)', pointerEvents: 'none' }}>⌕</span>

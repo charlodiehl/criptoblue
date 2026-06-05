@@ -61,13 +61,13 @@ export function normalizePayment(raw: any): Payment | null {
   }
 }
 
-async function fetchPaymentsByRange(sinceDate: Date, rangeField: 'date_approved' | 'date_created'): Promise<Payment[]> {
+async function fetchPaymentsByRange(sinceDate: Date, rangeField: 'date_approved' | 'date_created', endDateParam?: Date): Promise<Payment[]> {
   const payments: Payment[] = []
   let offset = 0
   const limit = 50
 
   while (true) {
-    const endDate = new Date()
+    const endDate = endDateParam ?? new Date()
     const url = new URL(`${CONFIG.mercadopago.apiBase}/v1/payments/search`)
     url.searchParams.set('sort', rangeField)
     url.searchParams.set('criteria', 'desc')
@@ -113,6 +113,26 @@ export async function fetchAllPaymentsSince(sinceDate: Date): Promise<Payment[]>
     fetchPaymentsByRange(sinceDate, 'date_created'),
   ])
 
+  const seen = new Set<string>()
+  const merged: Payment[] = []
+  for (const p of [...byApproved, ...byCreated]) {
+    if (!seen.has(p.mpPaymentId)) {
+      seen.add(p.mpPaymentId)
+      merged.push(p)
+    }
+  }
+  return merged
+}
+
+// Busca pagos aprobados dentro de una ventana de fecha acotada [begin, end].
+// Usada por la búsqueda manual de pagos por comprobante (monto + fecha).
+// Busca por date_approved y date_created (las transferencias CVU pueden tener
+// date_approved nulo) y deduplica por ID.
+export async function fetchApprovedPaymentsBetween(begin: Date, end: Date): Promise<Payment[]> {
+  const [byApproved, byCreated] = await Promise.all([
+    fetchPaymentsByRange(begin, 'date_approved', end),
+    fetchPaymentsByRange(begin, 'date_created', end),
+  ])
   const seen = new Set<string>()
   const merged: Payment[] = []
   for (const p of [...byApproved, ...byCreated]) {
