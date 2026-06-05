@@ -258,6 +258,7 @@ interface Props {
   unmatchedPayments: UnmatchedPayment[]
   orders: Order[]
   duplicateMap?: Map<string, DuplicateInfo>
+  matchedIds?: Set<string>
   onManualMatch: (mpPaymentId: string, orderId: string, storeId: string, order: Order) => Promise<void>
   onDismissPayment: (mpPaymentId: string, orderId: string, storeId: string) => Promise<void>
   onMarkOrderPaid: (storeId: string, orderId: string) => Promise<void>
@@ -280,6 +281,7 @@ export default function ManualMatchTab({
   unmatchedPayments,
   orders,
   duplicateMap,
+  matchedIds,
   onManualMatch,
   onDismissPayment,
   dismissedPairs = [],
@@ -466,6 +468,7 @@ const filteredPairs = useMemo(() => {
               onDismissPayment={onDismissPayment}
               loading={loading}
               duplicateMap={duplicateMap}
+              matchedIds={matchedIds}
             />
           ))}
           {filteredPairs.length > visibleCount && (
@@ -504,12 +507,14 @@ function PairRow({
   onDismissPayment,
   loading,
   duplicateMap,
+  matchedIds,
 }: {
   pair: Pair
   onConfirm: (paymentId: string, orderId: string, storeId: string, order: Order) => void
   onDismissPayment: (paymentId: string, orderId: string, storeId: string) => void
   loading: boolean
   duplicateMap?: Map<string, { order: Order; confidence: 'alta' | 'media' }>
+  matchedIds?: Set<string>
 }) {
   const { payment, id, current } = pair
   const p = payment.payment
@@ -667,10 +672,12 @@ function PairRow({
               const dupKey = `${current.order.storeId}-${current.order.orderId}`
               const dupInfo = duplicateMap?.get(dupKey)
               if (!dupInfo) return null
+              const dupAlreadyMarked = matchedIds?.has(`${dupInfo.order.storeId}-${dupInfo.order.orderId}`)
               return (
                 <div style={{ marginTop: '10px', padding: '6px 10px', background: 'rgba(251,191,36,0.07)', border: '1px solid rgba(251,191,36,0.2)', borderRadius: '8px', fontSize: '12px', color: 'rgba(251,191,36,0.85)', lineHeight: 1.4 }}>
                   ⚠ Posible duplicado · Orden #{dupInfo.order.orderNumber} con mismo{' '}
                   {dupInfo.confidence === 'alta' ? 'cliente y monto' : 'nombre y monto'}
+                  {dupAlreadyMarked && <span style={{ fontWeight: 700, color: '#fbbf24' }}>{' · '}la otra ya está MARCADA</span>}
                 </div>
               )
             })()}
