@@ -128,7 +128,7 @@ export async function queryRegistro(opts: {
 export type RegistroSortKey = 'fecha' | 'monto' | 'cuit' | 'nombre' | 'tienda' | 'orden' | 'billetera'
 
 const REGISTRO_SORT_COLUMN: Record<RegistroSortKey, string> = {
-  fecha: 'ts',
+  fecha: 'payment_received_at',
   monto: 'amount',
   cuit: 'cuit_pagador',
   nombre: 'customer_name',
@@ -207,7 +207,7 @@ export async function queryRegistroPaged(opts: RegistroQueryOpts = {}): Promise<
   const sortKey = opts.sortKey ?? 'fecha'
   const col = REGISTRO_SORT_COLUMN[sortKey] ?? 'ts'
   const ascending = opts.sortDir === 'asc'
-  q = q.order(col, { ascending })
+  q = q.order(col, { ascending, nullsFirst: false })
   if (col !== 'ts') q = q.order('ts', { ascending: false }) // tie-breaker estable
   q = q.range(offset, offset + pageSize - 1)
 

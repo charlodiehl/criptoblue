@@ -35,7 +35,9 @@ export const MONTO_DIFF_WARNING_THRESHOLD = 5000
 // Para agregar un nuevo medio de pago, solo agregar una entrada acá
 export const PAYMENT_SOURCE_NAMES: Record<string, string> = {
   mercadopago: 'Mileidy',
-  fiwind: 'Fiwind',
+  // Los pagos de Fiwind entran a la misma billetera "MF" → se muestran así.
+  // El source interno sigue siendo 'fiwind' (trazabilidad del origen webhook).
+  fiwind: 'MF',
 }
 
 export const CONFIG = {

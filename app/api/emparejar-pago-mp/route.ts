@@ -5,7 +5,7 @@ import { markOrderAsPaid as markTNOrderAsPaid } from '@/lib/tiendanube'
 import { markOrderAsPaid as markShopifyOrderAsPaid } from '@/lib/shopify'
 import type { LogEntry, Order, Payment } from '@/lib/types'
 import { auditMatch } from '@/lib/audit'
-import { nowART } from '@/lib/utils'
+import { nowART, toUTCISO } from '@/lib/utils'
 
 const LOCK_HOLDER = 'emparejar-pago-mp'
 
@@ -107,7 +107,7 @@ export async function POST(req: NextRequest) {
       storeId: order.storeId,
       storeName: order.storeName || store.storeName,
       customerName: order.customerName,
-      paymentReceivedAt: payment.fechaPago,
+      paymentReceivedAt: toUTCISO(payment.fechaPago),
       orderCreatedAt: order.createdAt,
     }
     await appendRegistroEntry(logEntry)

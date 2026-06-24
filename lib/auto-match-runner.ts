@@ -7,7 +7,7 @@ import { findAutoMatchCandidates } from './auto-match'
 import type { Store, LogEntry } from './types'
 import { auditBatch } from './audit'
 import type { AuditParams } from './audit'
-import { nowART } from './utils'
+import { nowART, toUTCISO } from './utils'
 
 interface AutoMatchResult {
   matched: number
@@ -212,7 +212,7 @@ export async function runAutoMatchCore(
       storeId: candidate.storeId,
       storeName: store.storeName,
       customerName: candidate.order.customerName,
-      paymentReceivedAt: candidate.payment.fechaPago,
+      paymentReceivedAt: toUTCISO(candidate.payment.fechaPago),
       orderCreatedAt: candidate.order.createdAt,
     }
     await appendRegistroEntry(logEntry)

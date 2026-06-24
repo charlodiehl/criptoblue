@@ -6,7 +6,7 @@ import { markOrderAsPaid as markShopifyOrderAsPaid, getPendingOrders as getShopi
 import { HARD_CUTOFF_ORDERS } from '@/lib/config'
 import type { LogEntry } from '@/lib/types'
 import { audit, auditMatch } from '@/lib/audit'
-import { nowART } from '@/lib/utils'
+import { nowART, toUTCISO } from '@/lib/utils'
 
 const LOCK_HOLDER = 'manual-match'
 
@@ -116,7 +116,7 @@ export async function POST(req: NextRequest) {
       storeId,
       storeName: store.storeName,
       customerName: order?.customerName,
-      paymentReceivedAt: payment.fechaPago,
+      paymentReceivedAt: toUTCISO(payment.fechaPago),
       orderCreatedAt: order?.createdAt,
     }
     await appendRegistroEntry(logEntry)

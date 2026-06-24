@@ -5,7 +5,7 @@ import { markOrderAsPaid as markTNOrderAsPaid } from '@/lib/tiendanube'
 import { markOrderAsPaid as markShopifyOrderAsPaid } from '@/lib/shopify'
 import type { LogEntry, Payment } from '@/lib/types'
 import { auditMatch } from '@/lib/audit'
-import { nowART } from '@/lib/utils'
+import { nowART, toUTCISO } from '@/lib/utils'
 
 const LOCK_HOLDER = 'mark-order-paid-manual'
 
@@ -86,6 +86,7 @@ export async function POST(req: NextRequest) {
       storeName: store.storeName,
       customerName: nombrePagador || order?.customerName,
       cuitPagador: cuitPagador || undefined,
+      paymentReceivedAt: toUTCISO(fechaPagoISO),
       orderCreatedAt: order?.createdAt,
     }
     // Write-ahead: insertar el registro ANTES de marcar en la plataforma.

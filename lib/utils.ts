@@ -12,6 +12,15 @@ export function todayART(): string {
   return nowART().slice(0, 10)
 }
 
+// Normaliza cualquier ISO (con offset -03:00, UTC Z, etc.) a UTC canónico.
+// Se usa para payment_received_at, que es texto en la DB: si todos los valores
+// están en el mismo formato (UTC), el orden alfabético coincide con el cronológico.
+export function toUTCISO(iso: string): string {
+  if (!iso) return iso
+  const d = new Date(iso)
+  return isNaN(d.getTime()) ? iso : d.toISOString()
+}
+
 export const ARS = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 0 })
 
 export function fmtDate(iso: string): string {
