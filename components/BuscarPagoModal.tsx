@@ -18,6 +18,7 @@ function localInputToISO(local: string): string {
   return `${local}:00.000-03:00`
 }
 
+
 interface PagoResultado {
   payment: Payment
   enCola: boolean
@@ -53,6 +54,7 @@ export default function BuscarPagoModal({
   const [imgUrl, setImgUrl] = useState<string | null>(null)
   const [ocrLoading, setOcrLoading] = useState(false)
   const [ocrProgress, setOcrProgress] = useState(0)
+  const [ocrText, setOcrText] = useState('')   // texto crudo del OCR (para diagnóstico)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Campos editables
@@ -82,12 +84,19 @@ export default function BuscarPagoModal({
     setOcrLoading(true)
     setOcrProgress(0)
     try {
-      const Tesseract = (await import('tesseract.js')).default
-      const { data } = await Tesseract.recognize(file, 'spa', {
+      const Tesseract = await import('tesseract.js')
+      const worker = await Tesseract.createWorker('spa', 1, {
         logger: (m: { status: string; progress: number }) => {
           if (m.status === 'recognizing text') setOcrProgress(Math.round(m.progress * 100))
         },
       })
+      // PSM AUTO (3) es CLAVE: el default de tesseract.js trata la imagen como un
+      // único bloque y se SALTEA líneas grandes aisladas como el monto ("$ 52.920").
+      // Con AUTO segmenta el documento y las lee. Verificado contra comprobantes reales.
+      await worker.setParameters({ tessedit_pageseg_mode: Tesseract.PSM.AUTO })
+      const { data } = await worker.recognize(file)
+      await worker.terminate()
+      setOcrText(data.text || '')
       const parsed = parseComprobante(data.text || '')
       // Solo autocompletar campos vacíos / siempre que OCR detecte algo
       if (parsed.nombrePagador) setNombre(parsed.nombrePagador)
@@ -240,6 +249,18 @@ export default function BuscarPagoModal({
             style={{ fontSize: '12px', fontWeight: 700, padding: '8px 14px', borderRadius: '7px', border: '1px solid rgba(0,212,255,0.3)', background: 'rgba(0,212,255,0.08)', color: 'rgba(0,212,255,0.85)', cursor: buscandoPago ? 'not-allowed' : 'pointer', opacity: buscandoPago ? 0.5 : 1 }}>
             {buscandoPago ? 'Buscando en MercadoPago…' : '🔎 Buscar en MercadoPago'}
           </button>
+
+          {/* Texto detectado por el OCR — para diagnosticar cuando un comprobante se lee mal */}
+          {ocrText && (
+            <details style={{ marginTop: '2px' }}>
+              <summary style={{ fontSize: '11px', color: 'rgba(148,163,184,0.5)', cursor: 'pointer', userSelect: 'none' }}>
+                Ver texto detectado por el OCR
+              </summary>
+              <pre style={{ marginTop: '6px', maxHeight: '160px', overflow: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: '10px', lineHeight: 1.4, color: 'rgba(148,163,184,0.7)', background: 'rgba(0,0,0,0.35)', border: '1px solid rgba(148,163,184,0.15)', borderRadius: '7px', padding: '8px 10px' }}>
+                {ocrText}
+              </pre>
+            </details>
+          )}
         </div>
 
         {pagoError && (

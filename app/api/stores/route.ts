@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getStores, saveStores, loadHotState, saveHotState, loadLogs, saveLogs, appendActivity } from '@/lib/storage'
+import { getStores, saveStores, loadHotState, saveHotState, loadLogs, saveLogs, appendActivity, loadOrdersCache, saveOrdersCache } from '@/lib/storage'
 
 // Auth manejada por middleware.ts — GET público, PATCH/DELETE requieren sesión
 
@@ -40,7 +40,7 @@ export async function DELETE(req: NextRequest) {
     delete stores[storeId]
 
     // Limpiar registros asociados a la tienda usando cargas parciales
-    const [hot, logs] = await Promise.all([loadHotState(), loadLogs()])
+    const [hot, logs, ordersCache] = await Promise.all([loadHotState(), loadLogs(), loadOrdersCache()])
 
     // UnmatchedPayment no tiene storeId directo — filtrar por storeName (#A1)
     hot.unmatchedPayments = hot.unmatchedPayments.filter(u => u.storeName !== storeName)
@@ -51,9 +51,13 @@ export async function DELETE(req: NextRequest) {
     // Limpiar dismissedPairs de la tienda
     hot.dismissedPairs = (hot.dismissedPairs ?? []).filter(d => d.storeId !== storeId)
 
+    // Eliminar las órdenes pendientes de la tienda del caché.
+    // NO se toca registro_log: lo que ya se cobró queda en el historial.
+    ordersCache.cachedOrders = (ordersCache.cachedOrders ?? []).filter(o => o.storeId !== storeId)
+
     appendActivity(logs, 'human', 'tienda_eliminada', { storeId, storeName })
 
-    await Promise.all([saveStores(stores), saveHotState(hot), saveLogs(logs)])
+    await Promise.all([saveStores(stores), saveHotState(hot), saveLogs(logs), saveOrdersCache(ordersCache)])
 
     return NextResponse.json({ success: true })
   } catch (err) {

@@ -69,8 +69,10 @@ function extraerMonto(texto: string, norm: string): { monto: number | null; raw:
 
   // Patrón de "corrida de número": dígitos con separadores de miles/decimal.
   // Captura completo "55.920,00", "1234.50", "3.596.753,09". parsearMontoTexto interpreta.
-  const NUM_CON_PESO = /\$\s*\d+(?:[.,\s]\d+)*/
-  const NUM_SUELTO = /\d+(?:[.,\s]\d+)*/
+  // Importante: usar [., ] (no \s) para que NO cruce saltos de línea y se "pegue"
+  // al número de la línea siguiente (ej. una fecha).
+  const NUM_CON_PESO = /\$[ \t]*\d+(?:[., ]\d+)*/
+  const NUM_SUELTO = /\d+(?:[., ]\d+)*/
 
   // 1) Línea con label de importe → primer monto en esa línea (o la siguiente)
   for (let i = 0; i < lineasNorm.length; i++) {
@@ -89,7 +91,7 @@ function extraerMonto(texto: string, norm: string): { monto: number | null; raw:
 
   // 2) Fallback: todos los montos con $ → el mayor (suele ser el importe principal)
   const candidatos: { val: number; raw: string }[] = []
-  const re = /\$\s*\d+(?:[.,\s]\d+)*/g
+  const re = /\$[ \t]*\d+(?:[., ]\d+)*/g
   let m: RegExpExecArray | null
   while ((m = re.exec(texto)) !== null) {
     const val = parsearMontoTexto(m[0])
@@ -98,6 +100,25 @@ function extraerMonto(texto: string, norm: string): { monto: number | null; raw:
   if (candidatos.length) {
     candidatos.sort((a, b) => b.val - a.val)
     return { monto: candidatos[0].val, raw: candidatos[0].raw }
+  }
+
+  // 3) Fallback sin "$": el OCR suele NO leer el símbolo $ (lo lee como S, 5 o nada).
+  // Buscar números con formato de miles argentino (X.XXX o X.XXX,XX). Este formato
+  // distingue un monto de un CUIT ("27-24256770-1", con guiones) y de un CVU o número
+  // de operación ("0000003100068240675664", "164070234934", corridas sin puntos).
+  // Primero se quitan fechas y CUITs para no capturarlos por error.
+  const sinRuido = texto
+    .replace(/\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4}/g, ' ')  // fechas
+    .replace(/\d{2}-\d{6,8}-\d/g, ' ')                       // CUIT/CUIL con guiones
+  const reMiles = /\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?/g
+  const milesCand: { val: number; raw: string }[] = []
+  while ((m = reMiles.exec(sinRuido)) !== null) {
+    const val = parsearMontoTexto(m[0])
+    if (val && val > 0) milesCand.push({ val, raw: m[0].trim() })
+  }
+  if (milesCand.length) {
+    milesCand.sort((a, b) => b.val - a.val)
+    return { monto: milesCand[0].val, raw: milesCand[0].raw }
   }
   return { monto: null, raw: null }
 }
@@ -140,29 +161,52 @@ function extraerFecha(texto: string, norm: string): { fechaISO: string | null; r
   return { fechaISO, raw: rawFull }
 }
 
-// Busca el nombre del pagador/destinatario cerca de labels conocidos.
+// Busca el nombre del pagador cerca de labels conocidos. El label debe ser un
+// TOKEN de la línea (la línea ES el label, o empieza con "label:" / "label "),
+// no un substring suelto — así "de" no matchea dentro de "Comprobante de transferencia".
+// Cuando el label está solo en su línea (ej. el bullet "• De" de MercadoPago), el
+// nombre se toma de la línea SIGUIENTE.
 function extraerNombre(texto: string, norm: string, labels: string[]): { nombre: string; raw: string | null } {
-  const lineas = texto.split('\n')
-  const lineasNorm = norm.split('\n')
+  // Quitar cualquier símbolo inicial (viñetas, guiones, espacios y basura del OCR
+  // como "?", "*", "'", etc.) hasta el primer carácter alfanumérico. El OCR lee los
+  // bullets "•" de formas impredecibles ("?", "*", "'"...), así que no podemos
+  // listarlos uno por uno — quitamos todo lo que no sea letra/número del inicio.
+  const quitarBullet = (s: string) => s.replace(/^[^0-9A-Za-zÁÉÍÓÚÑáéíóúñ]+/, '')
+  const lineas = texto.split('\n').map(quitarBullet)
+  const lineasNorm = norm.split('\n').map(l => quitarBullet(l).trim())
 
   for (let i = 0; i < lineasNorm.length; i++) {
+    const ln = lineasNorm[i]
     for (const label of labels) {
-      const idx = lineasNorm[i].indexOf(label)
-      if (idx === -1) continue
-      // Texto después del label en la misma línea
-      const resto = lineas[i].slice(idx + label.length).replace(/^[:\s]+/, '').trim()
-      const limpio = limpiarNombre(resto)
-      if (limpio) return { nombre: limpio, raw: resto }
-      // Si no hay nada útil en la línea, probar la línea siguiente
-      const sig = limpiarNombre((lineas[i + 1] ?? '').trim())
-      if (sig) return { nombre: sig, raw: lineas[i + 1] }
+      // Caso A: la línea ES el label (ej. "de", "de:") → nombre en la línea siguiente
+      if (ln === label || ln === label + ':') {
+        const sig = limpiarNombre((lineas[i + 1] ?? '').trim())
+        if (sig) return { nombre: sig, raw: lineas[i + 1] }
+        continue
+      }
+      // Caso B: la línea empieza con "label:" o "label " + el nombre en la misma línea
+      // (ej. "De: Maria Soledad"). El separador evita falsos positivos como "destinatario".
+      if (ln.startsWith(label + ':') || ln.startsWith(label + ' ')) {
+        const resto = lineas[i].slice(label.length).replace(/^[:\s]+/, '').trim()
+        const limpio = limpiarNombre(resto)
+        if (limpio) return { nombre: limpio, raw: resto }
+      }
     }
   }
   return { nombre: '', raw: null }
 }
 
+// Palabras de "sistema" que aparecen en los comprobantes pero NO son nombres.
+// Si el candidato está compuesto SOLO por estas, se descarta.
+const PALABRAS_SISTEMA = new Set([
+  'transferencia', 'comprobante', 'mercado', 'pago', 'mercadopago', 'motivo',
+  'varios', 'cvu', 'cbu', 'cuit', 'cuil', 'alias', 'banco', 'cuenta', 'caja',
+  'ahorro', 'operacion', 'operación', 'numero', 'número', 'de', 'para', 'dni',
+  'importe', 'monto', 'total', 'fecha', 'hora', 'destino', 'origen', 'titular',
+])
+
 // Limpia un candidato a nombre: descarta si tiene dígitos largos (CBU/CUIT),
-// símbolos de dinero, o es demasiado corto. Capitaliza.
+// símbolos de dinero, palabras de sistema, o es demasiado corto. Capitaliza.
 function limpiarNombre(s: string): string {
   if (!s) return ''
   const t = s.replace(/\s+/g, ' ').trim()
@@ -173,6 +217,9 @@ function limpiarNombre(s: string): string {
   const palabras = soloNombre.split(/\s+/).filter(w => w.length >= 2)
   if (palabras.length < 1) return ''
   if (soloNombre.length < 3 || soloNombre.length > 60) return ''
+  // Descartar si TODAS las palabras son de sistema (ej. "Transferencia", "Mercado Pago")
+  const sinAcentos = (w: string) => w.normalize('NFD').replace(/[̀-ͯ]/g, '')
+  if (palabras.every(w => PALABRAS_SISTEMA.has(sinAcentos(w.toLowerCase())))) return ''
   return palabras
     .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
     .join(' ')
@@ -192,15 +239,19 @@ const BANK_PROFILES: BankProfile[] = [
   {
     name: 'mercadopago',
     matchKeywords: ['mercado pago', 'mercadopago', 'cvu', 'dinero en cuenta'],
-    nombreLabels: ['para', 'de', 'destinatario', 'titular', 'a nombre de', 'beneficiario'],
+    // Queremos el NOMBRE DEL PAGADOR = el bloque "De" (quien envió la transferencia).
+    // NO "Para" (ese es el destinatario = la tienda). En MP el nombre va en la
+    // línea siguiente al bullet "• De".
+    nombreLabels: ['de', 'origen', 'titular', 'desde'],
   },
   // Agregar perfiles específicos acá a medida que aparezcan bancos que fallen.
 ]
 
-// Labels genéricos para el nombre (fallback).
+// Labels genéricos para el nombre del PAGADOR (fallback). Se priorizan labels de
+// origen; se evitan los de destinatario (para/destinatario/beneficiario) porque
+// esos identifican a la tienda, no al pagador.
 const NOMBRE_LABELS_GENERICOS = [
-  'destinatario', 'titular', 'a nombre de', 'beneficiario',
-  'para', 'transferiste a', 'enviaste a', 'destino', 'nombre',
+  'de', 'origen', 'titular', 'desde', 'pagador', 'enviado por', 'a nombre de', 'nombre',
 ]
 
 export function parseComprobante(textoOCR: string): ComprobanteParse {

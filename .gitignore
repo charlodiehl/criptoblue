@@ -40,3 +40,9 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 .env*.local
+
+# backups de datos (contienen info de clientes — no commitear)
+backup-*.json
+
+# modelos de Tesseract (se descargan en runtime, no versionar)
+*.traineddata
