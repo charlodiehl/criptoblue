@@ -1,6 +1,6 @@
 # Fiwind → CriptoBlue (Google Apps Script)
 
-Lee los emails de Fiwind que llegan a `criptoblue.wallet@gmail.com`, extrae los
+Lee los emails de Fiwind que llegan a `comprobantespagosblue@gmail.com`, extrae los
 datos de cada transferencia y los envía al webhook de CriptoBlue
 (`/api/fiwind/webhook`). Corre gratis dentro de Google Apps Script.
 
@@ -22,7 +22,7 @@ Del cuerpo (formato fijo de Fiwind):
 
 ## Instalación (una vez)
 
-1. Entrá a **script.google.com** con la cuenta `criptoblue.wallet@gmail.com`.
+1. Entrá a **script.google.com** con la cuenta `comprobantespagosblue@gmail.com`.
 2. **Nuevo proyecto** → pegá el contenido de `fiwind-a-criptoblue.gs` en `Código.gs`.
 3. En `CONFIG` (arriba del archivo) ajustá:
    - `WEBHOOK_SECRET`: el mismo valor que la env var `FIWIND_WEBHOOK_SECRET` en Vercel.

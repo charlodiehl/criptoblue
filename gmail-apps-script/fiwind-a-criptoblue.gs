@@ -5,7 +5,7 @@
  * extrae los datos de la transferencia y los envía al webhook de CriptoBlue.
  *
  * Corre dentro de Google Apps Script (script.google.com) con la cuenta
- * criptoblue.wallet@gmail.com. Se dispara con un trigger por tiempo.
+ * comprobantespagosblue@gmail.com. Se dispara con un trigger por tiempo.
  *
  * INSTALACIÓN: ver README.md de esta carpeta.
  * ────────────────────────────────────────────────────────────────────────────
