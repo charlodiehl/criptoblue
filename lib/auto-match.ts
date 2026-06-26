@@ -112,7 +112,7 @@ function computeSignals(payment: Payment, order: Order, sameMontoCount: number):
       label: 'Nombre',
       value: nameViaEmail ? 'coincide con email'
         : (!payment.nombrePagador || !order.customerName) ? 'No disponible'
-        : ns >= 70 ? 'Coincide' : ns >= 40 ? `Similar (${ns}%)` : 'No coincide',
+        : ns === 100 ? 'Exacto' : ns >= 70 ? 'Coincide' : ns >= 40 ? `Similar (${ns}%)` : 'No coincide',
       match: ns >= 70,
       partial: (ns >= 40 && ns < 70) || nameViaEmail,
       unavailable: !nameViaEmail && (!payment.nombrePagador || !order.customerName),
@@ -159,6 +159,11 @@ function meetsAutoCriteria(signals: Signal[]): boolean {
   const nombreOk    = nombre?.match === true
   const allUnavailable = cuit?.unavailable && nombre?.unavailable && email?.unavailable
   const minDiff     = fecha?.timeMinutes ?? Infinity
+
+  // Nombre y monto EXACTOS → auto-marca sin importar el tiempo transcurrido.
+  // La regla "el pago debe ser posterior a la orden" se mantiene aparte
+  // (findAutoMatchCandidates descarta órdenes creadas después del pago).
+  if (monto?.value === 'Exacto' && nombre?.value === 'Exacto') return true
 
   // Tiempo normal (≤15 min) o extendido (≤60 min) cuando hay identificador fuerte: CUIT o email exacto
   const fechaOk = minDiff <= 15 || (minDiff <= 60 && (cuitOk || emailExact))
