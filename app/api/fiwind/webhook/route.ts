@@ -26,11 +26,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'JSON inválido' }, { status: 400 })
     }
 
-    const { secret, idCoelsa, monto, nombre, fechaISO, cbuCvu, banco, raw } = body
+    const { secret, idCoelsa, monto, nombre, fechaISO, cbuCvu, banco, raw, operacion } = body
 
     // Auth por secreto compartido
     if (!secret || secret !== expected) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+    }
+
+    // Capa de seguridad: solo depósitos (pagos entrantes). Los retiros/envíos
+    // ("Enviaste") nunca deben entrar a la cola como pagos. Doble candado con el
+    // filtro del Apps Script.
+    if (operacion && !/dep[oó]sito/i.test(String(operacion))) {
+      return NextResponse.json({ success: true, skipped: true, reason: `Operación ignorada (no es depósito): ${operacion}` })
     }
 
     // Validación de datos mínimos
@@ -80,7 +87,7 @@ export async function POST(req: NextRequest) {
         fechaPago: fechaISO,
         status: 'approved',
         source: 'fiwind',
-        rawData: { cbuCvu: cbuCvu ?? '', banco: banco ?? '', idCoelsa, raw: raw ?? '' },
+        rawData: { cbuCvu: cbuCvu ?? '', banco: banco ?? '', idCoelsa, operacion: operacion ?? '', raw: raw ?? '' },
       }
 
       const unmatched: UnmatchedPayment = {

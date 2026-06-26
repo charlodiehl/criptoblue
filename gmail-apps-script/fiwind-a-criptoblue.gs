@@ -72,6 +72,11 @@ function procesarEmailsFiwind() {
 function parsearEmail(body) {
   if (!body) return null
 
+  // Solo procesamos DEPÓSITOS (pagos entrantes). Los retiros/envíos ("Enviaste")
+  // se descartan acá → el hilo queda en 'fiwind-revisar' para revisión manual.
+  const operacion = extraerCampo(body, 'Operación')
+  if (!/dep[oó]sito/i.test(operacion)) return null
+
   const monto = extraerMonto(body)
   const fechaISO = extraerFecha(body)
   const nombre = normalizarTitular(extraerCampo(body, 'Titular'))
@@ -82,7 +87,7 @@ function parsearEmail(body) {
   // Sin monto o sin fecha no podemos emparejar: no es un email válido.
   if (!monto || !fechaISO) return null
 
-  return { monto, fechaISO, nombre, cbuCvu, banco, idCoelsa, raw: body }
+  return { monto, fechaISO, nombre, cbuCvu, banco, idCoelsa, operacion, raw: body }
 }
 
 // "Monto: 116.977,51 ARS"  o  el monto suelto "116.977,51 ARS"
@@ -134,6 +139,7 @@ function enviarAlWebhook(datos, msg) {
         fechaISO: datos.fechaISO,
         cbuCvu: datos.cbuCvu,
         banco: datos.banco,
+        operacion: datos.operacion,
         raw: datos.raw,
         emailId: msg.getId(),
       }),
