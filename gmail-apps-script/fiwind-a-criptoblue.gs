@@ -231,7 +231,7 @@ function _diagnosticarUltimo() {
         payload: JSON.stringify({
           secret: CONFIG.WEBHOOK_SECRET, idCoelsa: datos.idCoelsa, monto: datos.monto,
           nombre: datos.nombre, fechaISO: datos.fechaISO, cbuCvu: datos.cbuCvu,
-          banco: datos.banco, raw: datos.raw, emailId: msgs[i].getId(),
+          banco: datos.banco, operacion: datos.operacion, raw: datos.raw, emailId: msgs[i].getId(),
         }),
       })
       Logger.log('WEBHOOK: HTTP ' + resp.getResponseCode() + ' → ' + resp.getContentText())
