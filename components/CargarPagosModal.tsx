@@ -85,6 +85,10 @@ export default function CargarPagosModal({ onClose, onCargado }: {
     setRows(rs => rs.map((p, idx) => idx === i ? { ...p, monto, nombre: draft.nombre.trim(), fecha, warnings } : p))
     setEditIdx(null)
   }
+  const excluirFila = (i: number) => {
+    setRows(rs => rs.filter((_, idx) => idx !== i))
+    setEditIdx(idx => idx === null ? null : idx === i ? null : idx > i ? idx - 1 : idx)
+  }
 
   const onFile = async (file: File) => {
     setError(null); setPreview(null); setFileName(file.name); setLoading(true)
@@ -105,6 +109,7 @@ export default function CargarPagosModal({ onClose, onCargado }: {
   }
 
   const validos = rows.filter(p => p.monto !== null && p.fecha)
+  const excluidos = preview ? preview.payments.length - rows.length : 0
 
   const confirmar = async () => {
     if (validos.length === 0) { setError('No hay pagos válidos para cargar (faltan monto o fecha)'); return }
@@ -191,6 +196,7 @@ export default function CargarPagosModal({ onClose, onCargado }: {
               {preview.yaCargados > 0 && <span style={{ color: 'rgba(0,212,255,0.7)' }}> · {preview.yaCargados} ya cargado{preview.yaCargados !== 1 ? 's' : ''} (omitido{preview.yaCargados !== 1 ? 's' : ''})</span>}
               {preview.retiros > 0 && <span style={{ color: 'rgba(148,163,184,0.55)' }}> · {preview.retiros} retiro{preview.retiros !== 1 ? 's' : ''}/comisión descartado{preview.retiros !== 1 ? 's' : ''}</span>}
               {preview.sinFecha > 0 && <span style={{ color: 'rgba(148,163,184,0.55)' }}> · {preview.sinFecha} sin fecha (totales)</span>}
+              {excluidos > 0 && <span style={{ color: 'rgba(248,113,113,0.7)' }}> · {excluidos} excluido{excluidos !== 1 ? 's' : ''} manualmente</span>}
             </p>
 
             {/* Vista previa de tarjetas */}
@@ -236,10 +242,16 @@ export default function CargarPagosModal({ onClose, onCargado }: {
                         <p style={{ fontSize: '17px', fontWeight: 800, color: p.monto !== null ? 'white' : 'rgba(248,113,113,0.85)', margin: '0 0 4px' }}>
                           {p.monto !== null ? ARS.format(p.monto) : 'sin monto'}
                         </p>
-                        <button onClick={() => startEdit(i)} title="Editar"
-                          style={{ background: 'none', border: 'none', color: 'rgba(0,212,255,0.55)', cursor: 'pointer', fontSize: '13px', padding: '2px 2px 2px 6px', lineHeight: 1, flexShrink: 0 }}>
-                          ✎
-                        </button>
+                        <div style={{ display: 'flex', gap: '2px', flexShrink: 0 }}>
+                          <button onClick={() => startEdit(i)} title="Editar"
+                            style={{ background: 'none', border: 'none', color: 'rgba(0,212,255,0.55)', cursor: 'pointer', fontSize: '13px', padding: '2px 2px 2px 6px', lineHeight: 1 }}>
+                            ✎
+                          </button>
+                          <button onClick={() => excluirFila(i)} title="Sacar este pago (no se carga)"
+                            style={{ background: 'none', border: 'none', color: 'rgba(248,113,113,0.6)', cursor: 'pointer', fontSize: '13px', padding: '2px 2px 2px 6px', lineHeight: 1 }}>
+                            ✕
+                          </button>
+                        </div>
                       </div>
                       {p.cuit && <p style={{ fontSize: '10px', color: 'rgba(0,212,255,0.6)', fontWeight: 600, margin: '0 0 2px' }}>CUIT/DNI: {p.cuit}</p>}
                       <p style={{ fontSize: '12px', color: 'rgba(226,232,240,0.8)', margin: '0 0 2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.nombre || 'Sin nombre'}</p>
