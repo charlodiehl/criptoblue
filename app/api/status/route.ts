@@ -1,15 +1,13 @@
 import { NextResponse } from 'next/server'
 import { loadHotState } from '@/lib/storage'
+import { monthKeyART } from '@/lib/utils'
 
 export async function GET() {
   try {
     const hot = await loadHotState()
 
-    const now = new Date()
-    const currentMonth = now.getMonth()
-    const currentYear = now.getFullYear()
-
-    const monthKey = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`
+    // Mes en hora Argentina — debe coincidir con incrementPersistedMonthStats.
+    const monthKey = monthKeyART()
     const stats = (hot.persistedMonthStats ?? {})[monthKey] ?? { matchedCount: 0, matchedVolume: 0, manualCount: 0, manualVolume: 0 }
 
     const cutoff48h = Date.now() - 48 * 60 * 60 * 1000

@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 import type { AppState, Store, Payment, Order, UnmatchedPayment, RecentMatch, DismissedPair, ExternalPaymentMark, PersistedMonthStats, ErrorEntry, ActivityEntry } from './types'
 import { HARD_CUTOFF_PAYMENTS, HARD_CUTOFF_ORDERS } from './config'
-import { nowART } from './utils'
+import { nowART, monthKeyART } from './utils'
 
 // ─────────────────────────────────────────────
 // Supabase schema required:
@@ -606,10 +606,7 @@ export function incrementPersistedMonthStats(
   amount: number,
   source: 'emparejamiento' | 'manual_pagos' | 'manual_ordenes'
 ): void {
-  const now = new Date()
-  const argOffset = -3 * 60
-  const argTime = new Date(now.getTime() + argOffset * 60 * 1000)
-  const key = argTime.toISOString().slice(0, 7)
+  const key = monthKeyART()
   hot.persistedMonthStats = hot.persistedMonthStats ?? {}
   const base = hot.persistedMonthStats[key] ?? { matchedCount: 0, matchedVolume: 0, manualCount: 0, manualVolume: 0 }
   const isMatched = source === 'emparejamiento'

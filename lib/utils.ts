@@ -12,6 +12,13 @@ export function todayART(): string {
   return nowART().slice(0, 10)
 }
 
+// Mes actual en hora Argentina (UTC-3) como "YYYY-MM". ÚNICA fuente del mes para
+// las tarjetas de stats y su acumulación: evita el desfase UTC/ART en el borde del
+// mes (después de las 21hs ART el UTC ya está en el mes siguiente).
+export function monthKeyART(): string {
+  return nowART().slice(0, 7)
+}
+
 // Normaliza cualquier ISO (con offset -03:00, UTC Z, etc.) a UTC canónico.
 // Se usa para payment_received_at, que es texto en la DB: si todos los valores
 // están en el mismo formato (UTC), el orden alfabético coincide con el cronológico.
