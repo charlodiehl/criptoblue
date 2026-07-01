@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useRef, useEffect } from 'react'
 import type { Payment, Order, Store } from '@/lib/types'
-import { ARS, fmtDate, matchesSearch } from '@/lib/utils'
+import { ARS, fmtDate, matchesSearch, billeteraLabel } from '@/lib/utils'
 import { MONTO_DIFF_WARNING_THRESHOLD } from '@/lib/config'
 import BuscarPagoModal from './BuscarPagoModal'
 import CargarPagosModal from './CargarPagosModal'
@@ -269,16 +269,21 @@ export default function PaymentsListTab({
                 <p style={{ fontSize: '20px', fontWeight: 800, color: 'white', letterSpacing: '-0.02em', margin: 0 }}>
                   {ARS.format(p.monto)}
                 </p>
-                {isExternal && (
-                  <span style={{ fontSize: '10px', fontWeight: 700, color: '#ffd700', letterSpacing: '0.05em', textShadow: '0 0 8px rgba(255,215,0,0.4)' }}>
-                    NO ES TIENDAS
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{ fontSize: '10px', fontWeight: 700, color: 'rgba(168,130,247,0.85)', letterSpacing: '0.05em', padding: '2px 7px', borderRadius: '5px', border: '1px solid rgba(168,130,247,0.3)', background: 'rgba(168,130,247,0.08)' }}>
+                    {billeteraLabel(p.source)}
                   </span>
-                )}
-                {!isExternal && matched && (
-                  <span style={{ fontSize: '10px', fontWeight: 700, color: '#00ff88', letterSpacing: '0.05em', textShadow: '0 0 8px rgba(0,255,136,0.4)' }}>
-                    ✓ RECIBIDO
-                  </span>
-                )}
+                  {isExternal && (
+                    <span style={{ fontSize: '10px', fontWeight: 700, color: '#ffd700', letterSpacing: '0.05em', textShadow: '0 0 8px rgba(255,215,0,0.4)' }}>
+                      NO ES TIENDAS
+                    </span>
+                  )}
+                  {!isExternal && matched && (
+                    <span style={{ fontSize: '10px', fontWeight: 700, color: '#00ff88', letterSpacing: '0.05em', textShadow: '0 0 8px rgba(0,255,136,0.4)' }}>
+                      ✓ RECIBIDO
+                    </span>
+                  )}
+                </div>
               </div>
               {p.cuitPagador && (
                 <p style={{ fontSize: '11px', color: 'rgba(0,212,255,0.65)', fontWeight: 600, marginBottom: '3px' }}>

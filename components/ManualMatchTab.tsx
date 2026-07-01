@@ -2,8 +2,14 @@
 
 import { useState, useMemo, useEffect } from 'react'
 import type { UnmatchedPayment, Order } from '@/lib/types'
-import { ARS, fmtDate } from '@/lib/utils'
+import { ARS, fmtDate, billeteraLabel, paymentWalletId } from '@/lib/utils'
 import { SAMEMONTO_WINDOW_HOURS } from '@/lib/config'
+
+// Espejo de isWalletCompatible en lib/auto-match.ts — deben mantenerse sincronizados
+function isWalletCompatible(paymentWallet: string | null, orderWallet?: string): boolean {
+  if (!paymentWallet || !orderWallet) return true
+  return paymentWallet === orderWallet
+}
 
 
 
@@ -313,13 +319,19 @@ export default function ManualMatchTab({
       // y dentro de la ventana de detección (SAMEMONTO_WINDOW_HOURS antes del pago).
       const payTime = u.payment.fechaPago ? new Date(u.payment.fechaPago).getTime() : null
       const windowStart = (payTime ?? Date.now()) - SAMEMONTO_WINDOW_HOURS * 60 * 60 * 1000
-      const totalSameMonto = orders.filter(x =>
+
+      // Acotar el universo a tiendas de la misma billetera que el pago — mismo
+      // criterio que el auto-match del servidor (lib/auto-match.ts).
+      const paymentWallet = paymentWalletId(u.payment.source)
+      const ordersForWallet = orders.filter(o => isWalletCompatible(paymentWallet, o.walletId))
+
+      const totalSameMonto = ordersForWallet.filter(x =>
         Math.abs(x.total - u.payment.monto) <= 10 &&
         (x.createdAt ? new Date(x.createdAt).getTime() >= windowStart : true) &&
         (payTime && x.createdAt ? new Date(x.createdAt).getTime() <= payTime : true)
       ).length
 
-      const ranked: RankedOrder[] = orders
+      const ranked: RankedOrder[] = ordersForWallet
         .filter(o => {
           if (!u.payment.fechaPago || !o.createdAt) return true
           const payTime = new Date(u.payment.fechaPago).getTime()
@@ -535,9 +547,14 @@ function PairRow({
     >
       {/* PAGO */}
       <div style={{ padding: '28px 32px', borderRight: '1px solid rgba(255,255,255,0.05)' }}>
-        <p style={{ fontSize: '38px', fontWeight: 800, color: 'white', marginBottom: '12px', letterSpacing: '-0.03em', lineHeight: 1 }}>
-          {ARS.format(p.monto)}
-        </p>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px', marginBottom: '12px' }}>
+          <p style={{ fontSize: '38px', fontWeight: 800, color: 'white', letterSpacing: '-0.03em', lineHeight: 1, margin: 0 }}>
+            {ARS.format(p.monto)}
+          </p>
+          <span style={{ fontSize: '11px', fontWeight: 700, color: 'rgba(168,130,247,0.85)', letterSpacing: '0.05em', padding: '3px 8px', borderRadius: '6px', border: '1px solid rgba(168,130,247,0.3)', background: 'rgba(168,130,247,0.08)' }}>
+            {billeteraLabel(p.source)}
+          </span>
+        </div>
         {p.cuitPagador && (
           <p style={{ fontSize: '15px', color: 'rgba(0,212,255,0.7)', fontWeight: 600, marginBottom: '6px' }}>
             CUIT/DNI: {p.cuitPagador}

@@ -9,7 +9,7 @@ import PaymentsListTab from '@/components/PaymentsListTab'
 import RegistroTab from '@/components/RegistroTab'
 import { useRealtimeSync } from '@/hooks/useRealtimeSync'
 import type { Order, UnmatchedPayment, Store, LogEntry, Payment, RecentMatch } from '@/lib/types'
-import { HARD_CUTOFF_PAYMENTS, HARD_CUTOFF_ORDERS } from '@/lib/config'
+import { HARD_CUTOFF_PAYMENTS, HARD_CUTOFF_ORDERS, WALLETS } from '@/lib/config'
 
 type Tab = 'manual' | 'ordenes' | 'pagos' | 'sin-coincidencia' | 'registro'
 
@@ -62,6 +62,8 @@ export default function Dashboard() {
   const [platformModalOpen, setPlatformModalOpen] = useState(false)
   const [shopifyDomainStep, setShopifyDomainStep] = useState(false)
   const [shopifyDomain, setShopifyDomain] = useState('')
+  const [selectedWallet, setSelectedWallet] = useState('')
+  const [changingWallet, setChangingWallet] = useState<string | null>(null)
   const [dismissedPairs, setDismissedPairs] = useState<{ mpPaymentId: string; orderId: string; storeId: string }[]>([])
   const [storesLoading, setStoresLoading] = useState(false)
   const [deletingStore, setDeletingStore] = useState<string | null>(null)
@@ -247,6 +249,27 @@ export default function Dashboard() {
       addToast(`Error: ${err}`, 'error')
     } finally {
       setDeletingStore(null)
+    }
+  }
+
+  const handleChangeWallet = async (storeId: string, walletId: string) => {
+    setChangingWallet(storeId)
+    try {
+      const res = await fetch('/api/stores', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ storeId, walletId }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        setStores(prev => prev.map(s => s.storeId === storeId ? { ...s, walletId: walletId || undefined } : s))
+      } else {
+        addToast(`Error: ${data.error}`, 'error')
+      }
+    } catch (err) {
+      addToast(`Error: ${err}`, 'error')
+    } finally {
+      setChangingWallet(null)
     }
   }
 
@@ -885,21 +908,41 @@ export default function Dashboard() {
                       {stores.map(store => (
                         <div
                           key={store.storeId}
-                          className="w-full px-4 py-3 text-sm flex items-center justify-between group"
+                          className="w-full px-4 py-3 text-sm group"
                           style={{ borderBottom: '1px solid rgba(0,212,255,0.05)' }}
                         >
-                          <div className="flex items-center gap-2.5">
-                            <span className="h-2 w-2 rounded-full flex-shrink-0" style={{ background: '#00ff88', boxShadow: '0 0 6px rgba(0,255,136,0.6)' }} />
-                            <span className="text-sm text-white truncate">{store.storeName}</span>
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <span className="h-2 w-2 rounded-full flex-shrink-0" style={{ background: '#00ff88', boxShadow: '0 0 6px rgba(0,255,136,0.6)' }} />
+                              <span className="text-sm text-white truncate">{store.storeName}</span>
+                            </div>
+                            <button
+                              onClick={() => handleDeleteStore(store.storeId, store.storeName)}
+                              disabled={deletingStore === store.storeId}
+                              className="text-xs flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-50 cursor-pointer"
+                              style={{ color: '#f87171' }}
+                            >
+                              {deletingStore === store.storeId ? '...' : '✕ eliminar'}
+                            </button>
                           </div>
-                          <button
-                            onClick={() => handleDeleteStore(store.storeId, store.storeName)}
-                            disabled={deletingStore === store.storeId}
-                            className="text-xs flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-50 cursor-pointer"
-                            style={{ color: '#f87171' }}
-                          >
-                            {deletingStore === store.storeId ? '...' : '✕ eliminar'}
-                          </button>
+                          <div className="flex items-center gap-2 mt-1.5" style={{ paddingLeft: '18px' }}>
+                            <span style={{ fontSize: '10px', color: 'rgba(148,163,184,0.4)' }}>Billetera:</span>
+                            <select
+                              value={store.walletId || ''}
+                              onChange={e => handleChangeWallet(store.storeId, e.target.value)}
+                              disabled={changingWallet === store.storeId}
+                              style={{
+                                fontSize: '10px', padding: '2px 5px', borderRadius: '5px',
+                                background: 'rgba(0,0,0,0.3)',
+                                border: `1px solid ${store.walletId ? 'rgba(148,163,184,0.2)' : 'rgba(248,113,113,0.35)'}`,
+                                color: store.walletId ? 'rgba(226,232,240,0.8)' : 'rgba(248,113,113,0.75)',
+                                cursor: 'pointer',
+                              }}
+                            >
+                              <option value="">Sin asignar</option>
+                              {WALLETS.map(w => <option key={w} value={w}>{w}</option>)}
+                            </select>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -1034,7 +1077,7 @@ export default function Dashboard() {
 
         {platformModalOpen && (
           <div
-            onClick={() => { setPlatformModalOpen(false); setShopifyDomainStep(false); setShopifyDomain('') }}
+            onClick={() => { setPlatformModalOpen(false); setShopifyDomainStep(false); setShopifyDomain(''); setSelectedWallet('') }}
             style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
           >
             <div
@@ -1044,13 +1087,31 @@ export default function Dashboard() {
               {!shopifyDomainStep ? (
                 <>
                   <h2 style={{ color: 'white', fontSize: '18px', fontWeight: 700, marginBottom: '6px', textAlign: 'center' }}>Agregar tienda</h2>
-                  <p style={{ color: 'rgba(148,163,184,0.6)', fontSize: '13px', textAlign: 'center', marginBottom: '28px' }}>¿Desde qué plataforma querés conectar?</p>
+                  <p style={{ color: 'rgba(148,163,184,0.6)', fontSize: '13px', textAlign: 'center', marginBottom: '18px' }}>¿A qué billetera pertenece?</p>
 
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <select
+                    value={selectedWallet}
+                    onChange={e => setSelectedWallet(e.target.value)}
+                    autoFocus
+                    style={{
+                      width: '100%', boxSizing: 'border-box', padding: '10px 14px', borderRadius: '10px',
+                      border: `1px solid ${selectedWallet ? 'rgba(0,212,255,0.3)' : 'rgba(248,113,113,0.35)'}`,
+                      background: 'rgba(255,255,255,0.05)', color: 'white', fontSize: '14px', outline: 'none',
+                      marginBottom: '22px', cursor: 'pointer',
+                    }}
+                  >
+                    <option value="" disabled>Elegir billetera...</option>
+                    {WALLETS.map(w => <option key={w} value={w}>{w}</option>)}
+                  </select>
+
+                  <p style={{ color: 'rgba(148,163,184,0.6)', fontSize: '13px', textAlign: 'center', marginBottom: '12px' }}>¿Desde qué plataforma querés conectar?</p>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', opacity: selectedWallet ? 1 : 0.4, pointerEvents: selectedWallet ? 'auto' : 'none' }}>
                     {/* Tienda Nube */}
                     <button
-                      onClick={() => { setPlatformModalOpen(false); window.open('/api/tn/connect', '_blank', 'noopener,noreferrer') }}
-                      style={{ display: 'flex', alignItems: 'center', gap: '14px', padding: '16px 20px', borderRadius: '12px', border: '1px solid rgba(0,100,255,0.3)', background: 'rgba(0,100,255,0.06)', cursor: 'pointer', transition: 'all 0.2s', width: '100%' }}
+                      onClick={() => { setPlatformModalOpen(false); window.open(`/api/tn/connect?wallet=${encodeURIComponent(selectedWallet)}`, '_blank', 'noopener,noreferrer') }}
+                      disabled={!selectedWallet}
+                      style={{ display: 'flex', alignItems: 'center', gap: '14px', padding: '16px 20px', borderRadius: '12px', border: '1px solid rgba(0,100,255,0.3)', background: 'rgba(0,100,255,0.06)', cursor: selectedWallet ? 'pointer' : 'not-allowed', transition: 'all 0.2s', width: '100%' }}
                       onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(0,100,255,0.14)'; (e.currentTarget as HTMLElement).style.borderColor = 'rgba(0,100,255,0.5)' }}
                       onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(0,100,255,0.06)'; (e.currentTarget as HTMLElement).style.borderColor = 'rgba(0,100,255,0.3)' }}
                     >
@@ -1067,7 +1128,8 @@ export default function Dashboard() {
                     {/* Shopify */}
                     <button
                       onClick={() => setShopifyDomainStep(true)}
-                      style={{ display: 'flex', alignItems: 'center', gap: '14px', padding: '16px 20px', borderRadius: '12px', border: '1px solid rgba(150,191,72,0.3)', background: 'rgba(150,191,72,0.06)', cursor: 'pointer', transition: 'all 0.2s', width: '100%' }}
+                      disabled={!selectedWallet}
+                      style={{ display: 'flex', alignItems: 'center', gap: '14px', padding: '16px 20px', borderRadius: '12px', border: '1px solid rgba(150,191,72,0.3)', background: 'rgba(150,191,72,0.06)', cursor: selectedWallet ? 'pointer' : 'not-allowed', transition: 'all 0.2s', width: '100%' }}
                       onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(150,191,72,0.14)'; (e.currentTarget as HTMLElement).style.borderColor = 'rgba(150,191,72,0.5)' }}
                       onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(150,191,72,0.06)'; (e.currentTarget as HTMLElement).style.borderColor = 'rgba(150,191,72,0.3)' }}
                     >
@@ -1083,7 +1145,7 @@ export default function Dashboard() {
                   </div>
 
                   <button
-                    onClick={() => { setPlatformModalOpen(false); setShopifyDomainStep(false); setShopifyDomain('') }}
+                    onClick={() => { setPlatformModalOpen(false); setShopifyDomainStep(false); setShopifyDomain(''); setSelectedWallet('') }}
                     style={{ marginTop: '20px', width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid rgba(148,163,184,0.15)', background: 'transparent', color: 'rgba(148,163,184,0.5)', fontSize: '13px', cursor: 'pointer' }}
                   >
                     Cancelar
@@ -1109,7 +1171,7 @@ export default function Dashboard() {
                         if (e.key === 'Enter' && shopifyDomain.trim()) {
                           setPlatformModalOpen(false)
                           setShopifyDomainStep(false)
-                          window.open(`/api/shopify/connect?shop=${encodeURIComponent(shopifyDomain.trim())}`, '_blank', 'noopener,noreferrer')
+                          window.open(`/api/shopify/connect?shop=${encodeURIComponent(shopifyDomain.trim())}&wallet=${encodeURIComponent(selectedWallet)}`, '_blank', 'noopener,noreferrer')
                           setShopifyDomain('')
                         }
                       }}
@@ -1125,7 +1187,7 @@ export default function Dashboard() {
                       if (!shopifyDomain.trim()) return
                       setPlatformModalOpen(false)
                       setShopifyDomainStep(false)
-                      window.open(`/api/shopify/connect?shop=${encodeURIComponent(shopifyDomain.trim())}`, '_blank', 'noopener,noreferrer')
+                      window.open(`/api/shopify/connect?shop=${encodeURIComponent(shopifyDomain.trim())}&wallet=${encodeURIComponent(selectedWallet)}`, '_blank', 'noopener,noreferrer')
                       setShopifyDomain('')
                     }}
                     disabled={!shopifyDomain.trim()}

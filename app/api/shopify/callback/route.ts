@@ -32,6 +32,16 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(new URL('/shopify-success?shopify_error=invalid_hmac', req.nextUrl.origin))
   }
 
+  // "state" empaqueta { walletId } elegido antes del OAuth (JSON)
+  let walletId: string | undefined
+  const stateParam = searchParams.get('state') || ''
+  if (stateParam) {
+    try {
+      const parsed = JSON.parse(stateParam)
+      walletId = typeof parsed.walletId === 'string' ? parsed.walletId : undefined
+    } catch { /* state sin billetera — no bloquear la conexión */ }
+  }
+
   let accessToken: string
   try {
     const tokenRes = await fetch(`https://${shop}/admin/oauth/access_token`, {
@@ -65,6 +75,7 @@ export async function GET(req: NextRequest) {
     accessToken,
     connectedAt: new Date().toISOString(),
     platform: 'shopify',
+    walletId,
   })
 
   return NextResponse.redirect(

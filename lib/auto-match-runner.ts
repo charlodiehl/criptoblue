@@ -68,6 +68,8 @@ export async function runAutoMatchCore(
         sameMontoCount: d.sameMontoCount,
         orderIdsInWindow: d.orderIdsInWindow,
         totalOrdersInUniverse: d.totalOrdersInUniverse,
+        paymentWalletId: d.paymentWalletId,
+        ordersInWalletUniverse: d.ordersInWalletUniverse,
       },
     })
   }

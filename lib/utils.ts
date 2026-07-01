@@ -1,5 +1,21 @@
 // Utilidades compartidas entre componentes
 
+import { PAYMENT_SOURCE_NAMES, PAYMENT_SOURCE_TO_WALLET } from './config'
+
+// Nombre amigable de la billetera/medio de pago desde payment.source ('fiwind' → 'MF', etc.)
+export function billeteraLabel(source?: string): string {
+  if (!source) return 'MercadoPago'
+  return PAYMENT_SOURCE_NAMES[source] ?? source
+}
+
+// A qué billetera (walletId de Store) pertenece un pago según su source.
+// null = billetera desconocida (source no mapeado) → no debe restringir el
+// emparejamiento, se trata como comodín.
+export function paymentWalletId(source?: string): string | null {
+  if (!source) return null
+  return PAYMENT_SOURCE_TO_WALLET[source] ?? null
+}
+
 // Devuelve el timestamp actual en hora Argentina (UTC-3) como ISO 8601
 // Ej: "2026-04-09T15:23:45.000-03:00" cuando son las 18:23 UTC
 // Al parsearlo con new Date() vuelve al instante UTC correcto → los cálculos de corte siguen funcionando

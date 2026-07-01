@@ -5,8 +5,21 @@ import { CONFIG } from '@/lib/config'
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl
   const code = searchParams.get('code')
-  // "state" contiene el nombre de la tienda ingresado por el usuario antes del OAuth
   const stateParam = searchParams.get('state') || ''
+
+  // "state" empaqueta { name, walletId } elegidos antes del OAuth (JSON). Si no
+  // es JSON válido, es un state legacy: el texto plano ES el nombre.
+  let stateName = ''
+  let stateWalletId: string | undefined
+  if (stateParam) {
+    try {
+      const parsed = JSON.parse(stateParam)
+      stateName = typeof parsed.name === 'string' ? parsed.name : ''
+      stateWalletId = typeof parsed.walletId === 'string' ? parsed.walletId : undefined
+    } catch {
+      stateName = stateParam
+    }
+  }
 
   if (!code) {
     return NextResponse.redirect(new URL('/tn-success?tn_error=no_code', req.nextUrl.origin))
@@ -48,9 +61,9 @@ export async function GET(req: NextRequest) {
 
   // Nombre de la tienda: prioridad al ingresado manualmente por el usuario (state param)
   // Si no vino en el state, intentar obtenerlo de la API de TiendaNube como fallback
-  let storeName = stateParam.trim() || `Tienda ${storeId}`
+  let storeName = stateName.trim() || `Tienda ${storeId}`
 
-  if (!stateParam.trim()) {
+  if (!stateName.trim()) {
     try {
       const storeRes = await fetch(`${CONFIG.tiendanube.apiBase}/${storeId}`, {
         headers: {
@@ -78,6 +91,7 @@ export async function GET(req: NextRequest) {
     storeName,
     accessToken,
     connectedAt: new Date().toISOString(),
+    walletId: stateWalletId,
   })
 
   return NextResponse.redirect(new URL(`/tn-success?storeId=${storeId}`, req.nextUrl.origin))

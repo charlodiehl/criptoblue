@@ -26,6 +26,7 @@ export interface Order {
   storeId: string
   storeName: string
   orderStatus?: string  // 'open' | 'cancelled' | 'closed' — viene de TiendaNube/Shopify
+  walletId?: string      // billetera de la tienda (copiada de Store.walletId al cachear la orden)
 }
 
 export interface Store {
@@ -34,6 +35,10 @@ export interface Store {
   accessToken: string
   connectedAt: string
   platform?: 'tiendanube' | 'shopify'
+  // Billetera por la que esta tienda recibe pagos (ej: 'MF', 'Lacar'). Acota el
+  // universo de emparejamiento: un pago solo busca candidatas entre tiendas de
+  // su misma billetera. Sin asignar → la tienda es candidata para cualquier pago.
+  walletId?: string
 }
 
 export interface LogEntry {

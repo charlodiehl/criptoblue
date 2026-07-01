@@ -2,8 +2,7 @@
 
 import { useState, useMemo, useEffect, useRef } from 'react'
 import type { LogEntry } from '@/lib/types'
-import { PAYMENT_SOURCE_NAMES } from '@/lib/config'
-import { fmtDate } from '@/lib/utils'
+import { fmtDate, billeteraLabel } from '@/lib/utils'
 
 function fmtMontoDisplay(n: number) {
   return n.toFixed(2).replace(/\.?0+$/, '')
@@ -18,9 +17,7 @@ function fmtCuit(s: string) {
 }
 
 function billetera(entry: LogEntry): string {
-  const source = entry.payment?.source
-  if (source && PAYMENT_SOURCE_NAMES[source]) return PAYMENT_SOURCE_NAMES[source]
-  return source || 'MercadoPago'
+  return billeteraLabel(entry.payment?.source)
 }
 
 function nombrePagador(entry: LogEntry): string {

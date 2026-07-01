@@ -245,11 +245,13 @@ export async function processMPPayments(): Promise<CycleResult> {
   const successfulOrders: typeof freshState.cachedOrders = []
 
   allOrdersPerStore.forEach((r, i) => {
-    const sid = storeEntries[i].storeId
+    const store = storeEntries[i]
     if (r.status === 'fulfilled') {
-      successfulOrders.push(...r.value)
+      // Propagar la billetera de la tienda a cada orden — usada para acotar
+      // el emparejamiento a tiendas de la misma billetera que el pago.
+      successfulOrders.push(...r.value.map(o => ({ ...o, walletId: store.walletId })))
     } else {
-      failedStoreIds.add(sid)
+      failedStoreIds.add(store.storeId)
     }
   })
 

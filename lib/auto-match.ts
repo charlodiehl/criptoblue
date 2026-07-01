@@ -6,8 +6,17 @@
 
 import type { Payment, Order, UnmatchedPayment } from './types'
 import { SAMEMONTO_WINDOW_HOURS } from './config'
+import { paymentWalletId } from './utils'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+// Un pago solo puede emparejar con órdenes de su misma billetera. Si el pago o
+// la orden no tienen billetera asignada (comodín), no se restringe — evita que
+// una tienda sin billetera migrada quede excluida de todo emparejamiento.
+function isWalletCompatible(paymentWallet: string | null, orderWallet?: string): boolean {
+  if (!paymentWallet || !orderWallet) return true
+  return paymentWallet === orderWallet
+}
 
 function extractDniDigits(s: string): string {
   const d = s.replace(/\D/g, '')
@@ -192,6 +201,8 @@ export interface AutoMatchDiagnostic {
   sameMontoCount: number
   orderIdsInWindow: string[]   // todas las órdenes con monto similar dentro de la ventana
   totalOrdersInUniverse: number  // total de órdenes consideradas (post-filtros globales)
+  paymentWalletId: string | null   // billetera del pago (null = sin restricción)
+  ordersInWalletUniverse: number   // cuántas órdenes quedaron tras filtrar por billetera
 }
 
 export interface AutoMatchResult {
@@ -231,7 +242,13 @@ export function findAutoMatchCandidates(
     const payTime = u.payment.fechaPago ? new Date(u.payment.fechaPago).getTime() : null
     const windowStart = (payTime ?? Date.now()) - SAMEMONTO_WINDOW_MS
 
-    const ordersInWindow = orders.filter(o =>
+    // Acotar el universo a tiendas de la misma billetera que el pago — reduce
+    // ambigüedad falsa (menos "otras órdenes mismo monto" de tiendas que ni
+    // siquiera podrían haber recibido este pago).
+    const paymentWallet = paymentWalletId(u.payment.source)
+    const ordersForWallet = orders.filter(o => isWalletCompatible(paymentWallet, o.walletId))
+
+    const ordersInWindow = ordersForWallet.filter(o =>
       Math.abs(o.total - u.payment.monto) <= 10 &&
       !dismissedSet.has(`${mpId}|${o.orderId}|${o.storeId}`) &&
       (o.createdAt ? new Date(o.createdAt).getTime() >= windowStart : true) &&
@@ -247,13 +264,15 @@ export function findAutoMatchCandidates(
       sameMontoCount,
       orderIdsInWindow: ordersInWindow.map(o => `${o.storeId}-${o.orderId}`),
       totalOrdersInUniverse: orders.length,
+      paymentWalletId: paymentWallet,
+      ordersInWalletUniverse: ordersForWallet.length,
     })
 
     let bestOrder: Order | null = null
     let bestGreenCount = -1
     let bestMontoDiff = Infinity  // desempate: menor diferencia de monto gana
 
-    for (const order of orders) {
+    for (const order of ordersForWallet) {
       if (dismissedSet.has(`${mpId}|${order.orderId}|${order.storeId}`)) continue
 
       // Regla dura: el pago no puede ser anterior a la creación de la orden

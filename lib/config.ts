@@ -42,6 +42,20 @@ export const PAYMENT_SOURCE_NAMES: Record<string, string> = {
   lacar: 'Lacar',
 }
 
+// Billeteras disponibles para asignarle a una tienda (desplegable al conectar).
+// Para agregar una billetera nueva: sumarla acá y mapear sus fuentes de pago en
+// PAYMENT_SOURCE_TO_WALLET.
+export const WALLETS = ['MF', 'Lacar'] as const
+
+// Mapeo de fuente de pago (payment.source) → billetera a la que pertenece.
+// Usado para acotar el emparejamiento: un pago solo busca candidatas entre
+// tiendas de su misma billetera (ver lib/auto-match.ts).
+export const PAYMENT_SOURCE_TO_WALLET: Record<string, string> = {
+  mercadopago: 'MF',
+  fiwind: 'MF',
+  lacar: 'Lacar',
+}
+
 export const CONFIG = {
   tiendanube: {
     clientId: '27051',
