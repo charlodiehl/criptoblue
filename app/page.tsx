@@ -7,12 +7,11 @@ import ManualMatchTab from '@/components/ManualMatchTab'
 import OrdersListTab from '@/components/OrdersListTab'
 import PaymentsListTab from '@/components/PaymentsListTab'
 import RegistroTab from '@/components/RegistroTab'
-import PagosViejosTab from '@/components/PagosViejosTab'
 import { useRealtimeSync } from '@/hooks/useRealtimeSync'
 import type { Order, UnmatchedPayment, Store, LogEntry, Payment, RecentMatch } from '@/lib/types'
 import { HARD_CUTOFF_PAYMENTS, HARD_CUTOFF_ORDERS } from '@/lib/config'
 
-type Tab = 'manual' | 'ordenes' | 'pagos' | 'sin-coincidencia' | 'registro' | 'pagos-viejos'
+type Tab = 'manual' | 'ordenes' | 'pagos' | 'sin-coincidencia' | 'registro'
 
 interface Stats {
   matchedCount: number        // pagos emparejados desde Emparejamiento (MP real)
@@ -718,7 +717,6 @@ export default function Dashboard() {
     { id: 'pagos', label: `Pagos (${allRecentPayments.length})` },
     { id: 'sin-coincidencia', label: `Sin coincidencia (${paymentsWithoutMatch.length})` },
     { id: 'registro', label: 'Registro' },
-    { id: 'pagos-viejos', label: 'Pagos viejos MP' },
   ]
 
   return (
@@ -1148,7 +1146,6 @@ export default function Dashboard() {
           {tab === 'pagos' && <PaymentsListTab payments={allRecentPayments} orders={allRecentOrders} stores={stores} matchedIds={matchedPaymentIds} externallyMarkedIds={new Set(stats?.externallyMarkedPayments ?? [])} title="Pagos · últimas 48hs" emptyText="No hay pagos en las últimas 48 horas" onMarkReceived={handleMarkPaymentReceived} onManualLog={handleManualLog} showBuscarPagos onEmparejado={handlePagoEmparejado} loading={actionLoading || systemLocked} />}
           {tab === 'sin-coincidencia' && <PaymentsListTab payments={paymentsWithoutMatch} orders={allRecentOrders} stores={stores} externallyMarkedIds={new Set(stats?.externallyMarkedPayments ?? [])} title="Pagos sin coincidencia · últimas 48hs" emptyText="Todos los pagos de las últimas 48hs tienen una orden asignada" onMarkReceived={handleMarkPaymentReceived} onManualLog={handleManualLog} loading={actionLoading || systemLocked} />}
           {tab === 'registro' && <RegistroTab refreshKey={logVersion} onEntryEdited={fetchLog} />}
-          {tab === 'pagos-viejos' && <PagosViejosTab />}
         </div>
       </main>
     </div>
