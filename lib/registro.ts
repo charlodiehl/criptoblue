@@ -329,6 +329,31 @@ export async function isOrderAlreadyPaid(orderId: string): Promise<boolean> {
   return (count ?? 0) > 0
 }
 
+// Trae monto/fecha/nombre de los pagos ya registrados de una billetera (source),
+// para deduplicar por firma al cargar una planilla. Paginado.
+export async function getRegistroPaymentsBySource(source: string): Promise<{ monto: number | null; fecha: string; nombre: string }[]> {
+  const supabase = getClient()
+  const out: { monto: number | null; fecha: string; nombre: string }[] = []
+  const PAGE = 1000
+  let from = 0
+  for (;;) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase.from(TABLE) as any)
+      .select('amount, payment')
+      .eq('payment->>source', source)
+      .range(from, from + PAGE - 1)
+    if (error) throw new Error(`getRegistroPaymentsBySource falló: ${error.message} [${error.code}]`)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const r of (data ?? []) as any[]) {
+      const p = r.payment ?? {}
+      out.push({ monto: p.monto ?? r.amount ?? null, fecha: p.fechaPago ?? '', nombre: p.nombrePagador ?? '' })
+    }
+    if (!data || data.length < PAGE) break
+    from += PAGE
+  }
+  return out
+}
+
 export async function isPaymentAlreadyUsed(mpPaymentId: string): Promise<boolean> {
   const supabase = getClient()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

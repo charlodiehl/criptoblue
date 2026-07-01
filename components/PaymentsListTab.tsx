@@ -5,6 +5,7 @@ import type { Payment, Order, Store } from '@/lib/types'
 import { ARS, fmtDate, matchesSearch } from '@/lib/utils'
 import { MONTO_DIFF_WARNING_THRESHOLD } from '@/lib/config'
 import BuscarPagoModal from './BuscarPagoModal'
+import CargarPagosModal from './CargarPagosModal'
 
 const PAGE_SIZE = 100
 
@@ -44,6 +45,7 @@ export default function PaymentsListTab({
   onMarkReceived, onManualLog, showBuscarPagos, onEmparejado, loading,
 }: Props) {
   const [buscarPagoOpen, setBuscarPagoOpen] = useState(false)
+  const [cargarPagosOpen, setCargarPagosOpen] = useState(false)
   const [page, setPage] = useState(1)
   const [marking, setMarking] = useState<string | null>(null)
   const [manualOpen, setManualOpen] = useState<string | null>(null)
@@ -166,18 +168,30 @@ export default function PaymentsListTab({
 
   return (
     <div>
-      {/* Botón Buscar Pagos (solo pestaña Pagos) */}
-      {showBuscarPagos && stores.length > 0 && (
-        <div style={{ marginBottom: '12px' }}>
+      {/* Botones Buscar Pagos / Cargar pagos (solo pestaña Pagos) */}
+      {showBuscarPagos && (
+        <div style={{ marginBottom: '12px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          {stores.length > 0 && (
+            <button
+              onClick={() => setBuscarPagoOpen(true)}
+              style={{
+                fontSize: '12px', fontWeight: 600, padding: '7px 14px', borderRadius: '8px',
+                border: '1px solid rgba(0,212,255,0.3)', background: 'rgba(0,212,255,0.07)',
+                color: 'rgba(0,212,255,0.85)', cursor: 'pointer', letterSpacing: '0.02em',
+              }}
+            >
+              🔎 Buscar Pagos
+            </button>
+          )}
           <button
-            onClick={() => setBuscarPagoOpen(true)}
+            onClick={() => setCargarPagosOpen(true)}
             style={{
               fontSize: '12px', fontWeight: 600, padding: '7px 14px', borderRadius: '8px',
-              border: '1px solid rgba(0,212,255,0.3)', background: 'rgba(0,212,255,0.07)',
-              color: 'rgba(0,212,255,0.85)', cursor: 'pointer', letterSpacing: '0.02em',
+              border: '1px solid rgba(0,255,136,0.3)', background: 'rgba(0,255,136,0.06)',
+              color: 'rgba(0,255,136,0.85)', cursor: 'pointer', letterSpacing: '0.02em',
             }}
           >
-            🔎 Buscar Pagos
+            📥 Cargar pagos
           </button>
         </div>
       )}
@@ -186,6 +200,12 @@ export default function PaymentsListTab({
           stores={stores}
           onClose={() => setBuscarPagoOpen(false)}
           onEmparejado={msg => onEmparejado?.(msg)}
+        />
+      )}
+      {cargarPagosOpen && (
+        <CargarPagosModal
+          onClose={() => setCargarPagosOpen(false)}
+          onCargado={msg => onEmparejado?.(msg)}
         />
       )}
 

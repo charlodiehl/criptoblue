@@ -38,6 +38,8 @@ export const PAYMENT_SOURCE_NAMES: Record<string, string> = {
   // Los pagos de Fiwind entran a la misma billetera "MF" → se muestran así.
   // El source interno sigue siendo 'fiwind' (trazabilidad del origen webhook).
   fiwind: 'MF',
+  // Los pagos cargados desde planilla Excel son de la billetera "Lacar".
+  lacar: 'Lacar',
 }
 
 export const CONFIG = {
