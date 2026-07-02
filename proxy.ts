@@ -18,7 +18,7 @@ function isPublicRoute(pathname: string): boolean {
     || pathname.startsWith('/api/tn/connect')
     || pathname.startsWith('/api/shopify/connect')
     || pathname.startsWith('/api/fiwind/webhook') // valida por su propio secreto (servicio externo)
-    || pathname.startsWith('/api/telegram/webhook') // valida por su propio secreto (servicio externo)
+    || pathname.startsWith('/api/notificador/webhook') // valida por su propio secreto (servicio externo)
 }
 
 export function proxy(req: NextRequest) {

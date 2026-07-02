@@ -40,8 +40,9 @@ export const PAYMENT_SOURCE_NAMES: Record<string, string> = {
   fiwind: 'MF',
   // Los pagos cargados desde planilla Excel son de la billetera "Lacar".
   lacar: 'Lacar',
-  // Los pagos capturados por el bot de Telegram son de la billetera "MS".
-  telegram: 'MS',
+  // Los pagos que manda directo el sistema de "Notificador" (webhook a webhook)
+  // son de la billetera "MS".
+  notificador: 'MS',
 }
 
 // Billeteras disponibles para asignarle a una tienda (desplegable al conectar).
@@ -56,7 +57,7 @@ export const PAYMENT_SOURCE_TO_WALLET: Record<string, string> = {
   mercadopago: 'MF',
   fiwind: 'MF',
   lacar: 'Lacar',
-  telegram: 'MS',
+  notificador: 'MS',
 }
 
 // Billeteras cuyos pagos sin emparejar NUNCA vencen: no se purgan de la cola ni
