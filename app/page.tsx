@@ -936,11 +936,11 @@ export default function Dashboard() {
                                 background: 'rgba(0,0,0,0.3)',
                                 border: `1px solid ${store.walletId ? 'rgba(148,163,184,0.2)' : 'rgba(248,113,113,0.35)'}`,
                                 color: store.walletId ? 'rgba(226,232,240,0.8)' : 'rgba(248,113,113,0.75)',
-                                cursor: 'pointer',
+                                cursor: 'pointer', colorScheme: 'dark',
                               }}
                             >
-                              <option value="">Sin asignar</option>
-                              {WALLETS.map(w => <option key={w} value={w}>{w}</option>)}
+                              <option value="" style={{ background: '#0d1117', color: 'rgba(226,232,240,0.8)' }}>Sin asignar</option>
+                              {WALLETS.map(w => <option key={w} value={w} style={{ background: '#0d1117', color: 'rgba(226,232,240,0.8)' }}>{w}</option>)}
                             </select>
                           </div>
                         </div>
@@ -1097,11 +1097,11 @@ export default function Dashboard() {
                       width: '100%', boxSizing: 'border-box', padding: '10px 14px', borderRadius: '10px',
                       border: `1px solid ${selectedWallet ? 'rgba(0,212,255,0.3)' : 'rgba(248,113,113,0.35)'}`,
                       background: 'rgba(255,255,255,0.05)', color: 'white', fontSize: '14px', outline: 'none',
-                      marginBottom: '22px', cursor: 'pointer',
+                      marginBottom: '22px', cursor: 'pointer', colorScheme: 'dark',
                     }}
                   >
-                    <option value="" disabled>Elegir billetera...</option>
-                    {WALLETS.map(w => <option key={w} value={w}>{w}</option>)}
+                    <option value="" disabled style={{ background: '#0f1923', color: 'white' }}>Elegir billetera...</option>
+                    {WALLETS.map(w => <option key={w} value={w} style={{ background: '#0f1923', color: 'white' }}>{w}</option>)}
                   </select>
 
                   <p style={{ color: 'rgba(148,163,184,0.6)', fontSize: '13px', textAlign: 'center', marginBottom: '12px' }}>¿Desde qué plataforma querés conectar?</p>
