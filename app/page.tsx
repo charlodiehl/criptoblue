@@ -904,7 +904,7 @@ export default function Dashboard() {
                       No hay tiendas conectadas
                     </div>
                   ) : (
-                    <div>
+                    <div style={{ maxHeight: '320px', overflowY: 'auto' }}>
                       {stores.map(store => (
                         <div
                           key={store.storeId}
