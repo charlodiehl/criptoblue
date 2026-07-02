@@ -599,6 +599,7 @@ export function appendError(
     message,
     context,
     resolved: false,
+    seen: false,
   })
 }
 

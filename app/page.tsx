@@ -8,7 +8,7 @@ import OrdersListTab from '@/components/OrdersListTab'
 import PaymentsListTab from '@/components/PaymentsListTab'
 import RegistroTab from '@/components/RegistroTab'
 import { useRealtimeSync } from '@/hooks/useRealtimeSync'
-import type { Order, UnmatchedPayment, Store, LogEntry, Payment, RecentMatch } from '@/lib/types'
+import type { Order, UnmatchedPayment, Store, LogEntry, Payment, RecentMatch, ErrorEntry } from '@/lib/types'
 import { HARD_CUTOFF_PAYMENTS, HARD_CUTOFF_ORDERS, WALLETS, WALLETS_SIN_VENCIMIENTO } from '@/lib/config'
 import { paymentWalletId } from '@/lib/utils'
 
@@ -57,6 +57,12 @@ export default function Dashboard() {
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const userMenuRef = useRef<HTMLDivElement>(null)
 
+  // Centro de errores (campana del header)
+  const [errores, setErrores] = useState<ErrorEntry[]>([])
+  const [erroresNoVistos, setErroresNoVistos] = useState(0)
+  const [erroresOpen, setErroresOpen] = useState(false)
+  const erroresMenuRef = useRef<HTMLDivElement>(null)
+
   // Stores dropdown
   const [stores, setStores] = useState<Store[]>([])
   const [storesOpen, setStoresOpen] = useState(false)
@@ -78,6 +84,9 @@ export default function Dashboard() {
       }
       if (storesMenuRef.current && !storesMenuRef.current.contains(e.target as Node)) {
         setStoresOpen(false)
+      }
+      if (erroresMenuRef.current && !erroresMenuRef.current.contains(e.target as Node)) {
+        setErroresOpen(false)
       }
     }
     document.addEventListener('mousedown', handleClick)
@@ -189,21 +198,51 @@ export default function Dashboard() {
     }
   }, [])
 
+  const fetchErrores = useCallback(async () => {
+    try {
+      const res = await fetch('/api/errores')
+      if (res.ok) {
+        const data = await res.json()
+        setErrores(data.errores || [])
+        setErroresNoVistos(data.noVistos || 0)
+      }
+    } catch { /* ignore */ }
+  }, [])
+
+  // Abre la campana y marca las alertas como vistas → baja el badge a 0.
+  const handleAbrirErrores = useCallback(async () => {
+    const abrir = !erroresOpen
+    setErroresOpen(abrir)
+    if (abrir && erroresNoVistos > 0) {
+      setErroresNoVistos(0) // optimista: el badge baja al instante
+      try {
+        await fetch('/api/errores', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'marcar_vistos' }),
+        })
+      } catch { /* si falla, el próximo fetch recompone el conteo */ }
+    }
+  }, [erroresOpen, erroresNoVistos])
+
   // Carga inicial al montar
   useEffect(() => {
     fetchSync()
     fetchOrders()
     fetchLog()
     fetchStores()
-  }, [fetchSync, fetchOrders, fetchLog, fetchStores])
+    fetchErrores()
+  }, [fetchSync, fetchOrders, fetchLog, fetchStores, fetchErrores])
 
-  // Supabase Realtime — actualización inmediata cuando Supabase notifica un cambio
+  // Supabase Realtime — actualización inmediata cuando Supabase notifica un cambio.
+  // El errorLog vive en criptoblue:logs → onLogsChange refresca la campana al
+  // instante cuando el webhook registra un error (sin sumar polling fijo).
   useRealtimeSync({
     onHotChange: () => {
       setStats(prev => prev ? { ...prev, currentPhase: 'syncing' } : prev)
       fetchSync()
     },
-    onLogsChange: () => fetchLog(),
+    onLogsChange: () => { fetchLog(); fetchErrores() },
     onOrdersChange: () => fetchOrders(),
     onStoresChange: () => fetchStores(),
   })
@@ -829,6 +868,81 @@ export default function Dashboard() {
                 >
                   <span>→</span> Cerrar sesión
                 </button>
+              </div>
+            )}
+          </div>
+
+          {/* Centro de errores (campana) */}
+          <div ref={erroresMenuRef} className="relative flex items-center">
+            <button
+              onClick={handleAbrirErrores}
+              title="Errores"
+              className="relative flex items-center justify-center w-9 h-9 rounded-full transition-all"
+              style={{
+                background: erroresNoVistos > 0 ? 'rgba(248,113,113,0.12)' : 'linear-gradient(135deg, #00d4ff22, #0070f322)',
+                border: erroresNoVistos > 0 ? '1px solid rgba(248,113,113,0.45)' : '1px solid rgba(0,212,255,0.3)',
+                color: erroresNoVistos > 0 ? '#f87171' : '#00d4ff',
+                boxShadow: erroresOpen ? '0 0 14px rgba(0,212,255,0.25)' : 'none',
+              }}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor" className="w-5 h-5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M14.857 17.082a23.848 23.848 0 0 0 5.454-1.31A8.967 8.967 0 0 1 18 9.75V9A6 6 0 0 0 6 9v.75a8.967 8.967 0 0 1-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 0 1-5.714 0m5.714 0a3 3 0 1 1-5.714 0" />
+              </svg>
+              {erroresNoVistos > 0 && (
+                <span
+                  className="absolute flex items-center justify-center text-[10px] font-bold rounded-full"
+                  style={{
+                    top: '-4px', right: '-4px', minWidth: '18px', height: '18px', padding: '0 4px',
+                    background: '#ef4444', color: '#fff', border: '2px solid #060b14',
+                  }}
+                >
+                  {erroresNoVistos > 9 ? '9+' : erroresNoVistos}
+                </span>
+              )}
+            </button>
+            {erroresOpen && (
+              <div
+                className="absolute left-0 mt-2 rounded-xl overflow-hidden z-50"
+                style={{
+                  top: '100%', width: '360px', maxWidth: '90vw',
+                  background: 'linear-gradient(135deg, #0d1117, #111827)',
+                  border: '1px solid rgba(0,212,255,0.15)',
+                  boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+                }}
+              >
+                <div className="px-4 py-3 text-xs font-semibold flex items-center justify-between"
+                  style={{ color: 'rgba(0,212,255,0.8)', borderBottom: '1px solid rgba(0,212,255,0.1)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                  <span>Errores</span>
+                  <span style={{ color: 'rgba(148,163,184,0.5)' }}>{errores.length}</span>
+                </div>
+                <div style={{ maxHeight: '380px', overflowY: 'auto' }}>
+                  {errores.length === 0 ? (
+                    <div className="px-4 py-6 text-center text-sm" style={{ color: 'rgba(148,163,184,0.6)' }}>
+                      Sin errores
+                    </div>
+                  ) : (
+                    errores.map(e => (
+                      <div key={e.id} className="px-4 py-3"
+                        style={{ borderBottom: '1px solid rgba(148,163,184,0.06)' }}>
+                        <div className="flex items-center gap-2 mb-1">
+                          <span style={{
+                            width: '7px', height: '7px', borderRadius: '50%', flexShrink: 0,
+                            background: e.level === 'error' ? '#f87171' : '#fbbf24',
+                          }} />
+                          <span className="text-[10px] font-semibold uppercase" style={{ color: 'rgba(148,163,184,0.55)', letterSpacing: '0.05em' }}>
+                            {e.source}
+                          </span>
+                          <span className="text-[10px] ml-auto" style={{ color: 'rgba(148,163,184,0.4)' }}>
+                            {new Date(e.timestamp).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'America/Argentina/Buenos_Aires' })}
+                          </span>
+                        </div>
+                        <div className="text-xs leading-snug" style={{ color: 'rgba(226,232,240,0.9)' }}>
+                          {e.message}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
               </div>
             )}
           </div>

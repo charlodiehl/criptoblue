@@ -155,11 +155,15 @@ export interface ActivityEntry {
 export interface ErrorEntry {
   id: string
   timestamp: string
-  source: string   // 'cycle' | 'mercadopago' | 'tiendanube' | 'manual-match' | 'reevaluar' | etc.
+  source: string   // 'cycle' | 'mercadopago' | 'tiendanube' | 'manual-match' | 'reevaluar' | 'notificador' | etc.
   level: 'error' | 'warning' | 'info'
   message: string
   context?: Record<string, unknown>
   resolved: boolean
+  // "Visto" por el humano en el centro de errores (campana del header). Distinto de
+  // `resolved` (que indica si el problema se solucionó y controla la limpieza a 7 días).
+  // El badge de la campana cuenta los errores con seen !== true.
+  seen?: boolean
 }
 
 // ─── Audit Log ──────────────────────────────────────────────────────────────
