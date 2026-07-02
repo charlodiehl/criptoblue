@@ -78,8 +78,12 @@ export async function getPendingOrders(
   const allOrders: Order[] = []
   const sinceISO = since.toISOString()
 
+  // status=any (no status=open): algunas tiendas archivan sus órdenes aunque el
+  // pago siga pendiente (ej. Alvia archiva en lote), y archivar en Shopify pone
+  // status=closed. Con status=open esas quedaban invisibles y no se podían
+  // conciliar. Las canceladas sí se descartan abajo (no son cobrables).
   let nextUrl: string | null =
-    `${apiBase(storeId)}/orders.json?financial_status=pending&status=open&created_at_min=${sinceISO}&limit=250`
+    `${apiBase(storeId)}/orders.json?financial_status=pending&status=any&created_at_min=${sinceISO}&limit=250`
 
   while (nextUrl) {
     const currentUrl: string = nextUrl
@@ -92,7 +96,9 @@ export async function getPendingOrders(
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const data: any = await res.json()
-    const orders = data.orders || []
+    // Excluir órdenes canceladas: siguen pudiendo figurar como pending pero no se cobran.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const orders = (data.orders || []).filter((o: any) => !o.cancelled_at)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     allOrders.push(...orders.map((o: any) => normalizeOrder(o, storeId, storeName)))
 
