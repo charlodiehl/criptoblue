@@ -40,12 +40,14 @@ export const PAYMENT_SOURCE_NAMES: Record<string, string> = {
   fiwind: 'MF',
   // Los pagos cargados desde planilla Excel son de la billetera "Lacar".
   lacar: 'Lacar',
+  // Los pagos capturados por el bot de Telegram son de la billetera "MS".
+  telegram: 'MS',
 }
 
 // Billeteras disponibles para asignarle a una tienda (desplegable al conectar).
 // Para agregar una billetera nueva: sumarla acá y mapear sus fuentes de pago en
 // PAYMENT_SOURCE_TO_WALLET.
-export const WALLETS = ['MF', 'Lacar'] as const
+export const WALLETS = ['MF', 'Lacar', 'MS'] as const
 
 // Mapeo de fuente de pago (payment.source) → billetera a la que pertenece.
 // Usado para acotar el emparejamiento: un pago solo busca candidatas entre
@@ -54,6 +56,7 @@ export const PAYMENT_SOURCE_TO_WALLET: Record<string, string> = {
   mercadopago: 'MF',
   fiwind: 'MF',
   lacar: 'Lacar',
+  telegram: 'MS',
 }
 
 export const CONFIG = {
