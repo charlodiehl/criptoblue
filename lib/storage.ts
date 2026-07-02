@@ -186,17 +186,21 @@ function getCutoffs() {
   return { cutoff48hMs, effectiveCutoffPaymentsMs, effectiveCutoffOrdersMs, effectiveCutoffMinMs, cutoff30dMs, cutoff7dMs }
 }
 
+// Pagos de billeteras "sin vencimiento" (MF, Lacar, MS): se conservan indefinidamente
+// mientras sigan sin marcar como externos. Al marcarse, vuelven al vencimiento normal.
+// Usada tanto en cleanHotData como en el merge-protector de saveHotState — deben
+// coincidir, si no un guardado que parta de una cola vacía (ej. reevaluar) puede
+// perder estos pagos porque el merge los descarta por "viejos" sin mirar la billetera.
+function esNuncaVence(u: UnmatchedPayment, externallyMarkedIds: Set<string>): boolean {
+  const wallet = paymentWalletId(u.payment.source)
+  const id = u.mpPaymentId || u.payment.mpPaymentId
+  return !!wallet && WALLETS_SIN_VENCIMIENTO.includes(wallet) && !externallyMarkedIds.has(id)
+}
+
 // Lógica de limpieza compartida entre saveHotState y saveState (#8)
 function cleanHotData(state: HotState): HotState {
   const { cutoff48hMs, effectiveCutoffPaymentsMs, effectiveCutoffMinMs } = getCutoffs()
   const externallyMarkedIds = new Set((state.externallyMarkedPayments ?? []).map(e => e.id))
-  // Pagos de billeteras "sin vencimiento" (MF, Lacar): se conservan indefinidamente
-  // mientras sigan sin marcar como externos. Al marcarse, vuelven al vencimiento normal.
-  const nuncaVence = (u: UnmatchedPayment): boolean => {
-    const wallet = paymentWalletId(u.payment.source)
-    const id = u.mpPaymentId || u.payment.mpPaymentId
-    return !!wallet && WALLETS_SIN_VENCIMIENTO.includes(wallet) && !externallyMarkedIds.has(id)
-  }
   const cleaned: HotState = {
     ...state,
     // Filtro temporal (48h) + cap duro (2000) como defense-in-depth.
@@ -219,7 +223,7 @@ function cleanHotData(state: HotState): HotState {
       ? (state.retainedPaymentIds ?? []).slice(-1000)
       : (state.retainedPaymentIds ?? []),
     unmatchedPayments: (state.unmatchedPayments ?? [])
-      .filter(u => !u.payment.fechaPago || new Date(u.payment.fechaPago).getTime() >= effectiveCutoffPaymentsMs || nuncaVence(u))
+      .filter(u => !u.payment.fechaPago || new Date(u.payment.fechaPago).getTime() >= effectiveCutoffPaymentsMs || esNuncaVence(u, externallyMarkedIds))
       .map(u => ({ ...u, payment: stripRawData(u.payment) })),
   }
 
@@ -442,16 +446,21 @@ export async function saveHotState(state: HotState): Promise<void> {
     // (effectiveCutoffPaymentsMs). Sin esto, el merge re-agrega pagos que el cron
     // intencionalmente purgó por antigüedad, infinitamente. Caso real: 1.560 pagos
     // de hace 24 días seguían vivos porque el merge los reincorporaba en cada save.
+    // Excepción: pagos "sin vencimiento" (esNuncaVence) igual se preservan aunque
+    // sean viejos — si no, un guardado que parte de cola vacía (ej. Fase 1 de
+    // /api/reevaluar) los pierde para siempre, ya que sus fuentes (Fiwind/Lacar/
+    // Notificador) no se re-obtienen como los pagos de Mercado Pago.
     if (current.unmatchedPayments?.length) {
       const existingIds = new Set(cleaned.unmatchedPayments.map(u => u.payment.mpPaymentId))
       const confirmedByRecentMatch = new Set((cleaned.recentMatches ?? []).map(m => m.mpPaymentId))
       const { effectiveCutoffPaymentsMs } = getCutoffs()
+      const externallyMarkedIds = new Set((cleaned.externallyMarkedPayments ?? []).map(e => e.id))
       for (const u of current.unmatchedPayments) {
         const id = u.payment.mpPaymentId
         if (existingIds.has(id) || confirmedByRecentMatch.has(id)) continue
-        // Respetar el cutoff de purga: pagos viejos no deben re-aparecer
+        // Respetar el cutoff de purga: pagos viejos no deben re-aparecer (salvo nuncaVence)
         const fp = u.payment.fechaPago ? new Date(u.payment.fechaPago).getTime() : null
-        if (fp !== null && Number.isFinite(fp) && fp < effectiveCutoffPaymentsMs) continue
+        if (fp !== null && Number.isFinite(fp) && fp < effectiveCutoffPaymentsMs && !esNuncaVence(u, externallyMarkedIds)) continue
         cleaned.unmatchedPayments.push({ ...u, payment: stripRawData(u.payment) })
       }
     }

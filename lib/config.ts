@@ -64,7 +64,7 @@ export const PAYMENT_SOURCE_TO_WALLET: Record<string, string> = {
 // desaparecen de la vista por antigüedad (ignoran el rolling de 48hs), mientras
 // sigan sin emparejar y sin marcar "No es de tiendas". Al emparejarse o marcarse,
 // vuelven al comportamiento normal de expiración a las 48hs.
-export const WALLETS_SIN_VENCIMIENTO: readonly string[] = ['MF', 'Lacar']
+export const WALLETS_SIN_VENCIMIENTO: readonly string[] = ['MF', 'Lacar', 'MS']
 
 export const CONFIG = {
   tiendanube: {

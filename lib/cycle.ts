@@ -169,8 +169,8 @@ export async function processMPPayments(): Promise<CycleResult> {
   const freshState = await loadState()
 
   // 1. Purge en el estado fresco (eliminar pagos vencidos). Los pagos de
-  // billeteras "sin vencimiento" (MF, Lacar) se conservan indefinidamente
-  // mientras no estén marcados como externos — ver WALLETS_SIN_VENCIMIENTO.
+  // billeteras "sin vencimiento" (ver WALLETS_SIN_VENCIMIENTO) se conservan
+  // indefinidamente mientras no estén marcados como externos.
   const externallyMarkedIds = new Set((freshState.externallyMarkedPayments ?? []).map(e => e.id))
   freshState.unmatchedPayments = freshState.unmatchedPayments.filter(u => {
     const date = u.payment.fechaPago ? new Date(u.payment.fechaPago) : new Date(u.timestamp)

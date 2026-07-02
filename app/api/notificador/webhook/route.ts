@@ -1,23 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { loadHotState, saveHotState, loadLogs, saveLogs, appendActivity, acquireLock, releaseLock } from '@/lib/storage'
 import { isPaymentAlreadyUsed } from '@/lib/registro'
-import { parsearMensajeNotificador } from '@/lib/notificador-parser'
 import type { Payment, UnmatchedPayment } from '@/lib/types'
 import { nowART } from '@/lib/utils'
-import { createHash } from 'crypto'
 
 const LOCK_HOLDER = 'notificador-webhook'
 
-// POST { secret, mensaje }
+// POST { secret, evento, datos: { id_transaccion, monto, titular, cbu_cvu, fecha_operacion } }
 //
-// "mensaje" es el mismo texto que el sistema de "Notificador" ya manda a su
-// grupo de Telegram, reenviado tal cual — se parsea acá (Fecha, Titular,
-// Monto, CBU/CVU, Tipo). Agrega el pago a la cola con billetera "MS".
-//
-// Reemplaza el intento anterior de leer los mensajes desde un bot propio de
-// Telegram en el mismo grupo: la Bot API no entrega mensajes de un bot a otro
-// bot en un grupo, ni con privacidad desactivada + admin + Bot-to-Bot
-// Communication Mode activados solo de nuestro lado.
+// Formato propio del sistema de "Notificador" (webhook a webhook — ya no pasa
+// por Telegram: la Bot API no entrega mensajes de un bot a otro bot en un
+// grupo, ni con privacidad desactivada + admin + Bot-to-Bot Communication Mode
+// activados solo de nuestro lado). Agrega el pago a la cola con billetera "MS".
 //
 // Auth: secreto compartido (NOTIFICADOR_WEBHOOK_SECRET). La ruta está exenta
 // del middleware de sesión (ver proxy.ts) porque la llama un servicio externo.
@@ -33,33 +27,37 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'JSON inválido' }, { status: 400 })
     }
 
-    const { secret, mensaje } = body
+    const { secret, evento, datos } = body
 
     if (!secret || secret !== expected) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
     }
-    if (typeof mensaje !== 'string' || !mensaje.trim()) {
-      return NextResponse.json({ error: 'mensaje requerido (el texto completo de la notificación)' }, { status: 400 })
-    }
 
-    const datos = parsearMensajeNotificador(mensaje)
-    if (!datos) {
-      return NextResponse.json({ success: true, skipped: true, reason: 'no se pudo interpretar el mensaje (falta Fecha o Monto legible)' })
-    }
-
-    // Solo transferencias entrantes. Cualquier otro tipo (retiro, extracción,
+    // Solo transferencias entrantes. Cualquier otro evento (retiro, egreso,
     // etc.) se descarta — mismo criterio que el filtro de depósitos de Fiwind.
-    if (datos.tipo && !/^transferencia$/i.test(datos.tipo)) {
-      return NextResponse.json({ success: true, skipped: true, reason: `Tipo ignorado (no es transferencia): ${datos.tipo}` })
+    if (evento !== 'nuevo_ingreso') {
+      return NextResponse.json({ success: true, skipped: true, reason: `Evento ignorado (no es nuevo_ingreso): ${evento}` })
+    }
+    if (!datos || typeof datos !== 'object') {
+      return NextResponse.json({ error: 'datos requerido' }, { status: 400 })
     }
 
-    // El texto no trae un ID de transacción propio: se genera un hash
-    // determinístico de los datos como ID único, para no duplicar el mismo
-    // pago si reintentan el request con el mismo mensaje.
-    const idBase = createHash('sha256')
-      .update(`${datos.fechaISO}|${datos.monto}|${datos.cbuCvu}|${datos.titular}`)
-      .digest('hex').slice(0, 16)
-    const paymentId = `notificador-${idBase}`
+    const { id_transaccion, monto, titular, cbu_cvu, fecha_operacion } = datos
+
+    if (!id_transaccion) return NextResponse.json({ error: 'datos.id_transaccion requerido' }, { status: 400 })
+    const montoNum = Number(monto)
+    if (!Number.isFinite(montoNum) || montoNum <= 0) {
+      return NextResponse.json({ error: 'datos.monto inválido' }, { status: 400 })
+    }
+    const fecha = new Date(fecha_operacion)
+    if (isNaN(fecha.getTime())) {
+      return NextResponse.json({ error: 'datos.fecha_operacion inválida' }, { status: 400 })
+    }
+    const fechaISO = fecha.toISOString()
+
+    // id_transaccion es el identificador único que ya asigna su sistema — lo
+    // usamos directo, sin necesidad de generar un hash propio.
+    const paymentId = `notificador-${id_transaccion}`
 
     if (await isPaymentAlreadyUsed(paymentId)) {
       return NextResponse.json({ success: true, duplicate: true, reason: 'ya emparejado en el registro' })
@@ -81,17 +79,17 @@ export async function POST(req: NextRequest) {
 
       const payment: Payment = {
         mpPaymentId: paymentId,
-        monto: datos.monto,
-        nombrePagador: datos.titular,
+        monto: montoNum,
+        nombrePagador: typeof titular === 'string' ? titular.trim() : '',
         emailPagador: '',
         cuitPagador: '',
-        referencia: datos.cbuCvu,
-        operationId: idBase,
+        referencia: typeof cbu_cvu === 'string' ? cbu_cvu : '',
+        operationId: String(id_transaccion),
         metodoPago: 'notificador / transferencia',
-        fechaPago: datos.fechaISO,
+        fechaPago: fechaISO,
         status: 'approved',
         source: 'notificador',
-        rawData: { cbuCvu: datos.cbuCvu, tipo: datos.tipo, mensaje },
+        rawData: { cbuCvu: cbu_cvu ?? '', evento, idTransaccion: id_transaccion },
       }
 
       const unmatched: UnmatchedPayment = {
@@ -102,17 +100,17 @@ export async function POST(req: NextRequest) {
       hot.unmatchedPayments.push(unmatched)
 
       appendActivity(logs, 'system', 'notificador_pago_recibido', {
-        monto: datos.monto, titular: datos.titular,
+        monto: montoNum, titular: payment.nombrePagador,
       })
 
       await Promise.all([saveHotState(hot), saveLogs(logs)])
 
-      // Se devuelve lo que el sistema interpretó del mensaje — les sirve para
-      // confirmar de su lado que el parseo de fecha/monto/titular fue correcto.
+      // Se devuelve lo que el sistema interpretó — les sirve para confirmar de
+      // su lado que el parseo de fecha/monto/titular fue correcto.
       return NextResponse.json({
         success: true,
         mpPaymentId: paymentId,
-        interpretado: { fecha: datos.fechaISO, titular: datos.titular, monto: datos.monto },
+        interpretado: { fecha: fechaISO, titular: payment.nombrePagador, monto: montoNum },
       })
     } finally {
       await releaseLock(LOCK_HOLDER)
