@@ -18,15 +18,35 @@ async function registrarErrorPago(message: string, context?: Record<string, unkn
   } catch { /* el error ya se devuelve por HTTP; no bloquear la respuesta por el log */ }
 }
 
-// POST { secret, evento, datos: { id_transaccion, monto, titular, cbu_cvu, fecha_operacion } }
+// El secret puede venir por header (lo estándar para webhooks) o dentro del body.
+// Notificador manda su JSON tal cual (solo evento + datos) y pone el secret en el
+// header, así no tiene que mezclar la credencial con el payload. Se buscan, en orden:
+//   1. Authorization: "Bearer <secret>"  (o el valor crudo si no usa el prefijo Bearer)
+//   2. X-Webhook-Secret / X-Notificador-Secret
+//   3. body.secret  (compatibilidad con el formato anterior)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function extraerSecret(req: NextRequest, body: any): string | null {
+  const auth = req.headers.get('authorization')
+  if (auth) {
+    const m = auth.match(/^Bearer\s+(.+)$/i)
+    return (m ? m[1] : auth).trim()
+  }
+  const xSecret = req.headers.get('x-webhook-secret') || req.headers.get('x-notificador-secret')
+  if (xSecret) return xSecret.trim()
+  if (body && typeof body.secret === 'string') return body.secret.trim()
+  return null
+}
+
+// POST — body: { evento, datos: { id_transaccion, monto, titular, cbu_cvu, fecha_operacion } }
+// Auth: secreto compartido (NOTIFICADOR_WEBHOOK_SECRET) por header o en el body (ver extraerSecret).
 //
 // Formato propio del sistema de "Notificador" (webhook a webhook — ya no pasa
 // por Telegram: la Bot API no entrega mensajes de un bot a otro bot en un
 // grupo, ni con privacidad desactivada + admin + Bot-to-Bot Communication Mode
 // activados solo de nuestro lado). Agrega el pago a la cola con billetera "MS".
 //
-// Auth: secreto compartido (NOTIFICADOR_WEBHOOK_SECRET). La ruta está exenta
-// del middleware de sesión (ver proxy.ts) porque la llama un servicio externo.
+// La ruta está exenta del middleware de sesión (ver proxy.ts) porque la llama un
+// servicio externo.
 export async function POST(req: NextRequest) {
   try {
     const expected = process.env.NOTIFICADOR_WEBHOOK_SECRET
@@ -42,7 +62,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'JSON inválido' }, { status: 400 })
     }
 
-    const { secret, evento, datos } = body
+    const { evento, datos } = body
+    const secret = extraerSecret(req, body)
 
     if (!secret || secret !== expected) {
       // Sin secret válido → no se registra (evita ruido de escaneos a la URL pública).
