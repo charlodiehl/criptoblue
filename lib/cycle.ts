@@ -3,10 +3,10 @@ import { getPendingOrders as getTNOrders } from './tiendanube'
 import { getPendingOrders as getShopifyOrders } from './shopify'
 import { loadState, saveState, getStores, appendError, loadLogs, saveLogs } from './storage'
 import { getConfirmedMarks } from './registro'
-import { HARD_CUTOFF_PAYMENTS, HARD_CUTOFF_ORDERS, SAMEMONTO_WINDOW_HOURS, ORDER_CACHE_MIN_HOURS, ORDER_CACHE_BUFFER_HOURS, PAYMENT_CACHE_HOURS } from './config'
+import { HARD_CUTOFF_PAYMENTS, HARD_CUTOFF_ORDERS, SAMEMONTO_WINDOW_HOURS, ORDER_CACHE_MIN_HOURS, ORDER_CACHE_BUFFER_HOURS, PAYMENT_CACHE_HOURS, WALLETS_SIN_VENCIMIENTO } from './config'
 import type { UnmatchedPayment, Store } from './types'
 import { audit, auditApiCall } from './audit'
-import { nowART } from './utils'
+import { nowART, paymentWalletId } from './utils'
 import { lookupNombreByCuit } from './cuit-lookup'
 
 interface CycleResult {
@@ -168,10 +168,16 @@ export async function processMPPayments(): Promise<CycleResult> {
   // el state cargado al inicio. Recargamos y hacemos merge solo de lo nuevo.
   const freshState = await loadState()
 
-  // 1. Purge en el estado fresco (eliminar pagos vencidos)
+  // 1. Purge en el estado fresco (eliminar pagos vencidos). Los pagos de
+  // billeteras "sin vencimiento" (MF, Lacar) se conservan indefinidamente
+  // mientras no estén marcados como externos — ver WALLETS_SIN_VENCIMIENTO.
+  const externallyMarkedIds = new Set((freshState.externallyMarkedPayments ?? []).map(e => e.id))
   freshState.unmatchedPayments = freshState.unmatchedPayments.filter(u => {
     const date = u.payment.fechaPago ? new Date(u.payment.fechaPago) : new Date(u.timestamp)
-    return date >= purgeCutoff
+    if (date >= purgeCutoff) return true
+    const wallet = paymentWalletId(u.payment.source)
+    const id = u.mpPaymentId || u.payment.mpPaymentId
+    return !!wallet && WALLETS_SIN_VENCIMIENTO.includes(wallet) && !externallyMarkedIds.has(id)
   })
 
   // 2. Agregar nuevos pagos (sin duplicados)

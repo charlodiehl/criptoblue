@@ -59,6 +59,12 @@ export const PAYMENT_SOURCE_TO_WALLET: Record<string, string> = {
   telegram: 'MS',
 }
 
+// Billeteras cuyos pagos sin emparejar NUNCA vencen: no se purgan de la cola ni
+// desaparecen de la vista por antigüedad (ignoran el rolling de 48hs), mientras
+// sigan sin emparejar y sin marcar "No es de tiendas". Al emparejarse o marcarse,
+// vuelven al comportamiento normal de expiración a las 48hs.
+export const WALLETS_SIN_VENCIMIENTO: readonly string[] = ['MF', 'Lacar']
+
 export const CONFIG = {
   tiendanube: {
     clientId: '27051',

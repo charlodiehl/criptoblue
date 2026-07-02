@@ -9,7 +9,8 @@ import PaymentsListTab from '@/components/PaymentsListTab'
 import RegistroTab from '@/components/RegistroTab'
 import { useRealtimeSync } from '@/hooks/useRealtimeSync'
 import type { Order, UnmatchedPayment, Store, LogEntry, Payment, RecentMatch } from '@/lib/types'
-import { HARD_CUTOFF_PAYMENTS, HARD_CUTOFF_ORDERS, WALLETS } from '@/lib/config'
+import { HARD_CUTOFF_PAYMENTS, HARD_CUTOFF_ORDERS, WALLETS, WALLETS_SIN_VENCIMIENTO } from '@/lib/config'
+import { paymentWalletId } from '@/lib/utils'
 
 type Tab = 'manual' | 'ordenes' | 'pagos' | 'sin-coincidencia' | 'registro'
 
@@ -612,9 +613,18 @@ export default function Dashboard() {
       .map(m => m.payment!)
       .filter(p => { if (seenIds.has(p.mpPaymentId)) return false; seenIds.add(p.mpPaymentId); return true })
 
-    // Pagos no macheados (desde cutoff efectivo 48h)
+    // Pagos no macheados (desde cutoff efectivo 48h). Los de billeteras "sin
+    // vencimiento" (MF, Lacar) se muestran siempre mientras no estén marcados
+    // como externos — al marcarse, vuelven al cutoff normal de 48hs.
+    const externallyMarkedSet = new Set(stats?.externallyMarkedPayments ?? [])
     const unmatched = unmatchedPayments
-      .filter(u => new Date(u.payment.fechaPago).getTime() >= cutoff48)
+      .filter(u => {
+        if (new Date(u.payment.fechaPago).getTime() >= cutoff48) return true
+        const id = u.mpPaymentId || u.payment.mpPaymentId
+        if (externallyMarkedSet.has(id || '')) return false
+        const wallet = paymentWalletId(u.payment.source)
+        return !!wallet && WALLETS_SIN_VENCIMIENTO.includes(wallet)
+      })
       .map(u => u.payment)
       .filter(p => !seenIds.has(p.mpPaymentId))
 
@@ -624,7 +634,7 @@ export default function Dashboard() {
       // webhook de Fiwind). Los marcados manuales de orden (id 'manual_…') quedan
       // únicamente en el Registro: no hay un pago real que los respalde.
       .filter(p => !(p.mpPaymentId || '').startsWith('manual_'))
-  }, [unmatchedPayments, logEntries, recentMatches, cutoff48, HARD_CUTOFF_PAYMENTS_MS])
+  }, [unmatchedPayments, logEntries, recentMatches, cutoff48, HARD_CUTOFF_PAYMENTS_MS, stats?.externallyMarkedPayments])
 
   // IDs de pagos y órdenes ya macheados (para resaltar en verde en las pestañas)
   // Usan recentMatches (auto-limpia a 24h) para ser independientes del borrado manual del Registro
@@ -704,7 +714,13 @@ export default function Dashboard() {
   const paymentsWithoutMatch = useMemo((): Payment[] => {
     const now = Date.now()
     return unmatchedPayments
-      .filter(u => (now - new Date(u.payment.fechaPago).getTime()) <= HOURS_48)
+      .filter(u => {
+        if ((now - new Date(u.payment.fechaPago).getTime()) <= HOURS_48) return true
+        // Billeteras "sin vencimiento" (MF, Lacar): se mantienen visibles pasadas
+        // las 48hs. Si ya se marcaron como externas, el filtro de abajo las saca igual.
+        const wallet = paymentWalletId(u.payment.source)
+        return !!wallet && WALLETS_SIN_VENCIMIENTO.includes(wallet)
+      })
       .map(u => u.payment)
       .filter(p => !matchedPaymentIds.has(p.mpPaymentId))
   }, [unmatchedPayments, matchedPaymentIds, HOURS_48])

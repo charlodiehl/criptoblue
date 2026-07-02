@@ -13,10 +13,16 @@ function isWalletCompatible(paymentWallet: string | null, orderWallet?: string):
 
 
 
+// Quita tildes/diacríticos para comparar "Maria" y "María" como iguales.
+// Espejo de sinTildes en lib/auto-match.ts.
+function sinTildes(s: string): string {
+  return s.normalize('NFD').replace(/[̀-ͯ]/g, '')
+}
+
 function nameSim(a: string, b: string): number {
   if (!a || !b) return 0
-  const na = a.toLowerCase().trim()
-  const nb = b.toLowerCase().trim()
+  const na = sinTildes(a.toLowerCase().trim())
+  const nb = sinTildes(b.toLowerCase().trim())
   if (na === nb) return 100
   const wa = na.split(/\s+/)
   const wb = nb.split(/\s+/)

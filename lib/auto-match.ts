@@ -62,12 +62,17 @@ function emailMatchesName(email: string, name: string): boolean {
   return partialMatched.size >= 2
 }
 
+// Quita tildes/diacríticos para comparar "Maria" y "María" como iguales.
+function sinTildes(s: string): string {
+  return s.normalize('NFD').replace(/[̀-ͯ]/g, '')
+}
+
 // Mismo algoritmo que nameSim en ManualMatchTab.tsx — usa el array más corto como
 // denominador y substring matching, para que backend y frontend sean 100% consistentes.
 function nameSimilarity(a: string, b: string): number {
   if (!a || !b) return 0
-  const na = a.toLowerCase().trim()
-  const nb = b.toLowerCase().trim()
+  const na = sinTildes(a.toLowerCase().trim())
+  const nb = sinTildes(b.toLowerCase().trim())
   if (na === nb) return 100
   const wa = na.split(/\s+/)
   const wb = nb.split(/\s+/)

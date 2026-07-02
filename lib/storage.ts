@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 import type { AppState, Store, Payment, Order, UnmatchedPayment, RecentMatch, DismissedPair, ExternalPaymentMark, PersistedMonthStats, ErrorEntry, ActivityEntry } from './types'
-import { HARD_CUTOFF_PAYMENTS, HARD_CUTOFF_ORDERS } from './config'
-import { nowART, monthKeyART } from './utils'
+import { HARD_CUTOFF_PAYMENTS, HARD_CUTOFF_ORDERS, WALLETS_SIN_VENCIMIENTO } from './config'
+import { nowART, monthKeyART, paymentWalletId } from './utils'
 
 // ─────────────────────────────────────────────
 // Supabase schema required:
@@ -189,6 +189,14 @@ function getCutoffs() {
 // Lógica de limpieza compartida entre saveHotState y saveState (#8)
 function cleanHotData(state: HotState): HotState {
   const { cutoff48hMs, effectiveCutoffPaymentsMs, effectiveCutoffMinMs } = getCutoffs()
+  const externallyMarkedIds = new Set((state.externallyMarkedPayments ?? []).map(e => e.id))
+  // Pagos de billeteras "sin vencimiento" (MF, Lacar): se conservan indefinidamente
+  // mientras sigan sin marcar como externos. Al marcarse, vuelven al vencimiento normal.
+  const nuncaVence = (u: UnmatchedPayment): boolean => {
+    const wallet = paymentWalletId(u.payment.source)
+    const id = u.mpPaymentId || u.payment.mpPaymentId
+    return !!wallet && WALLETS_SIN_VENCIMIENTO.includes(wallet) && !externallyMarkedIds.has(id)
+  }
   const cleaned: HotState = {
     ...state,
     // Filtro temporal (48h) + cap duro (2000) como defense-in-depth.
@@ -211,7 +219,7 @@ function cleanHotData(state: HotState): HotState {
       ? (state.retainedPaymentIds ?? []).slice(-1000)
       : (state.retainedPaymentIds ?? []),
     unmatchedPayments: (state.unmatchedPayments ?? [])
-      .filter(u => !u.payment.fechaPago || new Date(u.payment.fechaPago).getTime() >= effectiveCutoffPaymentsMs)
+      .filter(u => !u.payment.fechaPago || new Date(u.payment.fechaPago).getTime() >= effectiveCutoffPaymentsMs || nuncaVence(u))
       .map(u => ({ ...u, payment: stripRawData(u.payment) })),
   }
 
