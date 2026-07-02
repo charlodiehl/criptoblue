@@ -1,41 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { loadHotState, saveHotState, loadLogs, saveLogs, appendActivity, acquireLock, releaseLock } from '@/lib/storage'
 import { isPaymentAlreadyUsed } from '@/lib/registro'
+import { parsearMensajeNotificador } from '@/lib/notificador-parser'
 import type { Payment, UnmatchedPayment } from '@/lib/types'
 import { nowART } from '@/lib/utils'
 import { createHash } from 'crypto'
 
 const LOCK_HOLDER = 'notificador-webhook'
 
-// Fecha en formato argentino "d/m/aaaa, HH:MM:SS" o "d/m/aaaa HH:MM:SS" → ISO -03:00.
-// Si no matchea ese patrón, se intenta como ISO 8601 directo (new Date()).
-function parsearFecha(raw: string): string | null {
-  const m = String(raw).match(/(\d{1,2})\/(\d{1,2})\/(\d{4})[,\s]+(\d{2}):(\d{2})(?::(\d{2}))?/)
-  if (m) {
-    const [, dd, mm, yyyy, hh, min, ss] = m
-    return `${yyyy}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}T${hh}:${min}:${ss || '00'}-03:00`
-  }
-  const d = new Date(raw)
-  return isNaN(d.getTime()) ? null : d.toISOString()
-}
-
-// Monto como número directo, o string en formato argentino "$89.100,00" / "89.100,00".
-function parsearMonto(raw: unknown): number | null {
-  if (typeof raw === 'number') return Number.isFinite(raw) && raw > 0 ? raw : null
-  const m = String(raw).match(/\$?\s*([\d.]+,\d{2}|\d+(?:\.\d+)?)/)
-  if (!m) return null
-  const s = m[1]
-  // Si tiene coma, es formato argentino (punto = miles, coma = decimal)
-  const num = s.includes(',') ? parseFloat(s.replace(/\./g, '').replace(',', '.')) : parseFloat(s)
-  return Number.isFinite(num) && num > 0 ? num : null
-}
-
-// POST { secret, id?, fecha, titular, monto, cbuCvu?, tipo }
+// POST { secret, mensaje }
 //
-// Recibe transferencias directamente del sistema de "Notificador" (webhook a
-// webhook, sin pasar por Telegram — la Bot API no entrega mensajes de un bot a
-// otro bot en un grupo, así que el bot propio quedó descartado). Agrega el pago
-// a la cola con billetera "MS".
+// "mensaje" es el mismo texto que el sistema de "Notificador" ya manda a su
+// grupo de Telegram, reenviado tal cual — se parsea acá (Fecha, Titular,
+// Monto, CBU/CVU, Tipo). Agrega el pago a la cola con billetera "MS".
+//
+// Reemplaza el intento anterior de leer los mensajes desde un bot propio de
+// Telegram en el mismo grupo: la Bot API no entrega mensajes de un bot a otro
+// bot en un grupo, ni con privacidad desactivada + admin + Bot-to-Bot
+// Communication Mode activados solo de nuestro lado.
 //
 // Auth: secreto compartido (NOTIFICADOR_WEBHOOK_SECRET). La ruta está exenta
 // del middleware de sesión (ver proxy.ts) porque la llama un servicio externo.
@@ -51,27 +33,32 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'JSON inválido' }, { status: 400 })
     }
 
-    const { secret, id, fecha, titular, monto, cbuCvu, tipo } = body
+    const { secret, mensaje } = body
 
     if (!secret || secret !== expected) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
     }
+    if (typeof mensaje !== 'string' || !mensaje.trim()) {
+      return NextResponse.json({ error: 'mensaje requerido (el texto completo de la notificación)' }, { status: 400 })
+    }
+
+    const datos = parsearMensajeNotificador(mensaje)
+    if (!datos) {
+      return NextResponse.json({ success: true, skipped: true, reason: 'no se pudo interpretar el mensaje (falta Fecha o Monto legible)' })
+    }
 
     // Solo transferencias entrantes. Cualquier otro tipo (retiro, extracción,
     // etc.) se descarta — mismo criterio que el filtro de depósitos de Fiwind.
-    if (tipo && !/^transferencia$/i.test(String(tipo))) {
-      return NextResponse.json({ success: true, skipped: true, reason: `Tipo ignorado (no es transferencia): ${tipo}` })
+    if (datos.tipo && !/^transferencia$/i.test(datos.tipo)) {
+      return NextResponse.json({ success: true, skipped: true, reason: `Tipo ignorado (no es transferencia): ${datos.tipo}` })
     }
 
-    const fechaISO = fecha ? parsearFecha(fecha) : null
-    const montoNum = parsearMonto(monto)
-    if (!fechaISO) return NextResponse.json({ error: 'fecha inválida' }, { status: 400 })
-    if (!montoNum) return NextResponse.json({ error: 'monto inválido' }, { status: 400 })
-
-    // ID único de la transferencia: el que manden ellos si lo tienen (recomendado,
-    // ej. ID de operación bancaria), o un hash determinístico de los datos como
-    // fallback — evita duplicar el mismo pago si reintentan el request.
-    const idBase = id ? String(id) : createHash('sha256').update(`${fechaISO}|${montoNum}|${cbuCvu || ''}|${titular || ''}`).digest('hex').slice(0, 16)
+    // El texto no trae un ID de transacción propio: se genera un hash
+    // determinístico de los datos como ID único, para no duplicar el mismo
+    // pago si reintentan el request con el mismo mensaje.
+    const idBase = createHash('sha256')
+      .update(`${datos.fechaISO}|${datos.monto}|${datos.cbuCvu}|${datos.titular}`)
+      .digest('hex').slice(0, 16)
     const paymentId = `notificador-${idBase}`
 
     if (await isPaymentAlreadyUsed(paymentId)) {
@@ -94,17 +81,17 @@ export async function POST(req: NextRequest) {
 
       const payment: Payment = {
         mpPaymentId: paymentId,
-        monto: montoNum,
-        nombrePagador: typeof titular === 'string' ? titular.trim() : '',
+        monto: datos.monto,
+        nombrePagador: datos.titular,
         emailPagador: '',
         cuitPagador: '',
-        referencia: typeof cbuCvu === 'string' ? cbuCvu : '',
+        referencia: datos.cbuCvu,
         operationId: idBase,
         metodoPago: 'notificador / transferencia',
-        fechaPago: fechaISO,
+        fechaPago: datos.fechaISO,
         status: 'approved',
         source: 'notificador',
-        rawData: { cbuCvu: cbuCvu ?? '', tipo: tipo ?? '', idOriginal: id ?? null },
+        rawData: { cbuCvu: datos.cbuCvu, tipo: datos.tipo, mensaje },
       }
 
       const unmatched: UnmatchedPayment = {
@@ -115,12 +102,18 @@ export async function POST(req: NextRequest) {
       hot.unmatchedPayments.push(unmatched)
 
       appendActivity(logs, 'system', 'notificador_pago_recibido', {
-        monto: montoNum, titular: payment.nombrePagador,
+        monto: datos.monto, titular: datos.titular,
       })
 
       await Promise.all([saveHotState(hot), saveLogs(logs)])
 
-      return NextResponse.json({ success: true, mpPaymentId: paymentId })
+      // Se devuelve lo que el sistema interpretó del mensaje — les sirve para
+      // confirmar de su lado que el parseo de fecha/monto/titular fue correcto.
+      return NextResponse.json({
+        success: true,
+        mpPaymentId: paymentId,
+        interpretado: { fecha: datos.fechaISO, titular: datos.titular, monto: datos.monto },
+      })
     } finally {
       await releaseLock(LOCK_HOLDER)
     }
