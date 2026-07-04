@@ -19,6 +19,9 @@ function sinTildes(s: string): string {
   return s.normalize('NFD').replace(/[̀-ͯ]/g, '')
 }
 
+// Espejo de nameSimilarity en lib/auto-match.ts — deben mantenerse sincronizados.
+// Coincidencia por PREFIJO de 3 caracteres (no substring interno): "ian" ya no
+// matchea dentro de "Eliana"/"Viviana".
 function nameSim(a: string, b: string): number {
   if (!a || !b) return 0
   const na = sinTildes(a.toLowerCase().trim())
@@ -28,7 +31,7 @@ function nameSim(a: string, b: string): number {
   const wb = nb.split(/\s+/)
   const shorter = wa.length <= wb.length ? wa : wb
   const longer = wa.length <= wb.length ? wb : wa
-  const hits = shorter.filter(w => longer.some(l => l.includes(w) || w.includes(l)))
+  const hits = shorter.filter(w => longer.some(l => l.slice(0, 3) === w.slice(0, 3)))
   return shorter.length ? Math.round((hits.length / shorter.length) * 100) : 0
 }
 
@@ -368,7 +371,15 @@ export default function ManualMatchTab({
           }
           return { order: o, score: computeScore(u.payment, o, sameMontoCount), signals }
         })
-        .sort((a, b) => b.score - a.score)
+        // Priorizar candidatas con MÁS señales verdes; el score desempata. Así una
+        // orden sin ninguna verde (score alto por falsos parciales) nunca le gana el
+        // lugar a la orden con coincidencias reales.
+        .sort((a, b) => {
+          const ag = a.signals.filter(s => s.match).length
+          const bg = b.signals.filter(s => s.match).length
+          if (bg !== ag) return bg - ag
+          return b.score - a.score
+        })
       return { payment: u, id, ranked, skipCount }
     })
 

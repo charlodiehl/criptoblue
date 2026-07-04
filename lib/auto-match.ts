@@ -67,8 +67,9 @@ function sinTildes(s: string): string {
   return s.normalize('NFD').replace(/[̀-ͯ]/g, '')
 }
 
-// Mismo algoritmo que nameSim en ManualMatchTab.tsx — usa el array más corto como
-// denominador y substring matching, para que backend y frontend sean 100% consistentes.
+// Mismo algoritmo que nameSim en ManualMatchTab.tsx — deben mantenerse sincronizados.
+// Coincidencia de palabras por PREFIJO de 3 caracteres (NO substring interno): así
+// "ian" ya no matchea dentro de "Eliana"/"Viviana". Usa el array más corto como denominador.
 function nameSimilarity(a: string, b: string): number {
   if (!a || !b) return 0
   const na = sinTildes(a.toLowerCase().trim())
@@ -78,7 +79,7 @@ function nameSimilarity(a: string, b: string): number {
   const wb = nb.split(/\s+/)
   const shorter = wa.length <= wb.length ? wa : wb
   const longer  = wa.length <= wb.length ? wb : wa
-  const hits = shorter.filter(w => longer.some(l => l.includes(w) || w.includes(l)))
+  const hits = shorter.filter(w => longer.some(l => l.slice(0, 3) === w.slice(0, 3)))
   return shorter.length ? Math.round((hits.length / shorter.length) * 100) : 0
 }
 
