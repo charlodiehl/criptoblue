@@ -680,7 +680,13 @@ export default function Dashboard() {
   const matchedPaymentIds = useMemo(() => new Set([
     ...recentMatches.map(m => m.mpPaymentId).filter(Boolean) as string[],
     ...(stats?.externallyMarkedPayments ?? []),
-  ]), [recentMatches, stats?.externallyMarkedPayments])
+    // Pagos ya registrados en el log (auto/manual) — espejo de matchedOrderIds. Así un
+    // pago emparejado hace más de 24hs (fuera de recentMatches) igual figura como
+    // RECIBIDO en la pestaña Pagos, que muestra pagos macheados hasta 48hs.
+    ...logEntries
+      .filter(e => (e.action === 'manual_paid' || e.action === 'auto_paid') && e.mpPaymentId)
+      .map(e => e.mpPaymentId as string),
+  ]), [recentMatches, stats?.externallyMarkedPayments, logEntries])
 
   const matchedOrderIds = useMemo(() => new Set([
     ...recentMatches.filter(m => m.orderId && m.storeId).map(m => `${m.storeId}-${m.orderId}`),
