@@ -21,6 +21,7 @@ interface ManualState {
   isOtroMode: boolean               // true cuando se avanzó en modo texto libre
   loading: boolean
   confirmedDiff: boolean            // tildado por el operador para aceptar diferencia de monto
+  searchError: string | null        // error al consultar la tienda directo (buscar-orden)
 }
 
 interface Props {
@@ -52,6 +53,7 @@ export default function PaymentsListTab({
   const [manualState, setManualState] = useState<ManualState>({
     step: 'form', selectedStoreId: null, storeNameCustom: '', dropdownOpen: false,
     orderNumber: '', matchedOrder: null, isOtroMode: false, loading: false, confirmedDiff: false,
+    searchError: null,
   })
   const [search, setSearch] = useState('')
   const dropdownRef = useRef<HTMLDivElement>(null)
@@ -94,6 +96,7 @@ export default function PaymentsListTab({
     setManualState({
       step: 'form', selectedStoreId: null, storeNameCustom: '', dropdownOpen: false,
       orderNumber: '', matchedOrder: null, isOtroMode: false, loading: false, confirmedDiff: false,
+      searchError: null,
     })
   }
 
@@ -115,21 +118,43 @@ export default function PaymentsListTab({
     return stores.find(s => s.storeId === ms.selectedStoreId)?.storeName ?? ''
   }
 
-  const handleManualConfirmForm = () => {
+  const handleManualConfirmForm = async () => {
     const { orderNumber, selectedStoreId } = manualState
 
     // Modo "Otro": sin validación, ir directo a confirmación
     if (selectedStoreId === 'otro') {
-      setManualState(s => ({ ...s, step: 'confirm', matchedOrder: null, isOtroMode: true }))
+      setManualState(s => ({ ...s, step: 'confirm', matchedOrder: null, isOtroMode: true, searchError: null }))
       return
     }
 
-    // Tienda seleccionada: buscar solo en esa tienda
-    const found = selectedStoreId
+    // Tienda seleccionada: primero buscar en el cache local (rápido, sin API)
+    const cached = selectedStoreId
       ? orders.find(o => o.orderNumber === orderNumber && o.storeId === selectedStoreId) ?? null
       : orders.find(o => o.orderNumber === orderNumber) ?? null
 
-    setManualState(s => ({ ...s, step: 'confirm', matchedOrder: found, isOtroMode: false }))
+    if (cached || !selectedStoreId) {
+      setManualState(s => ({ ...s, step: 'confirm', matchedOrder: cached, isOtroMode: false, searchError: null }))
+      return
+    }
+
+    // No está en el cache (rolling 48hs): buscar directo en la tienda,
+    // sin restricción de antigüedad — encuentra órdenes de cualquier fecha.
+    setManualState(s => ({ ...s, loading: true, searchError: null }))
+    try {
+      const res = await fetch('/api/buscar-orden', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderNumber, storeId: selectedStoreId }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || data.error) {
+        setManualState(s => ({ ...s, step: 'confirm', matchedOrder: null, isOtroMode: false, loading: false, searchError: String(data.error || `Error ${res.status}`) }))
+        return
+      }
+      setManualState(s => ({ ...s, step: 'confirm', matchedOrder: data.order ?? null, isOtroMode: false, loading: false }))
+    } catch (err) {
+      setManualState(s => ({ ...s, step: 'confirm', matchedOrder: null, isOtroMode: false, loading: false, searchError: String(err) }))
+    }
   }
 
   const handleManualSubmit = async (mpPaymentId: string, withTN: boolean) => {
@@ -418,15 +443,15 @@ export default function PaymentsListTab({
                           placeholder="Nro de orden (ej: 67521)"
                           value={ms.orderNumber}
                           onChange={e => setManualState(s => ({ ...s, orderNumber: e.target.value }))}
-                          onKeyDown={e => { if (e.key === 'Enter' && puedeConfirmar(ms)) handleManualConfirmForm() }}
+                          onKeyDown={e => { if (e.key === 'Enter' && puedeConfirmar(ms) && !ms.loading) handleManualConfirmForm() }}
                         />
                       </div>
                       <div style={{ display: 'flex', gap: '6px', marginTop: '10px' }}>
                         <button
                           onClick={handleManualConfirmForm}
-                          disabled={!puedeConfirmar(ms)}
-                          style={{ fontSize: '11px', padding: '5px 12px', borderRadius: '7px', border: '1px solid rgba(0,212,255,0.3)', background: 'rgba(0,212,255,0.08)', color: 'rgba(0,212,255,0.8)', cursor: !puedeConfirmar(ms) ? 'not-allowed' : 'pointer', opacity: !puedeConfirmar(ms) ? 0.4 : 1 }}>
-                          Continuar →
+                          disabled={!puedeConfirmar(ms) || ms.loading}
+                          style={{ fontSize: '11px', padding: '5px 12px', borderRadius: '7px', border: '1px solid rgba(0,212,255,0.3)', background: 'rgba(0,212,255,0.08)', color: 'rgba(0,212,255,0.8)', cursor: (!puedeConfirmar(ms) || ms.loading) ? 'not-allowed' : 'pointer', opacity: (!puedeConfirmar(ms) || ms.loading) ? 0.4 : 1 }}>
+                          {ms.loading ? 'Buscando en la tienda...' : 'Continuar →'}
                         </button>
                         <button onClick={closeManual}
                           style={{ fontSize: '11px', padding: '5px 10px', borderRadius: '7px', border: '1px solid rgba(255,255,255,0.08)', background: 'transparent', color: 'rgba(148,163,184,0.4)', cursor: 'pointer' }}>
@@ -526,7 +551,9 @@ export default function PaymentsListTab({
                         /* Orden no encontrada en la tienda seleccionada */
                         <>
                           <p style={{ fontSize: '11px', color: 'rgba(255,180,0,0.7)', marginBottom: '6px' }}>
-                            ⚠ No se encontró ninguna orden con ese número en esa tienda
+                            {ms.searchError
+                              ? `⚠ Error al consultar la tienda: ${ms.searchError}`
+                              : '⚠ No se encontró ninguna orden con ese número en esa tienda'}
                           </p>
                           <p style={{ fontSize: '11px', color: 'rgba(148,163,184,0.5)', marginBottom: '10px' }}>
                             Se registrará el pago con los datos ingresados sin marcar nada en TiendaNube.
