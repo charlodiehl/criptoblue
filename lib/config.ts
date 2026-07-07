@@ -43,12 +43,15 @@ export const PAYMENT_SOURCE_NAMES: Record<string, string> = {
   // Los pagos que manda directo el sistema de "Notificador" (webhook a webhook)
   // son de la billetera "MS".
   notificador: 'MS',
+  // Los pagos de Montemar pay entran por email (Apps Script → webhook, igual que
+  // Fiwind) a la billetera "Montemar".
+  montemar: 'Montemar',
 }
 
 // Billeteras disponibles para asignarle a una tienda (desplegable al conectar).
 // Para agregar una billetera nueva: sumarla acá y mapear sus fuentes de pago en
 // PAYMENT_SOURCE_TO_WALLET.
-export const WALLETS = ['MF', 'Lacar', 'MS'] as const
+export const WALLETS = ['MF', 'Lacar', 'MS', 'Montemar'] as const
 
 // Mapeo de fuente de pago (payment.source) → billetera a la que pertenece.
 // Usado para acotar el emparejamiento: un pago solo busca candidatas entre
@@ -58,13 +61,14 @@ export const PAYMENT_SOURCE_TO_WALLET: Record<string, string> = {
   fiwind: 'MF',
   lacar: 'Lacar',
   notificador: 'MS',
+  montemar: 'Montemar',
 }
 
 // Billeteras cuyos pagos sin emparejar NUNCA vencen: no se purgan de la cola ni
 // desaparecen de la vista por antigüedad (ignoran el rolling de 48hs), mientras
 // sigan sin emparejar y sin marcar "No es de tiendas". Al emparejarse o marcarse,
 // vuelven al comportamiento normal de expiración a las 48hs.
-export const WALLETS_SIN_VENCIMIENTO: readonly string[] = ['MF', 'Lacar', 'MS']
+export const WALLETS_SIN_VENCIMIENTO: readonly string[] = ['MF', 'Lacar', 'MS', 'Montemar']
 
 export const CONFIG = {
   tiendanube: {
