@@ -4,8 +4,14 @@
  * Lee los emails de notificación de Fiwind que llegan a la casilla Gmail,
  * extrae los datos de la transferencia y los envía al webhook de CriptoBlue.
  *
- * Corre dentro de Google Apps Script (script.google.com) con la cuenta
- * comprobantespagosblue@gmail.com. Se dispara con un trigger por tiempo.
+ * Corre dentro de Google Apps Script (script.google.com). Se dispara con un
+ * trigger por tiempo (cada 5 minutos).
+ *
+ * DEDUP POR MENSAJE (no por hilo): Gmail agrupa emails parecidos en un mismo
+ * hilo. Si etiquetábamos el hilo entero como "procesado", un email nuevo que
+ * caía en un hilo ya etiquetado quedaba excluido de la búsqueda y NUNCA se
+ * procesaba. Ahora se lleva un registro de los IDs de MENSAJE ya enviados en
+ * ScriptProperties, y se evalúa cada mensaje por separado.
  *
  * INSTALACIÓN: ver README.md de esta carpeta.
  * ────────────────────────────────────────────────────────────────────────────
@@ -15,55 +21,94 @@ const CONFIG = {
   // URL del endpoint de CriptoBlue (producción).
   WEBHOOK_URL: 'https://criptoblue.vercel.app/api/fiwind/webhook',
 
-  // Secreto compartido. DEBE coincidir con la env var FIWIND_WEBHOOK_SECRET
-  // configurada en Vercel. Cambiar por el valor real antes de usar.
+  // ⚠️⚠️ PEGÁ ACÁ TU SECRETO REAL ⚠️⚠️  (el mismo valor que FIWIND_WEBHOOK_SECRET en Vercel).
+  //   Lo tenés en tu Apps Script ACTUAL (esta misma línea, antes de reemplazar el código),
+  //   o en Vercel → Settings → Environment Variables → FIWIND_WEBHOOK_SECRET.
   WEBHOOK_SECRET: 'CAMBIAR_POR_EL_SECRETO',
 
-  // Query de Gmail para encontrar los emails de Fiwind sin procesar.
-  // El reenvío conserva el remitente original no-reply@fiwind.io (igual que en
-  // los emails anteriores), así que filtramos directo por "from".
-  SEARCH_QUERY: 'from:no-reply@fiwind.io -label:fiwind-procesado',
+  // Búsqueda: emails de Fiwind de los últimos N días. NO se filtra por etiqueta —
+  // el dedup es por ID de mensaje (ver abajo). La ventana acota el volumen.
+  SEARCH_QUERY: 'from:no-reply@fiwind.io newer_than:3d',
 
-  // Etiqueta que se aplica a cada hilo ya enviado, para no repetirlo.
+  // ── Etiquetas (CUSTOMIZABLES: cambiá los nombres a gusto) ─────────────────
+  // Se aplica a los emails ya enviados a la app, para que lleves el seguimiento.
+  // Es una etiqueta de HILO (Gmail no permite etiquetar mensajes sueltos), pero
+  // el dedup real es por ID de mensaje, así que la etiqueta es solo informativa.
   LABEL_PROCESADO: 'fiwind-procesado',
-
-  // Etiqueta opcional para hilos que matchearon pero no se pudieron parsear.
+  // Se aplica a los emails que no se pudieron parsear/enviar (revisión manual).
   LABEL_REVISAR: 'fiwind-revisar',
 
-  // Máximo de hilos por corrida (evita timeouts en lotes grandes).
-  MAX_THREADS: 25,
+  // Máximo de hilos por corrida (evita timeouts). Se procesan del más nuevo al más viejo.
+  MAX_THREADS: 80,
+
+  // Clave en ScriptProperties donde se guardan los IDs de mensaje ya enviados.
+  PROP_KEY: 'fiwind_msgids_enviados',
+  // Cuántos IDs conservar (poda). Debe cubrir de sobra la ventana de búsqueda.
+  MAX_IDS_GUARDADOS: 1500,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Función principal — la que dispara el trigger.
 // ─────────────────────────────────────────────────────────────────────────────
 function procesarEmailsFiwind() {
-  const labelOk = obtenerOCrearLabel(CONFIG.LABEL_PROCESADO)
+  const props = PropertiesService.getScriptProperties()
+  const enviados = new Set(leerIdsEnviados(props))
+  const labelProcesado = obtenerOCrearLabel(CONFIG.LABEL_PROCESADO)
   const labelRevisar = obtenerOCrearLabel(CONFIG.LABEL_REVISAR)
 
   const threads = GmailApp.search(CONFIG.SEARCH_QUERY, 0, CONFIG.MAX_THREADS)
-  Logger.log('Hilos encontrados: ' + threads.length)
+  Logger.log('Hilos encontrados: ' + threads.length + ' | ya enviados en registro: ' + enviados.size)
 
+  let nuevos = 0
   for (const thread of threads) {
-    let algunoEnviado = false
-    let algunoFallo = false
-
     for (const msg of thread.getMessages()) {
+      const msgId = msg.getId()
+      // Dedup por MENSAJE: si este email ya se envió, lo salteamos sin importar el hilo.
+      if (enviados.has(msgId)) continue
+
       // Fiwind manda los datos en una tabla HTML; el texto plano los pierde.
-      // Por eso leemos el HTML (getBody) y lo pasamos a texto antes de parsear.
       const datos = parsearEmail(htmlAVexto(msg.getBody()))
-      if (!datos) { algunoFallo = true; continue }
+      if (!datos) {
+        // No es depósito o no parseó → a revisar. NO se marca como enviado
+        // (por si es un depósito real que hay que corregir a mano).
+        try { thread.addLabel(labelRevisar) } catch (e) {}
+        continue
+      }
 
       const ok = enviarAlWebhook(datos, msg)
-      if (ok) algunoEnviado = true
-      else algunoFallo = true
+      if (ok) {
+        enviados.add(msgId)
+        // Etiqueta de seguimiento (informativa; el dedup real es por ID de mensaje).
+        try { thread.addLabel(labelProcesado) } catch (e) {}
+        nuevos++
+      } else {
+        // Fallo (webhook rechazó/cayó) → a revisar y NO se marca (reintenta la próxima corrida).
+        try { thread.addLabel(labelRevisar) } catch (e) {}
+      }
     }
-
-    // Si al menos uno se envió bien, marcamos el hilo como procesado.
-    if (algunoEnviado) thread.addLabel(labelOk)
-    // Si algo falló (no parseó o el webhook rechazó), lo dejamos para revisar.
-    else if (algunoFallo) thread.addLabel(labelRevisar)
   }
+
+  guardarIdsEnviados(props, enviados)
+  Logger.log('Mensajes NUEVOS enviados al webhook: ' + nuevos)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Persistencia de IDs de mensaje ya enviados (ScriptProperties)
+// ─────────────────────────────────────────────────────────────────────────────
+function leerIdsEnviados(props) {
+  try {
+    const raw = props.getProperty(CONFIG.PROP_KEY)
+    return raw ? JSON.parse(raw) : []
+  } catch (e) {
+    return []
+  }
+}
+
+function guardarIdsEnviados(props, set) {
+  let arr = Array.from(set)
+  // Conservar los más recientes (se agregan al final) si supera el máximo.
+  if (arr.length > CONFIG.MAX_IDS_GUARDADOS) arr = arr.slice(arr.length - CONFIG.MAX_IDS_GUARDADOS)
+  props.setProperty(CONFIG.PROP_KEY, JSON.stringify(arr))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -73,7 +118,7 @@ function parsearEmail(body) {
   if (!body) return null
 
   // Solo procesamos DEPÓSITOS (pagos entrantes). Los retiros/envíos ("Enviaste")
-  // se descartan acá → el hilo queda en 'fiwind-revisar' para revisión manual.
+  // se descartan acá → el hilo queda en 'fiwind-revisar'.
   const operacion = extraerCampo(body, 'Operación')
   if (!/dep[oó]sito/i.test(operacion)) return null
 
@@ -186,8 +231,21 @@ function crearTrigger() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Utilidad: reprocesar un email puntual aunque ya figure como enviado.
+// Pegá el ID de mensaje (o el idCoelsa) y ejecutá a mano si hace falta forzar
+// el reenvío de uno específico. Para el ID de mensaje: abrí el email → ⋮ →
+// "Mostrar original" → Message-ID; o usá _diagnosticarUltimo.
+// ─────────────────────────────────────────────────────────────────────────────
+function _forzarReenvioPorMsgId(msgId) {
+  const props = PropertiesService.getScriptProperties()
+  const enviados = new Set(leerIdsEnviados(props))
+  enviados.delete(msgId)
+  guardarIdsEnviados(props, enviados)
+  Logger.log('Sacado del registro (se reenviará en la próxima corrida): ' + msgId)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Prueba local del parser con el email de ejemplo (no envía nada).
-// Ejecutar a mano y mirar Ver → Registros.
 // ─────────────────────────────────────────────────────────────────────────────
 function _probarParser() {
   const ejemplo = [
@@ -204,15 +262,11 @@ function _probarParser() {
 
   const datos = parsearEmail(ejemplo)
   Logger.log(JSON.stringify(datos, null, 2))
-  // Esperado: monto=116977.51, fechaISO=2026-01-24T14:36:00-03:00,
-  // nombre="ROMINA FACCIO", cbuCvu=0340..., banco="Banco Patagonia",
-  // idCoelsa=76V4MR2Z7D7PG8K9NDEZOL
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Diagnóstico: toma el último email de Fiwind, muestra su cuerpo real, el
-// resultado del parseo y la respuesta del webhook. Para depurar cuando un email
-// queda en 'fiwind-revisar'. Ejecutar a mano y mirar el Registro de ejecución.
+// parseo y la respuesta del webhook. Ejecutar a mano y mirar el Registro.
 // ─────────────────────────────────────────────────────────────────────────────
 function _diagnosticarUltimo() {
   const threads = GmailApp.search('from:no-reply@fiwind.io', 0, 1)
@@ -221,7 +275,7 @@ function _diagnosticarUltimo() {
   Logger.log('Mensajes en el hilo: ' + msgs.length)
   for (let i = 0; i < msgs.length; i++) {
     const body = htmlAVexto(msgs[i].getBody())
-    Logger.log('===== MSG ' + (i + 1) + ' | from: ' + msgs[i].getFrom() + ' =====')
+    Logger.log('===== MSG ' + (i + 1) + ' | id: ' + msgs[i].getId() + ' | from: ' + msgs[i].getFrom() + ' =====')
     Logger.log('TEXTO LIMPIO (1200 chars):\n' + body.slice(0, 1200))
     const datos = parsearEmail(body)
     Logger.log('PARSEO: ' + JSON.stringify(datos))
