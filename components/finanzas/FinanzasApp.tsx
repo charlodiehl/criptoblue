@@ -3,7 +3,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ARS } from '@/lib/utils'
 import TiendaPortal from '@/components/tienda/TiendaPortal'
 import AdminGeneralTab from './AdminGeneralTab'
 
@@ -143,7 +142,10 @@ export default function FinanzasApp({ userEmail }: { userEmail?: string }) {
                   <span className="text-xl font-black" style={{ color: '#00d4ff' }}>{fmtUsdt(c.usdt)}</span>
                   <span className="text-[10px] font-bold" style={{ color: 'rgba(0,212,255,0.6)' }}>USDT</span>
                 </div>
-                <div className="text-sm font-bold mt-0.5" style={{ color: '#00ff88' }}>{ARS.format(c.ars)}</div>
+                <div className="flex items-baseline gap-1 mt-0.5">
+                  <span className="text-sm font-bold" style={{ color: '#00ff88' }}>{Math.round(c.ars).toLocaleString('es-AR')}</span>
+                  <span className="text-[10px] font-bold" style={{ color: 'rgba(0,255,136,0.6)' }}>ARS</span>
+                </div>
                 {c.pendientes > 0 && <div className="text-[10px] mt-1" style={{ color: '#fbbf24' }}>{c.pendientes} sin cotización</div>}
               </button>
             ))
