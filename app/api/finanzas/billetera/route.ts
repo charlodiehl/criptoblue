@@ -1,0 +1,27 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { requireUser } from '@/lib/auth/server'
+import { getIngresosBilletera, getBilleterasOcultas } from '@/lib/billeteras'
+import { WALLETS } from '@/lib/config'
+
+// GET /api/finanzas/billetera?wallet=MS → total + extracto de pagos ingresados. Admin-only.
+export async function GET(req: NextRequest) {
+  try {
+    const auth = await requireUser('admin')
+    if ('error' in auth) return auth.error
+
+    const wallet = (req.nextUrl.searchParams.get('wallet') || '').trim()
+    if (!wallet || !(WALLETS as readonly string[]).includes(wallet)) {
+      return NextResponse.json({ error: 'Billetera inválida' }, { status: 400 })
+    }
+
+    const ocultas = await getBilleterasOcultas()
+    if (ocultas.includes(wallet)) {
+      return NextResponse.json({ error: 'Billetera no disponible' }, { status: 404 })
+    }
+
+    const detalle = await getIngresosBilletera(wallet)
+    return NextResponse.json(detalle)
+  } catch (err) {
+    return NextResponse.json({ error: String(err) }, { status: 500 })
+  }
+}

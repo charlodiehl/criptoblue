@@ -5,16 +5,20 @@ import Link from 'next/link'
 import { motion, AnimatePresence } from 'framer-motion'
 import TiendaPortal from '@/components/tienda/TiendaPortal'
 import AdminGeneralTab from './AdminGeneralTab'
+import BilleteraTab from './BilleteraTab'
+import { ARS } from '@/lib/utils'
 
 export type Toast = { id: number; msg: string; type: 'success' | 'error' | 'info' }
 export interface BalanceCard { storeId: string; storeName: string; ars: number; usdt: number; pendientes: number }
+export interface BilleteraItem { wallet: string; totalArs: number; cantidad: number }
 
 const fmtUsdt = (n: number) => n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
 export default function FinanzasApp({ userEmail }: { userEmail?: string }) {
   const [cards, setCards] = useState<BalanceCard[]>([])
+  const [billeteras, setBilleteras] = useState<BilleteraItem[]>([])
   const [loadingCards, setLoadingCards] = useState(true)
-  const [active, setActive] = useState<'general' | string>('general')  // 'general' o storeId
+  const [active, setActive] = useState<'general' | string>('general')  // 'general' | storeId | 'bill:<wallet>'
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [toasts, setToasts] = useState<Toast[]>([])
   const toastId = useRef(0)
@@ -39,12 +43,23 @@ export default function FinanzasApp({ userEmail }: { userEmail?: string }) {
     }
   }, [notify])
 
+  // Ingresos por billetera (solo para el menú lateral — no van en las tarjetas de arriba)
+  const fetchBilleteras = useCallback(async () => {
+    try {
+      const res = await fetch('/api/finanzas/billeteras')
+      if (!res.ok) return
+      const data = await res.json()
+      setBilleteras(data.billeteras || [])
+    } catch { /* silencioso: el menú de billeteras es secundario */ }
+  }, [])
+
   // Carga inicial + refresco cada 60s (los balances cambian al pagar solicitudes / emparejar)
   useEffect(() => {
     fetchBalances()
-    const iv = setInterval(fetchBalances, 60_000)
+    fetchBilleteras()
+    const iv = setInterval(() => { fetchBalances(); fetchBilleteras() }, 60_000)
     return () => clearInterval(iv)
-  }, [fetchBalances])
+  }, [fetchBalances, fetchBilleteras])
 
   useEffect(() => {
     if (!userMenuOpen) return
@@ -160,6 +175,28 @@ export default function FinanzasApp({ userEmail }: { userEmail?: string }) {
             {cards.map(c => (
               <SideItem key={c.storeId} label={c.storeName} active={active === c.storeId} onClick={() => setActive(c.storeId)} />
             ))}
+            {billeteras.length > 0 && (
+              <>
+                <div className="text-[10px] uppercase tracking-widest px-3 pt-3 pb-1" style={{ color: 'rgba(148,163,184,0.4)' }}>Billeteras</div>
+                {billeteras.map(b => {
+                  const key = `bill:${b.wallet}`
+                  const isActive = active === key
+                  return (
+                    <button key={key} onClick={() => setActive(key)}
+                      className="w-full text-left rounded-xl px-3 py-2.5 transition-all"
+                      style={{
+                        background: isActive ? 'rgba(0,212,255,0.12)' : 'transparent',
+                        border: `1px solid ${isActive ? 'rgba(0,212,255,0.35)' : 'transparent'}`,
+                      }}>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm font-medium truncate" style={{ color: isActive ? '#00d4ff' : 'rgba(148,163,184,0.8)' }}>{b.wallet}</span>
+                        <span className="text-xs font-bold whitespace-nowrap" style={{ color: '#00ff88' }}>{ARS.format(b.totalArs)}</span>
+                      </div>
+                    </button>
+                  )
+                })}
+              </>
+            )}
           </aside>
 
           <main className="flex-1 min-w-0">
@@ -167,6 +204,8 @@ export default function FinanzasApp({ userEmail }: { userEmail?: string }) {
               <motion.div key={active} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.18 }}>
                 {active === 'general' ? (
                   <AdminGeneralTab notify={notify} onSolicitudPagada={fetchBalances} />
+                ) : active.startsWith('bill:') ? (
+                  <BilleteraTab wallet={active.slice(5)} notify={notify} />
                 ) : activeStore ? (
                   <div className="space-y-4">
                     <h2 className="text-lg font-bold" style={{ color: '#00d4ff' }}>{activeStore.storeName}</h2>
