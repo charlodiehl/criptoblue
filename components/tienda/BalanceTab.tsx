@@ -30,7 +30,7 @@ function hoyART(): string {
 
 // Fecha de corte del balance (debe coincidir con BALANCE_CUTOFF de lib/config.ts):
 // el saldo y esta tabla solo cuentan órdenes desde acá. El server es el que manda.
-const CUTOFF_DATE = '2026-07-07'
+const CUTOFF_DATE = '2026-07-08'
 
 const fmtUsdt = (n: number) => n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 

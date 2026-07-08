@@ -19,8 +19,8 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
   auth: { persistSession: false },
 })
 
-// Debe coincidir con BALANCE_CUTOFF de lib/config.ts (7/7/2026 00:00 ART)
-const CUTOFF = '2026-07-07T03:00:00Z'
+// Debe coincidir con BALANCE_CUTOFF de lib/config.ts (8/7/2026 00:00 ART)
+const CUTOFF = '2026-07-08T03:00:00Z'
 const MARGEN_VENTA = 0.0075
 const PAGE = 1000
 const dry = process.argv.includes('--dry')
