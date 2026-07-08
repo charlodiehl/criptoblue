@@ -1,0 +1,91 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { requireUser } from '@/lib/auth/server'
+import { getSolicitudById, marcarPagada } from '@/lib/transferencias'
+import { calcularDescuento, registrarEgresoTransferencia } from '@/lib/balance'
+import { getStores, loadLogs, saveLogs, appendError, appendActivity } from '@/lib/storage'
+import { audit } from '@/lib/audit'
+import type { DescuentoMoneda } from '@/lib/types'
+
+const MONEDAS: DescuentoMoneda[] = ['USDT', 'USD', 'ARS', 'USD_BILLETE', 'ARS_BILLETE']
+
+// POST /api/finanzas/pagar-solicitud
+//   { id, moneda, monto, tasas: {cotizacionUsdtArs?, tasaUsdtArs?, tasaUsdArs?, tasaUsdUsdt?}, comprobantePath? }
+//
+// El admin confirma el pago de una solicitud: calcula el descuento (calcularDescuento
+// exige las tasas obligatorias según la moneda), marca la solicitud pagada y descuenta
+// el saldo de la tienda en ARS y USDT.
+//
+// Orden a prueba de doble-pago: marcarPagada es un CLAIM condicional (solo si sigue
+// pendiente). Si otro admin ya la pagó → 409 y no se descuenta. El egreso de balance
+// es best-effort: si falla, la solicitud queda pagada con su descuento guardado y el
+// movimiento se reconstruye desde ahí (no se bloquea la operación).
+export async function POST(req: NextRequest) {
+  try {
+    const auth = await requireUser('admin')
+    if ('error' in auth) return auth.error
+
+    const body = await req.json().catch(() => null)
+    if (!body || typeof body !== 'object') {
+      return NextResponse.json({ error: 'JSON inválido' }, { status: 400 })
+    }
+    const { id, moneda, monto, tasas, comprobantePath } = body
+
+    if (!Number.isFinite(Number(id))) return NextResponse.json({ error: 'id inválido' }, { status: 400 })
+    if (!MONEDAS.includes(moneda)) return NextResponse.json({ error: 'Moneda de descuento inválida' }, { status: 400 })
+
+    const solicitud = await getSolicitudById(Number(id))
+    if (!solicitud) return NextResponse.json({ error: 'Solicitud no encontrada' }, { status: 404 })
+    if (solicitud.estado !== 'pendiente') {
+      return NextResponse.json({ error: 'Esa solicitud ya fue pagada' }, { status: 409 })
+    }
+
+    // Calcular el descuento (valida tasas obligatorias según moneda)
+    let descuento
+    try {
+      descuento = calcularDescuento(moneda, Number(monto), tasas ?? {})
+    } catch (e) {
+      return NextResponse.json({ error: e instanceof Error ? e.message : 'Tasas inválidas' }, { status: 400 })
+    }
+
+    // Claim condicional: solo la paga si sigue pendiente
+    const claimed = await marcarPagada(solicitud.id, auth.user.email, descuento, comprobantePath ?? null)
+    if (!claimed) {
+      return NextResponse.json({ error: 'Esa solicitud ya fue pagada por otra persona' }, { status: 409 })
+    }
+
+    const stores = await getStores()
+    const storeName = stores[solicitud.storeId]?.storeName ?? solicitud.storeId
+
+    // Egreso de balance — best-effort (reconstruible desde solicitud.descuento)
+    try {
+      await registrarEgresoTransferencia(solicitud.id, solicitud.storeId, descuento, `Transferencia ${solicitud.tipo.toUpperCase()} · solicitud #${solicitud.id}`)
+    } catch (err) {
+      const logs = await loadLogs()
+      appendError(logs, 'finanzas', 'error',
+        `Solicitud #${solicitud.id} marcada pagada pero NO se pudo descontar el saldo de ${storeName}. Reconstruir desde el descuento guardado.`,
+        { transferId: solicitud.id, storeId: solicitud.storeId, error: String(err) })
+      await saveLogs(logs)
+    }
+
+    // Actividad (informativo)
+    try {
+      const logs = await loadLogs()
+      appendActivity(logs, 'human', 'solicitud_pagada', {
+        transferId: solicitud.id, storeName, moneda, monto: Number(monto),
+        arsDescontado: descuento.arsDescontado, usdtDescontado: descuento.usdtDescontado, pagadoPor: auth.user.email,
+      })
+      await saveLogs(logs)
+    } catch { /* no bloquear por el log de actividad */ }
+
+    audit({
+      category: 'user_action', action: 'finanzas.solicitud_pagada', result: 'success', actor: 'human',
+      component: 'api/finanzas/pagar-solicitud', storeId: solicitud.storeId, storeName,
+      amount: descuento.arsDescontado,
+      message: `Solicitud #${solicitud.id} (${solicitud.tipo}) pagada por ${auth.user.email} — descontó ${descuento.arsDescontado} ARS / ${descuento.usdtDescontado} USDT`,
+    })
+
+    return NextResponse.json({ success: true, descuento })
+  } catch (err) {
+    return NextResponse.json({ error: String(err) }, { status: 500 })
+  }
+}

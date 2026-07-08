@@ -48,7 +48,9 @@ export interface LogEntry {
   // 'emparejamiento' → tarjeta 1 (Pagos emparejados)
   // 'manual_pagos'   → tarjeta 2 (Marcados manualmente) — desde pestaña Pagos/Sin coincidencia
   // 'manual_ordenes' → tarjeta 2 (Marcados manualmente) — desde pestaña Órdenes
-  source?: 'emparejamiento' | 'manual_pagos' | 'manual_ordenes'
+  // 'tienda_buscar'  → tarjeta 1 (cuenta como emparejado) — pago reclamado por una
+  //                    tienda desde su portal (Buscar pagos → Reclamar)
+  source?: 'emparejamiento' | 'manual_pagos' | 'manual_ordenes' | 'tienda_buscar'
   // Quién disparó el match:
   // 'cron'          → el cron automático de Vercel
   // 'manual_button' → botón ⚡ tocado por un humano
@@ -164,6 +166,77 @@ export interface ErrorEntry {
   // `resolved` (que indica si el problema se solucionó y controla la limpieza a 7 días).
   // El badge de la campana cuenta los errores con seen !== true.
   seen?: boolean
+}
+
+// ─── Portal de tiendas / Administración financiera ─────────────────────────
+
+// Usuario de la app (tabla app_users, carga manual con scripts/agregar-usuario.mjs)
+export interface AppUser {
+  email: string                  // lowercase — es la PK
+  role: 'admin' | 'tienda'
+  storeId?: string | null        // obligatorio para role='tienda'
+  displayName?: string | null
+}
+
+export type TransferTipo = 'ars' | 'usd' | 'usdt'
+export type TransferEstado = 'pendiente' | 'pagada'
+
+// Moneda con la que el admin descuenta el saldo al pagar una solicitud
+export type DescuentoMoneda = 'USDT' | 'USD' | 'ARS' | 'USD_BILLETE' | 'ARS_BILLETE'
+
+// Descuento aplicado al pagar una solicitud (tasas obligatorias según moneda —
+// ver calcularDescuento en lib/balance.ts, única fuente del cálculo)
+export interface TransferDescuento {
+  moneda: DescuentoMoneda
+  monto: number                  // en la moneda retirada
+  cotizacionUsdtArs?: number     // requerida para ARS / ARS_BILLETE
+  tasaUsdtArs?: number           // requerida para USDT
+  tasaUsdArs?: number            // requerida para USD / USD_BILLETE
+  tasaUsdUsdt?: number           // requerida para USD / USD_BILLETE
+  arsDescontado: number          // resultado (positivo; el movimiento lo guarda en negativo)
+  usdtDescontado: number
+}
+
+// Solicitud de transferencia de una tienda (tabla transfer_requests)
+export interface TransferRequest {
+  id: number
+  storeId: string
+  tipo: TransferTipo
+  estado: TransferEstado
+  // Campos del formulario según tipo:
+  //  ars:  { cbu, montoArs, nombreBeneficiario?, cuitBeneficiario? }
+  //  usd:  { numeroCuenta, montoUsd, nombreCompleto, domicilio }
+  //  usdt: { wallet, blockchain, montoUsdt }
+  datos: Record<string, string | number>
+  createdBy: string              // email
+  createdAt: string
+  paidAt?: string | null
+  paidBy?: string | null
+  comprobantePath?: string | null // path en el bucket 'comprobantes'
+  descuento?: TransferDescuento | null
+}
+
+// Movimiento del libro mayor de balance por tienda (tabla balance_movements)
+export interface BalanceMovement {
+  id: number
+  storeId: string
+  tipo: 'ingreso_orden' | 'egreso_transferencia' | 'ajuste'
+  fecha: string
+  ars: number                    // SIGNADO: ingresos +, egresos −
+  usdt: number | null            // SIGNADO; null = cotización pendiente
+  usdtRate: number | null
+  rateSource: 'api' | 'manual' | 'pendiente'
+  refRegistroId?: number | null
+  refTransferId?: number | null
+  descripcion?: string | null
+}
+
+// Balance agregado de una tienda
+export interface StoreBalance {
+  storeId: string
+  ars: number
+  usdt: number
+  pendientes: number             // movimientos sin cotización (el saldo USDT es parcial)
 }
 
 // ─── Audit Log ──────────────────────────────────────────────────────────────

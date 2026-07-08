@@ -3,6 +3,10 @@
     {
       "path": "/api/run",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/cotizaciones",
+      "schedule": "*/10 * * * *"
     }
   ]
 }

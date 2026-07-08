@@ -10,14 +10,6 @@ import { paymentWalletId } from './utils'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-// Un pago solo puede emparejar con órdenes de su misma billetera. Si el pago o
-// la orden no tienen billetera asignada (comodín), no se restringe — evita que
-// una tienda sin billetera migrada quede excluida de todo emparejamiento.
-function isWalletCompatible(paymentWallet: string | null, orderWallet?: string): boolean {
-  if (!paymentWallet || !orderWallet) return true
-  return paymentWallet === orderWallet
-}
-
 function extractDniDigits(s: string): string {
   const d = s.replace(/\D/g, '')
   return d.length === 11 ? d.slice(2, 10) : d
@@ -70,7 +62,8 @@ function sinTildes(s: string): string {
 // Mismo algoritmo que nameSim en ManualMatchTab.tsx — deben mantenerse sincronizados.
 // Coincidencia de palabras por PREFIJO de 3 caracteres (NO substring interno): así
 // "ian" ya no matchea dentro de "Eliana"/"Viviana". Usa el array más corto como denominador.
-function nameSimilarity(a: string, b: string): number {
+// Exportada: también la usa /api/tienda/buscar-pago (criterio verde = >= 70).
+export function nameSimilarity(a: string, b: string): number {
   if (!a || !b) return 0
   const na = sinTildes(a.toLowerCase().trim())
   const nb = sinTildes(b.toLowerCase().trim())
@@ -248,11 +241,10 @@ export function findAutoMatchCandidates(
     const payTime = u.payment.fechaPago ? new Date(u.payment.fechaPago).getTime() : null
     const windowStart = (payTime ?? Date.now()) - SAMEMONTO_WINDOW_MS
 
-    // Acotar el universo a tiendas de la misma billetera que el pago — reduce
-    // ambigüedad falsa (menos "otras órdenes mismo monto" de tiendas que ni
-    // siquiera podrían haber recibido este pago).
+    // Sin restricción por billetera: cualquier pago puede emparejar con la orden
+    // de cualquier tienda. (paymentWallet se conserva solo para el diagnóstico.)
     const paymentWallet = paymentWalletId(u.payment.source)
-    const ordersForWallet = orders.filter(o => isWalletCompatible(paymentWallet, o.walletId))
+    const ordersForWallet = orders
 
     const ordersInWindow = ordersForWallet.filter(o =>
       Math.abs(o.total - u.payment.monto) <= 10 &&

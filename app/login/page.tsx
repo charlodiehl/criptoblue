@@ -1,32 +1,33 @@
 'use client'
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useEffect, useState, Suspense } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { motion } from 'framer-motion'
+import { createSupabaseBrowser } from '@/lib/auth/client'
 
-export default function LoginPage() {
-  const router = useRouter()
-  const [username, setUsername] = useState('')
-  const [password, setPassword] = useState('')
-  const [error, setError] = useState('')
+// Login con Google (Supabase Auth). El acceso real lo deciden app_users + 2FA:
+//  - email sin rol → /login?blocked=1 (pantalla de bloqueo, nada más)
+//  - email con rol → /auth/mfa (enrolar o verificar el 2FA) → app según rol
+function LoginInner() {
+  const params = useSearchParams()
+  const blocked = params.get('blocked') === '1'
+  const oauthError = params.get('error') === 'oauth'
   const [loading, setLoading] = useState(false)
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
+  // Si llegó bloqueado con una sesión colgada (p. ej. rol quitado después de
+  // loguearse), cerrarla en silencio para que el próximo intento arranque limpio.
+  useEffect(() => {
+    if (blocked) createSupabaseBrowser().auth.signOut()
+  }, [blocked])
+
+  async function handleGoogle() {
     setLoading(true)
-    setError('')
-    const res = await fetch('/api/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password }),
+    const supabase = createSupabaseBrowser()
+    await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: `${window.location.origin}/auth/callback` },
     })
-    if (res.ok) {
-      router.push('/')
-      router.refresh()
-    } else {
-      setError('Usuario o contraseña incorrectos')
-      setLoading(false)
-    }
+    // Redirige a Google — no hace falta resetear loading.
   }
 
   return (
@@ -63,92 +64,80 @@ export default function LoginPage() {
         </div>
 
         {/* Card */}
-        <motion.form
-          onSubmit={handleSubmit}
+        <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.2, duration: 0.5 }}
-          className="space-y-4 p-8 rounded-2xl relative"
+          className="p-8 rounded-2xl relative"
           style={{
             background: 'linear-gradient(135deg, #0d1117, #111827)',
             border: '1px solid rgba(0,212,255,0.15)',
             boxShadow: '0 0 40px rgba(0,212,255,0.08), inset 0 1px 0 rgba(255,255,255,0.05)',
           }}
         >
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-widest mb-2" style={{ color: 'rgba(0,212,255,0.7)' }}>
-              Usuario
-            </label>
-            <input
-              type="text"
-              value={username}
-              onChange={e => setUsername(e.target.value)}
-              required
-              autoComplete="username"
-              className="w-full rounded-xl px-4 py-3 text-sm text-white placeholder-gray-600 outline-none transition-all"
-              style={{
-                background: 'rgba(255,255,255,0.04)',
-                border: '1px solid rgba(0,212,255,0.15)',
-              }}
-              onFocus={e => e.currentTarget.style.borderColor = 'rgba(0,212,255,0.5)'}
-              onBlur={e => e.currentTarget.style.borderColor = 'rgba(0,212,255,0.15)'}
-              placeholder="Tu usuario"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-widest mb-2" style={{ color: 'rgba(0,212,255,0.7)' }}>
-              Contraseña
-            </label>
-            <input
-              type="password"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              required
-              autoComplete="current-password"
-              className="w-full rounded-xl px-4 py-3 text-sm text-white placeholder-gray-600 outline-none transition-all"
-              style={{
-                background: 'rgba(255,255,255,0.04)',
-                border: '1px solid rgba(0,212,255,0.15)',
-              }}
-              onFocus={e => e.currentTarget.style.borderColor = 'rgba(0,212,255,0.5)'}
-              onBlur={e => e.currentTarget.style.borderColor = 'rgba(0,212,255,0.15)'}
-              placeholder="••••••••"
-            />
-          </div>
-
-          {error && (
-            <motion.p
-              initial={{ opacity: 0, y: -8 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="text-xs text-center py-2 px-3 rounded-lg"
-              style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', color: '#f87171' }}
-            >
-              {error}
-            </motion.p>
+          {blocked ? (
+            <div className="text-center space-y-3 py-2">
+              <div className="text-4xl">🚫</div>
+              <p className="text-sm font-semibold text-white">No tenés permiso para acceder</p>
+              <p className="text-xs" style={{ color: 'rgba(226,232,240,0.55)' }}>
+                Comunicate con un administrador.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {oauthError && (
+                <p className="text-xs text-center py-2 px-3 rounded-lg"
+                  style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', color: '#f87171' }}>
+                  Hubo un problema con el ingreso. Probá de nuevo.
+                </p>
+              )}
+              <motion.button
+                onClick={handleGoogle}
+                disabled={loading}
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                className="w-full py-3 rounded-xl text-sm font-bold transition-all flex items-center justify-center gap-3"
+                style={{
+                  background: loading ? 'rgba(255,255,255,0.06)' : '#ffffff',
+                  color: loading ? 'rgba(226,232,240,0.5)' : '#1f2937',
+                  cursor: loading ? 'not-allowed' : 'pointer',
+                  boxShadow: loading ? 'none' : '0 0 20px rgba(0,212,255,0.25)',
+                }}
+              >
+                {loading ? (
+                  <>
+                    <span className="w-4 h-4 rounded-full border-2 border-cyan-400 border-t-transparent animate-spin" />
+                    Redirigiendo...
+                  </>
+                ) : (
+                  <>
+                    {/* Logo Google */}
+                    <svg width="18" height="18" viewBox="0 0 48 48">
+                      <path fill="#FFC107" d="M43.6 20.1H42V20H24v8h11.3c-1.6 4.7-6.1 8-11.3 8-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3l5.7-5.7C34 5.1 29.3 3 24 3 12.4 3 3 12.4 3 24s9.4 21 21 21 21-9.4 21-21c0-1.3-.1-2.6-.4-3.9z"/>
+                      <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.9 1.2 8 3l5.7-5.7C34 5.1 29.3 3 24 3 15.9 3 8.9 7.6 6.3 14.7z"/>
+                      <path fill="#4CAF50" d="M24 45c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 36.2 26.7 37 24 37c-5.2 0-9.6-3.3-11.3-8l-6.5 5C8.9 40.4 15.9 45 24 45z"/>
+                      <path fill="#1976D2" d="M43.6 20.1H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C41.4 34.9 45 30 45 24c0-1.3-.1-2.6-.4-3.9z"/>
+                    </svg>
+                    Continuar con Google
+                  </>
+                )}
+              </motion.button>
+              <p className="text-[11px] text-center" style={{ color: 'rgba(226,232,240,0.4)' }}>
+                Solo cuentas autorizadas. Se requiere verificación en dos pasos.
+              </p>
+            </div>
           )}
-
-          <motion.button
-            type="submit"
-            disabled={loading}
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            className="w-full py-3 rounded-xl text-sm font-bold text-white transition-all mt-2"
-            style={{
-              background: loading ? 'rgba(0,212,255,0.1)' : 'linear-gradient(135deg, #00d4ff, #0070f3)',
-              boxShadow: loading ? 'none' : '0 0 20px rgba(0,212,255,0.3)',
-              cursor: loading ? 'not-allowed' : 'pointer',
-            }}
-          >
-            {loading ? (
-              <span className="flex items-center justify-center gap-2">
-                <span className="w-4 h-4 rounded-full border-2 border-cyan-400 border-t-transparent animate-spin" />
-                Ingresando...
-              </span>
-            ) : 'Ingresar'}
-          </motion.button>
-        </motion.form>
+        </motion.div>
       </motion.div>
     </div>
+  )
+}
+
+export default function LoginPage() {
+  // useSearchParams exige Suspense en Next con prerender estático.
+  return (
+    <Suspense fallback={null}>
+      <LoginInner />
+    </Suspense>
   )
 }

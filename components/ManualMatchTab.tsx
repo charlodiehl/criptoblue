@@ -2,15 +2,8 @@
 
 import { useState, useMemo, useEffect } from 'react'
 import type { UnmatchedPayment, Order } from '@/lib/types'
-import { ARS, fmtDate, billeteraLabel, paymentWalletId } from '@/lib/utils'
+import { ARS, fmtDate, billeteraLabel } from '@/lib/utils'
 import { SAMEMONTO_WINDOW_HOURS } from '@/lib/config'
-
-// Espejo de isWalletCompatible en lib/auto-match.ts — deben mantenerse sincronizados
-function isWalletCompatible(paymentWallet: string | null, orderWallet?: string): boolean {
-  if (!paymentWallet || !orderWallet) return true
-  return paymentWallet === orderWallet
-}
-
 
 
 // Quita tildes/diacríticos para comparar "Maria" y "María" como iguales.
@@ -329,10 +322,9 @@ export default function ManualMatchTab({
       const payTime = u.payment.fechaPago ? new Date(u.payment.fechaPago).getTime() : null
       const windowStart = (payTime ?? Date.now()) - SAMEMONTO_WINDOW_HOURS * 60 * 60 * 1000
 
-      // Acotar el universo a tiendas de la misma billetera que el pago — mismo
-      // criterio que el auto-match del servidor (lib/auto-match.ts).
-      const paymentWallet = paymentWalletId(u.payment.source)
-      const ordersForWallet = orders.filter(o => isWalletCompatible(paymentWallet, o.walletId))
+      // Sin restricción por billetera: cualquier pago puede emparejar con la orden
+      // de cualquier tienda (mismo criterio que el auto-match del servidor).
+      const ordersForWallet = orders
 
       const totalSameMonto = ordersForWallet.filter(x =>
         Math.abs(x.total - u.payment.monto) <= 10 &&

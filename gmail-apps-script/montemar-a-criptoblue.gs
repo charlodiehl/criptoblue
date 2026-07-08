@@ -222,6 +222,26 @@ function crearTrigger() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Utilidad: "sellar" TODOS los emails de Montemar actuales como ya enviados, SIN
+// postearlos. Ejecutar UNA sola vez ANTES de crearTrigger si querés arrancar "de
+// ahora en adelante": el script ignora los pagos que ya están en la casilla y
+// solo carga los que lleguen a partir de este momento.
+// ─────────────────────────────────────────────────────────────────────────────
+function _sellarActualesSinEnviar() {
+  const props = PropertiesService.getScriptProperties()
+  const enviados = new Set(leerIdsEnviados(props))
+  const threads = GmailApp.search(CONFIG.SEARCH_QUERY, 0, CONFIG.MAX_THREADS)
+  let n = 0
+  for (const thread of threads) {
+    for (const msg of thread.getMessages()) {
+      if (!enviados.has(msg.getId())) { enviados.add(msg.getId()); n++ }
+    }
+  }
+  guardarIdsEnviados(props, enviados)
+  Logger.log('Sellados como ya enviados (NO se postearon): ' + n + '. Desde ahora solo se cargan los emails nuevos.')
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Utilidad: reprocesar un email puntual aunque ya figure como enviado.
 // ─────────────────────────────────────────────────────────────────────────────
 function _forzarReenvioPorMsgId(msgId) {

@@ -7,6 +7,12 @@ export const HARD_CUTOFF_PAYMENTS = new Date('2026-03-28T00:00:00.000Z')
 // Órdenes: igual que pagos — 27/03/2026 21:00 ART → 00:00 UTC 28/03
 export const HARD_CUTOFF_ORDERS = new Date('2026-03-28T00:00:00.000Z')
 
+// Fecha de corte del BALANCE por tienda: solo las órdenes registradas desde este
+// momento generan movimiento de ingreso (balance_movements). Lo anterior se
+// representa con el saldo inicial por tienda (scripts/cargar-saldo-inicial.mjs).
+// 7/7/2026 00:00 ART.
+export const BALANCE_CUTOFF = new Date('2026-07-07T00:00:00-03:00')
+
 // ─── Ventanas de tiempo (centralizadas para evitar desincronización) ──────────
 
 // Ventana de detección de "monto duplicado": cuántas horas antes del pago

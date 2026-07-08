@@ -5,6 +5,8 @@
 // ─────────────────────────────────────────────────────────────
 import type { LogEntry, Payment, Order } from './types'
 import { getClient } from './storage'
+import { registrarIngresoOrden } from './balance'
+import { BALANCE_CUTOFF } from './config'
 
 const TABLE = 'registro_log'
 
@@ -72,16 +74,35 @@ function rowToEntry(r: Row): LogEntry {
 export async function appendRegistroEntry(entry: LogEntry): Promise<void> {
   const supabase = getClient()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { error } = await (supabase.from(TABLE) as any).insert(entryToRow(entry))
+  const { data, error } = await (supabase.from(TABLE) as any).insert(entryToRow(entry)).select('id').single()
   if (error) throw new Error(`appendRegistroEntry falló: ${error.message} [${error.code}]`)
+  await registrarIngresoBestEffort(data?.id ?? null, entry)
 }
 
 export async function appendRegistroEntries(entries: LogEntry[]): Promise<void> {
   if (!entries.length) return
   const supabase = getClient()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { error } = await (supabase.from(TABLE) as any).insert(entries.map(entryToRow))
+  const { data, error } = await (supabase.from(TABLE) as any).insert(entries.map(entryToRow)).select('id')
   if (error) throw new Error(`appendRegistroEntries falló: ${error.message} [${error.code}]`)
+  // PostgREST devuelve las filas insertadas en el orden de entrada → data[i] ↔ entries[i]
+  for (let i = 0; i < entries.length; i++) {
+    await registrarIngresoBestEffort(data?.[i]?.id ?? null, entries[i])
+  }
+}
+
+// Hook de balance: cada orden registrada como pagada (auto o manual) genera su
+// movimiento de ingreso en balance_movements. BEST-EFFORT a propósito: un fallo
+// acá NUNCA debe impedir que el pago quede asentado en el registro (fuente de
+// verdad). Un ingreso faltante se detecta y reconstruye por ref_registro_id.
+async function registrarIngresoBestEffort(registroId: number | null, entry: LogEntry): Promise<void> {
+  if (entry.action !== 'auto_paid' && entry.action !== 'manual_paid') return
+  if (!entry.storeId) return
+  try {
+    await registrarIngresoOrden(registroId, entry)
+  } catch (err) {
+    console.error('[balance] no se pudo registrar el ingreso del movimiento:', err)
+  }
 }
 
 // ─────────────────────────────────────────────
@@ -380,6 +401,55 @@ export async function findRegistroByStoreSince(storeId: string, sinceMs: number)
     .gte('ts', cutoff)
   if (error) throw new Error(`findRegistroByStoreSince falló: ${error.message} [${error.code}]`)
   return (data ?? []).map(rowToEntry)
+}
+
+// Órdenes pagadas de una tienda en un día ART ('YYYY-MM-DD'), con el id de la fila
+// para poder cruzar con balance_movements (ref_registro_id). Usada por el portal
+// de tienda (pestaña Balance). Argentina es UTC-3 fijo.
+export async function queryRegistroByStoreDay(
+  storeId: string, diaART: string,
+): Promise<Array<{ registroId: number; entry: LogEntry }>> {
+  const supabase = getClient()
+  const diaDesde = new Date(`${diaART}T00:00:00-03:00`).getTime()
+  const hasta = new Date(diaDesde + 24 * 60 * 60 * 1000).toISOString()
+  // Límite inferior efectivo: nunca antes del corte del balance (coherente con el
+  // saldo, que solo cuenta órdenes desde BALANCE_CUTOFF).
+  const desde = new Date(Math.max(diaDesde, BALANCE_CUTOFF.getTime())).toISOString()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (supabase.from(TABLE) as any)
+    .select('*')
+    .eq('store_id', storeId)
+    .eq('hidden', false)
+    .in('action', ['manual_paid', 'auto_paid'])
+    .gte('ts', desde)
+    .lt('ts', hasta)
+    .order('ts', { ascending: false })
+  if (error) throw new Error(`queryRegistroByStoreDay falló: ${error.message} [${error.code}]`)
+  return (data ?? []).map((r: Row) => ({ registroId: r.id as number, entry: rowToEntry(r) }))
+}
+
+// Reclamos de pagos hechos por tiendas (source='tienda_buscar') en una ventana.
+// Alimenta el feed informativo de Administración General (solo lectura).
+export async function getReclamosRecientes(
+  sinceMs: number,
+): Promise<Array<{ timestamp: string; storeId: string; storeName: string; amount: number; orderNumber: string }>> {
+  const supabase = getClient()
+  const cutoff = new Date(sinceMs).toISOString()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (supabase.from(TABLE) as any)
+    .select('ts, store_id, store_name, amount, order_number')
+    .eq('source', 'tienda_buscar')
+    .eq('hidden', false)
+    .gte('ts', cutoff)
+    .order('ts', { ascending: false })
+  if (error) throw new Error(`getReclamosRecientes falló: ${error.message} [${error.code}]`)
+  return (data ?? []).map((r: Row) => ({
+    timestamp: r.ts,
+    storeId: r.store_id ?? '',
+    storeName: r.store_name ?? '',
+    amount: Number(r.amount) || 0,
+    orderNumber: r.order_number ?? '',
+  }))
 }
 
 // ─────────────────────────────────────────────
