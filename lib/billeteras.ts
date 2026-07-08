@@ -39,9 +39,11 @@ export interface PagoBilletera {
 
 export interface DetalleBilletera {
   wallet: string
-  totalArs: number
+  totalArs: number          // acumulado desde el corte (no cambia al elegir un día)
   cantidad: number
-  pagos: PagoBilletera[]
+  totalDia?: number         // subtotal del día seleccionado (si se pidió un día)
+  cantidadDia?: number
+  pagos: PagoBilletera[]    // del día seleccionado, o todos si no se pidió día
 }
 
 interface Ingreso {
@@ -179,9 +181,10 @@ export async function getIngresosBilleteras(): Promise<IngresoBilletera[]> {
     .sort((a, b) => a.wallet.localeCompare(b.wallet))
 }
 
-// Detalle de una billetera: total + extracto de los pagos que ingresaron desde el
-// corte (emparejados + en cola), ordenados por fecha de ingreso descendente.
-export async function getIngresosBilletera(wallet: string): Promise<DetalleBilletera> {
+// Detalle de una billetera: total acumulado desde el corte + extracto de pagos.
+// Si se pasa diaART ('YYYY-MM-DD'), el extracto se acota a ese día (ART) y se
+// devuelve además el subtotal del día. El total acumulado no cambia por el día.
+export async function getIngresosBilletera(wallet: string, diaART?: string): Promise<DetalleBilletera> {
   const labels = sourceLabelsDeBilletera(wallet)
   if (labels.length === 0) return { wallet, totalArs: 0, cantidad: 0, pagos: [] }
   const labelSet = new Set(labels)
@@ -192,15 +195,34 @@ export async function getIngresosBilletera(wallet: string): Promise<DetalleBille
     ...ingresosEnColaDesdeCorte(hot, labelSet),
   ]
 
+  // Total acumulado desde el corte (todos los días).
   let totalArs = 0
   for (const m of ingresos) totalArs += m.monto
-  ingresos.sort((a, b) => (new Date(b.fecha).getTime() || 0) - (new Date(a.fecha).getTime() || 0))
+
+  // Filtro por día (ART) para el extracto.
+  let visibles = ingresos
+  let totalDia: number | undefined
+  let cantidadDia: number | undefined
+  if (diaART && /^\d{4}-\d{2}-\d{2}$/.test(diaART)) {
+    const desde = new Date(`${diaART}T00:00:00-03:00`).getTime()
+    const hasta = desde + 24 * 60 * 60 * 1000
+    visibles = ingresos.filter(m => {
+      const t = new Date(m.fecha).getTime() || 0
+      return t >= desde && t < hasta
+    })
+    totalDia = visibles.reduce((s, m) => s + m.monto, 0)
+    cantidadDia = visibles.length
+  }
+
+  visibles.sort((a, b) => (new Date(b.fecha).getTime() || 0) - (new Date(a.fecha).getTime() || 0))
 
   return {
     wallet,
     totalArs,
     cantidad: ingresos.length,
-    pagos: ingresos.slice(0, EXTRACTO_LIMIT).map(m => ({
+    totalDia,
+    cantidadDia,
+    pagos: visibles.slice(0, EXTRACTO_LIMIT).map(m => ({
       fecha: m.fecha,
       titular: m.titular,
       monto: m.monto,

@@ -3,7 +3,8 @@ import { requireUser } from '@/lib/auth/server'
 import { getIngresosBilletera, getBilleterasOcultas } from '@/lib/billeteras'
 import { WALLETS } from '@/lib/config'
 
-// GET /api/finanzas/billetera?wallet=MS → total + extracto de pagos ingresados. Admin-only.
+// GET /api/finanzas/billetera?wallet=MS[&fecha=YYYY-MM-DD] → total + extracto (del
+// día si se pasa fecha). Admin-only.
 export async function GET(req: NextRequest) {
   try {
     const auth = await requireUser('admin')
@@ -19,7 +20,8 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Billetera no disponible' }, { status: 404 })
     }
 
-    const detalle = await getIngresosBilletera(wallet)
+    const fecha = req.nextUrl.searchParams.get('fecha') || undefined
+    const detalle = await getIngresosBilletera(wallet, fecha)
     return NextResponse.json(detalle)
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 })
