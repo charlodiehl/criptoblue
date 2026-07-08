@@ -9,6 +9,7 @@ import OrdersListTab from '@/components/OrdersListTab'
 import PaymentsListTab from '@/components/PaymentsListTab'
 import RegistroTab from '@/components/RegistroTab'
 import { useRealtimeSync } from '@/hooks/useRealtimeSync'
+import NotificacionesToggle from '@/components/pwa/NotificacionesToggle'
 import type { Order, UnmatchedPayment, Store, LogEntry, Payment, RecentMatch, ErrorEntry } from '@/lib/types'
 import { HARD_CUTOFF_PAYMENTS, HARD_CUTOFF_ORDERS, WALLETS_SIN_VENCIMIENTO } from '@/lib/config'
 import { paymentWalletId } from '@/lib/utils'
@@ -813,11 +814,11 @@ export default function Dashboard() {
       <header className="sticky top-0 z-40 backdrop-blur-xl"
         style={{ borderBottom: '1px solid rgba(0,212,255,0.08)', background: 'rgba(6,11,20,0.9)' }}>
         <div
-          className="mx-auto max-w-[1400px] px-6 py-3 items-center gap-4"
+          className="mx-auto max-w-[1400px] px-3 sm:px-6 py-3 items-center gap-2 sm:gap-4"
           style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr' }}
         >
           {/* LEFT: User avatar + auto-match buttons */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
           <div ref={userMenuRef} className="relative flex items-center">
             <button
               onClick={() => setUserMenuOpen(v => !v)}
@@ -835,7 +836,7 @@ export default function Dashboard() {
             </button>
             {userMenuOpen && (
               <div
-                className="absolute left-0 mt-2 w-40 rounded-xl overflow-hidden z-50"
+                className="absolute left-0 mt-2 w-56 max-w-[calc(100vw-1.5rem)] rounded-xl overflow-hidden z-50"
                 style={{
                   top: '100%',
                   background: 'linear-gradient(135deg, #0d1117, #111827)',
@@ -843,6 +844,7 @@ export default function Dashboard() {
                   boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
                 }}
               >
+                <NotificacionesToggle />
                 <button
                   onClick={handleLogout}
                   className="w-full text-left px-4 py-3 text-sm transition-all flex items-center gap-2"
@@ -934,31 +936,33 @@ export default function Dashboard() {
           {/* Administración Financiera (a esta pantalla solo llega un admin) */}
           <Link
             href="/finanzas"
-            className="flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-medium transition-all"
+            className="flex items-center gap-2 rounded-xl px-3 sm:px-4 py-2.5 text-xs font-medium transition-all shrink-0"
             style={{ background: 'rgba(0,212,255,0.08)', border: '1px solid rgba(0,212,255,0.25)', color: '#00d4ff', textDecoration: 'none', whiteSpace: 'nowrap' }}
+            title="Administración Financiera"
           >
-            💰 Administración Financiera
+            💰 <span className="hidden lg:inline">Administración Financiera</span>
           </Link>
           </div>
 
           {/* CENTER: Logo + subtitle */}
-          <div className="flex flex-col items-center gap-1.5">
+          <div className="flex flex-col items-center gap-1.5 min-w-0">
             <img
               src="/logo.png"
               alt="CriptoBlue"
-              className="h-20 w-20 rounded-full object-cover"
+              className="h-12 w-12 sm:h-20 sm:w-20 rounded-full object-cover"
               style={{ boxShadow: '0 0 24px rgba(0,212,255,0.5), 0 0 48px rgba(0,212,255,0.15)' }}
             />
             <span
-              className="text-xs font-semibold whitespace-nowrap"
-              style={{ color: 'rgba(0,212,255,0.8)', letterSpacing: '0.18em', textTransform: 'uppercase', textShadow: '0 0 12px rgba(0,212,255,0.4)' }}
+              className="text-[9px] sm:text-xs font-semibold whitespace-nowrap"
+              style={{ color: 'rgba(0,212,255,0.8)', letterSpacing: '0.12em', textTransform: 'uppercase', textShadow: '0 0 12px rgba(0,212,255,0.4)' }}
             >
               Automatización de Procesos
             </span>
           </div>
 
           {/* RIGHT: Sync info + Actualizar + Tiendas dropdown */}
-          <div className="flex items-center justify-end gap-2">
+          <div className="flex items-center justify-end gap-1.5 sm:gap-2 min-w-0">
+            <div className="hidden md:flex items-center">
             {isRefreshing || stats?.currentPhase === 'syncing' ? (
               <span style={{ fontSize: '11px', color: '#00d4ff', whiteSpace: 'nowrap', opacity: 0.85, display: 'flex', alignItems: 'center', gap: '5px' }}>
                 <span style={{ display: 'inline-block', animation: 'spin 1s linear infinite' }}>⟳</span> Actualizando...
@@ -972,22 +976,23 @@ export default function Dashboard() {
                 Última actualización: {new Date(stats.lastMPCheck).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'America/Argentina/Buenos_Aires' })}
               </span>
             ) : null}
+            </div>
             <button
               onClick={handleReevaluar}
               disabled={actionLoading}
-              className="flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-medium transition-all disabled:opacity-50"
+              className="flex items-center gap-2 rounded-xl px-3 sm:px-4 py-2.5 text-xs font-medium transition-all disabled:opacity-50 shrink-0"
               style={{
                 background: 'rgba(0,212,255,0.08)',
                 border: '1px solid rgba(0,212,255,0.25)',
                 color: '#00d4ff',
               }}
             >
-              {actionLoading ? '...' : '↻ Actualizar'}
+              {actionLoading ? '...' : <>↻<span className="hidden sm:inline">&nbsp;Actualizar</span></>}
             </button>
-            <div ref={storesMenuRef} className="relative">
+            <div ref={storesMenuRef} className="relative shrink-0">
               <button
                 onClick={() => { setStoresOpen(v => !v); if (!storesOpen) fetchStores() }}
-                className="flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-medium transition-all"
+                className="flex items-center gap-2 rounded-xl px-3 sm:px-4 py-2.5 text-xs font-medium transition-all"
                 style={{
                   background: storesOpen ? 'rgba(0,212,255,0.08)' : 'rgba(255,255,255,0.04)',
                   border: '1px solid rgba(0,212,255,0.2)',
@@ -995,7 +1000,7 @@ export default function Dashboard() {
                   boxShadow: storesOpen ? '0 0 16px rgba(0,212,255,0.1)' : 'none',
                 }}
               >
-                🏪 Tiendas
+                🏪 <span className="hidden sm:inline">Tiendas</span>
                 <span style={{ color: 'rgba(0,212,255,0.5)', fontSize: '10px', marginLeft: '2px' }}>
                   {storesOpen ? '▲' : '▼'}
                 </span>
@@ -1003,7 +1008,7 @@ export default function Dashboard() {
 
               {storesOpen && (
                 <div
-                  className="absolute right-0 mt-2 w-64 rounded-xl overflow-hidden z-50"
+                  className="absolute right-0 mt-2 w-64 max-w-[calc(100vw-1.5rem)] rounded-xl overflow-hidden z-50"
                   style={{
                     background: 'linear-gradient(135deg, #0d1117, #111827)',
                     border: '1px solid rgba(0,212,255,0.15)',
@@ -1077,7 +1082,7 @@ export default function Dashboard() {
         </div>
       </header>
 
-      <main className="relative mx-auto max-w-[1400px] px-6 py-6 space-y-6">
+      <main className="relative mx-auto max-w-[1400px] px-3 sm:px-6 py-6 space-y-6">
         <StatsBar stats={stats} />
 
         {/* Tabs */}

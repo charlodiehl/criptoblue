@@ -20,7 +20,10 @@ const CRON_ROUTES = new Set(['/api/run', '/api/auto-match-run', '/api/reevaluar'
 
 // Rutas públicas (no requieren auth de sesión)
 function isPublicRoute(pathname: string): boolean {
-  return pathname.startsWith('/login')
+  return pathname === '/manifest.json'
+    || pathname === '/sw.js'
+    || pathname.startsWith('/icons/')
+    || pathname.startsWith('/login')
     || pathname.startsWith('/auth/callback')
     || pathname.startsWith('/auth/mfa')
     || pathname.startsWith('/auth/redirect')
@@ -107,5 +110,5 @@ export async function proxy(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|jpeg|gif|webp|svg|ico|woff|woff2|ttf|otf)$).*)'],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|manifest.json|sw.js|icons/|.*\\.(?:png|jpg|jpeg|gif|webp|svg|ico|woff|woff2|ttf|otf)$).*)'],
 }

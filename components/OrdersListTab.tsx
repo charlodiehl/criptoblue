@@ -475,7 +475,7 @@ export default function OrdersListTab({ orders, stores, matchedIds, duplicateMap
           </p>
         </div>
       ) : (
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '10px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(280px, 100%), 1fr))', gap: '10px' }}>
         {pageItems.map(o => {
           const key = `${o.storeId}-${o.orderId}`
           const matched = matchedIds?.has(key)

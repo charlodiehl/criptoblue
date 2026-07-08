@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import BalanceTab from './BalanceTab'
 import SolicitarTab from './SolicitarTab'
 import BuscarPagosTab from './BuscarPagosTab'
+import NotificacionesToggle from '@/components/pwa/NotificacionesToggle'
 
 export type Toast = { id: number; msg: string; type: 'success' | 'error' | 'info' }
 
@@ -111,7 +112,7 @@ export default function TiendaPortal({ storeId, storeName, userEmail, admin = fa
       {/* Header (grid 3 columnas, igual estética que la app principal) */}
       <header className="sticky top-0 z-40 backdrop-blur-xl"
         style={{ borderBottom: '1px solid rgba(0,212,255,0.08)', background: 'rgba(6,11,20,0.9)' }}>
-        <div className="mx-auto max-w-[1400px] px-6 py-3 items-center gap-4"
+        <div className="mx-auto max-w-[1400px] px-4 sm:px-6 py-3 items-center gap-2 sm:gap-4"
           style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr' }}>
           {/* LEFT: usuario */}
           <div className="flex items-center gap-2">
@@ -130,7 +131,7 @@ export default function TiendaPortal({ storeId, storeName, userEmail, admin = fa
                 </svg>
               </button>
               {userMenuOpen && (
-                <div className="absolute left-0 mt-2 w-56 rounded-xl overflow-hidden z-50"
+                <div className="absolute left-0 mt-2 w-56 max-w-[calc(100vw-1.5rem)] rounded-xl overflow-hidden z-50"
                   style={{ top: '100%', background: 'linear-gradient(135deg, #0d1117, #111827)', border: '1px solid rgba(0,212,255,0.15)', boxShadow: '0 8px 32px rgba(0,0,0,0.5)' }}>
                   {userEmail && (
                     <div className="px-4 py-3 text-xs" style={{ color: 'rgba(148,163,184,0.7)', borderBottom: '1px solid rgba(148,163,184,0.08)' }}>
@@ -138,6 +139,7 @@ export default function TiendaPortal({ storeId, storeName, userEmail, admin = fa
                       <div className="truncate" style={{ color: 'rgba(226,232,240,0.9)' }}>{userEmail}</div>
                     </div>
                   )}
+                  <NotificacionesToggle />
                   <button
                     onClick={handleLogout}
                     className="w-full text-left px-4 py-3 text-sm transition-all flex items-center gap-2"
@@ -153,27 +155,27 @@ export default function TiendaPortal({ storeId, storeName, userEmail, admin = fa
           </div>
 
           {/* CENTER: logo */}
-          <div className="flex flex-col items-center gap-1.5">
+          <div className="flex flex-col items-center gap-1.5 min-w-0">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/logo.png" alt="CriptoBlue" className="h-16 w-16 rounded-full object-cover"
+            <img src="/logo.png" alt="CriptoBlue" className="h-11 w-11 sm:h-16 sm:w-16 rounded-full object-cover"
               style={{ boxShadow: '0 0 24px rgba(0,212,255,0.5), 0 0 48px rgba(0,212,255,0.15)' }} />
-            <span className="text-xs font-semibold whitespace-nowrap"
-              style={{ color: 'rgba(0,212,255,0.8)', letterSpacing: '0.18em', textTransform: 'uppercase', textShadow: '0 0 12px rgba(0,212,255,0.4)' }}>
+            <span className="text-[9px] sm:text-xs font-semibold whitespace-nowrap"
+              style={{ color: 'rgba(0,212,255,0.8)', letterSpacing: '0.12em', textTransform: 'uppercase', textShadow: '0 0 12px rgba(0,212,255,0.4)' }}>
               Automatización de Procesos
             </span>
           </div>
 
           {/* RIGHT: nombre de la tienda */}
-          <div className="flex items-center justify-end gap-2">
-            <div className="text-right">
+          <div className="flex items-center justify-end gap-2 min-w-0">
+            <div className="text-right min-w-0">
               <div className="text-[10px] uppercase tracking-widest" style={{ color: 'rgba(148,163,184,0.5)' }}>Tienda</div>
-              <div className="text-sm font-bold" style={{ color: '#00d4ff', textShadow: '0 0 12px rgba(0,212,255,0.3)' }}>{storeName}</div>
+              <div className="text-xs sm:text-sm font-bold truncate" style={{ color: '#00d4ff', textShadow: '0 0 12px rgba(0,212,255,0.3)' }}>{storeName}</div>
             </div>
           </div>
         </div>
       </header>
 
-      <main className="mx-auto max-w-[1400px] px-6 py-6 space-y-5">
+      <main className="mx-auto max-w-[1400px] px-4 sm:px-6 py-6 space-y-5">
         {tabBar}
         {content}
       </main>

@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import TiendaPortal from '@/components/tienda/TiendaPortal'
 import AdminGeneralTab from './AdminGeneralTab'
 import BilleteraTab from './BilleteraTab'
+import NotificacionesToggle from '@/components/pwa/NotificacionesToggle'
 import { ARS } from '@/lib/utils'
 
 export type Toast = { id: number; msg: string; type: 'success' | 'error' | 'info' }
@@ -82,7 +83,7 @@ export default function FinanzasApp({ userEmail }: { userEmail?: string }) {
       {/* Header */}
       <header className="sticky top-0 z-40 backdrop-blur-xl"
         style={{ borderBottom: '1px solid rgba(0,212,255,0.08)', background: 'rgba(6,11,20,0.9)' }}>
-        <div className="mx-auto max-w-[1600px] px-6 py-3 items-center gap-4"
+        <div className="mx-auto max-w-[1600px] px-4 sm:px-6 py-3 items-center gap-3 sm:gap-4"
           style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr' }}>
           {/* LEFT: usuario */}
           <div className="flex items-center gap-2">
@@ -97,7 +98,7 @@ export default function FinanzasApp({ userEmail }: { userEmail?: string }) {
                 </svg>
               </button>
               {userMenuOpen && (
-                <div className="absolute left-0 mt-2 w-56 rounded-xl overflow-hidden z-50"
+                <div className="absolute left-0 mt-2 w-56 max-w-[calc(100vw-1.5rem)] rounded-xl overflow-hidden z-50"
                   style={{ top: '100%', background: 'linear-gradient(135deg, #0d1117, #111827)', border: '1px solid rgba(0,212,255,0.15)', boxShadow: '0 8px 32px rgba(0,0,0,0.5)' }}>
                   {userEmail && (
                     <div className="px-4 py-3 text-xs" style={{ color: 'rgba(148,163,184,0.7)', borderBottom: '1px solid rgba(148,163,184,0.08)' }}>
@@ -105,6 +106,7 @@ export default function FinanzasApp({ userEmail }: { userEmail?: string }) {
                       <div className="truncate" style={{ color: 'rgba(226,232,240,0.9)' }}>{userEmail}</div>
                     </div>
                   )}
+                  <NotificacionesToggle />
                   <button onClick={handleLogout} className="w-full text-left px-4 py-3 text-sm transition-all flex items-center gap-2" style={{ color: '#f87171' }}
                     onMouseEnter={e => (e.currentTarget.style.background = 'rgba(248,113,113,0.07)')}
                     onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
@@ -116,27 +118,27 @@ export default function FinanzasApp({ userEmail }: { userEmail?: string }) {
           </div>
 
           {/* CENTER: logo + título de sección */}
-          <div className="flex flex-col items-center gap-1">
+          <div className="flex flex-col items-center gap-1 min-w-0">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/logo.png" alt="CriptoBlue" className="h-14 w-14 rounded-full object-cover"
+            <img src="/logo.png" alt="CriptoBlue" className="h-11 w-11 sm:h-14 sm:w-14 rounded-full object-cover"
               style={{ boxShadow: '0 0 24px rgba(0,212,255,0.5)' }} />
-            <span className="text-xs font-semibold whitespace-nowrap"
-              style={{ color: 'rgba(0,212,255,0.85)', letterSpacing: '0.16em', textTransform: 'uppercase', textShadow: '0 0 12px rgba(0,212,255,0.4)' }}>
-              Administración Financiera
+            <span className="text-[10px] sm:text-xs font-semibold whitespace-nowrap"
+              style={{ color: 'rgba(0,212,255,0.85)', letterSpacing: '0.12em', textTransform: 'uppercase', textShadow: '0 0 12px rgba(0,212,255,0.4)' }}>
+              Adm. Financiera
             </span>
           </div>
 
           {/* RIGHT: volver a la gestión de órdenes */}
           <div className="flex items-center justify-end">
-            <Link href="/" className="flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-medium transition-all"
+            <Link href="/" className="flex items-center gap-2 rounded-xl px-3 sm:px-4 py-2.5 text-xs font-medium transition-all whitespace-nowrap"
               style={{ background: 'rgba(0,212,255,0.08)', border: '1px solid rgba(0,212,255,0.25)', color: '#00d4ff' }}>
-              ← Gestión de órdenes
+              ← <span className="hidden sm:inline">Gestión de órdenes</span><span className="sm:hidden">Órdenes</span>
             </Link>
           </div>
         </div>
       </header>
 
-      <div className="mx-auto max-w-[1600px] px-6 py-5">
+      <div className="mx-auto max-w-[1600px] px-4 sm:px-6 py-5">
         {/* Franja de tarjetas de balance por tienda */}
         <div className="flex flex-wrap gap-3 mb-5">
           {loadingCards ? (
@@ -146,7 +148,7 @@ export default function FinanzasApp({ userEmail }: { userEmail?: string }) {
           ) : (
             cards.map(c => (
               <button key={c.storeId} onClick={() => setActive(c.storeId)}
-                className="rounded-2xl p-4 text-left transition-all min-w-[190px] flex-1"
+                className="rounded-2xl p-4 text-left transition-all min-w-[150px] flex-1"
                 style={{
                   background: 'linear-gradient(135deg, #0d1117, #111827)',
                   border: `1px solid ${active === c.storeId ? 'rgba(0,212,255,0.5)' : 'rgba(0,212,255,0.14)'}`,
@@ -167,29 +169,29 @@ export default function FinanzasApp({ userEmail }: { userEmail?: string }) {
           )}
         </div>
 
-        {/* Menú lateral + panel */}
-        <div className="flex gap-5 items-start">
-          <aside className="shrink-0 w-56 space-y-1.5">
+        {/* Menú lateral + panel. En móvil el menú es una fila horizontal scrolleable. */}
+        <div className="flex flex-col md:flex-row gap-4 md:gap-5 items-stretch md:items-start">
+          <aside className="w-full md:w-56 md:shrink-0 flex md:block gap-1.5 md:space-y-1.5 overflow-x-auto md:overflow-visible pb-1 md:pb-0">
             <SideItem label="Administración general" active={active === 'general'} onClick={() => setActive('general')} />
-            <div className="text-[10px] uppercase tracking-widest px-3 pt-3 pb-1" style={{ color: 'rgba(148,163,184,0.4)' }}>Tiendas</div>
+            <div className="text-[10px] uppercase tracking-widest px-3 pt-3 pb-1 shrink-0 self-center md:self-auto whitespace-nowrap" style={{ color: 'rgba(148,163,184,0.4)' }}>Tiendas</div>
             {cards.map(c => (
               <SideItem key={c.storeId} label={c.storeName} active={active === c.storeId} onClick={() => setActive(c.storeId)} />
             ))}
             {billeteras.length > 0 && (
               <>
-                <div className="text-[10px] uppercase tracking-widest px-3 pt-3 pb-1" style={{ color: 'rgba(148,163,184,0.4)' }}>Billeteras</div>
+                <div className="text-[10px] uppercase tracking-widest px-3 pt-3 pb-1 shrink-0 self-center md:self-auto whitespace-nowrap" style={{ color: 'rgba(148,163,184,0.4)' }}>Billeteras</div>
                 {billeteras.map(b => {
                   const key = `bill:${b.wallet}`
                   const isActive = active === key
                   return (
                     <button key={key} onClick={() => setActive(key)}
-                      className="w-full text-left rounded-xl px-3 py-2.5 transition-all"
+                      className="w-auto md:w-full shrink-0 text-left rounded-xl px-3 py-2.5 transition-all"
                       style={{
                         background: isActive ? 'rgba(0,212,255,0.12)' : 'transparent',
                         border: `1px solid ${isActive ? 'rgba(0,212,255,0.35)' : 'transparent'}`,
                       }}>
                       <div className="flex items-center justify-between gap-2">
-                        <span className="text-sm font-medium truncate" style={{ color: isActive ? '#00d4ff' : 'rgba(148,163,184,0.8)' }}>{b.wallet}</span>
+                        <span className="text-sm font-medium whitespace-nowrap md:truncate" style={{ color: isActive ? '#00d4ff' : 'rgba(148,163,184,0.8)' }}>{b.wallet}</span>
                         <span className="text-xs font-bold whitespace-nowrap" style={{ color: '#00ff88' }}>{ARS.format(b.totalArs)}</span>
                       </div>
                     </button>
@@ -241,7 +243,7 @@ export default function FinanzasApp({ userEmail }: { userEmail?: string }) {
 
 function SideItem({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
   return (
-    <button onClick={onClick} className="w-full text-left rounded-xl px-3 py-2.5 text-sm font-medium transition-all truncate"
+    <button onClick={onClick} className="w-auto md:w-full shrink-0 whitespace-nowrap md:truncate text-left rounded-xl px-3 py-2.5 text-sm font-medium transition-all"
       style={{
         background: active ? 'rgba(0,212,255,0.12)' : 'transparent',
         border: `1px solid ${active ? 'rgba(0,212,255,0.35)' : 'transparent'}`,

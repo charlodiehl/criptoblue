@@ -544,18 +544,15 @@ function PairRow({
 
   return (
     <div
+      className="grid grid-cols-1 md:grid-cols-[1fr_320px_1fr] overflow-hidden"
       style={{
-        display: 'grid',
-        gridTemplateColumns: '1fr 320px 1fr',
-        gap: '0',
         background: 'linear-gradient(160deg, #0d1117 0%, #0f1824 100%)',
         border: '1px solid rgba(0,212,255,0.09)',
         borderRadius: '16px',
-        overflow: 'hidden',
       }}
     >
       {/* PAGO */}
-      <div style={{ padding: '28px 32px', borderRight: '1px solid rgba(255,255,255,0.05)' }}>
+      <div className="p-6 sm:p-7 border-b md:border-b-0 md:border-r border-[rgba(255,255,255,0.05)]">
         <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px', marginBottom: '12px' }}>
           <p style={{ fontSize: '38px', fontWeight: 800, color: 'white', letterSpacing: '-0.03em', lineHeight: 1, margin: 0 }}>
             {ARS.format(p.monto)}
@@ -583,9 +580,9 @@ function PairRow({
 
       {/* COINCIDENCIAS */}
       <div
+        className="border-b md:border-b-0 md:border-r border-[rgba(255,255,255,0.05)]"
         style={{
           padding: '24px 22px',
-          borderRight: '1px solid rgba(255,255,255,0.05)',
           display: 'flex',
           flexDirection: 'column',
           gap: '10px',

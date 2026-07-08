@@ -203,7 +203,7 @@ export default function CargarPagosModal({ onClose, onCargado }: {
             <p style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'rgba(0,212,255,0.6)', marginBottom: '8px' }}>
               Vista previa
             </p>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))', gap: '8px', marginBottom: '14px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(210px, 100%), 1fr))', gap: '8px', marginBottom: '14px' }}>
               {rows.slice(0, 60).map((p, i) => (
                 <div key={i} style={{ background: 'linear-gradient(160deg,#0d1117,#0f1824)', border: `1px solid ${editIdx === i ? 'rgba(0,212,255,0.45)' : p.warnings.length ? 'rgba(255,180,0,0.3)' : 'rgba(0,212,255,0.1)'}`, borderRadius: '12px', padding: '12px 14px' }}>
                   {editIdx === i ? (

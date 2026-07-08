@@ -276,7 +276,7 @@ export default function PaymentsListTab({
           </p>
         </div>
       ) : (
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '10px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(260px, 100%), 1fr))', gap: '10px' }}>
         {pageItems.map(p => {
           const isExternal = externallyMarkedIds?.has(p.mpPaymentId)
           const matched = matchedIds?.has(p.mpPaymentId)
