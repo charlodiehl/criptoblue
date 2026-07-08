@@ -166,6 +166,10 @@ export default function SolicitarTab({ qs, notify }: Props) {
 
         {(tipo === 'usd_billete' || tipo === 'ars_billete') && (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="sm:col-span-2 text-xs px-3 py-2.5 rounded-lg leading-relaxed"
+              style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.28)', color: '#fbbf24' }}>
+              ⚠️ El efectivo está <strong>sujeto a disponibilidad</strong>. Los envíos son dentro de <strong>CABA y alrededores</strong>, en zonas seleccionadas. Esperá a ser contactado por tu medio de contacto para arreglar los detalles.
+            </div>
             <div><label style={labelStyle}>Monto {tipo === 'usd_billete' ? 'USD' : 'ARS'} *</label>
               <input type="number" min="0" step="0.01" style={inputStyle} value={form.monto || ''} onChange={e => set('monto', e.target.value)} placeholder="0.00" /></div>
             <div><label style={labelStyle}>¿Cómo querés recibir? *</label>
