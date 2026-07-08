@@ -36,6 +36,13 @@ const CAMPO_LABEL: Record<string, string> = {
   cbu: 'CBU / CVU / Alias', montoArs: 'Monto ARS', nombreBeneficiario: 'Nombre del beneficiario', cuitBeneficiario: 'CUIT/CUIL/DNI',
   numeroCuenta: 'Número de cuenta', montoUsd: 'Monto USD', nombreCompleto: 'Nombre completo', domicilio: 'Domicilio',
   wallet: 'Wallet cripto', blockchain: 'Blockchain', montoUsdt: 'Monto USDT',
+  monto: 'Monto', modalidad: 'Modalidad', dni: 'DNI', contacto: 'Contacto', direccion: 'Dirección',
+}
+
+// Valor legible para el detalle (la modalidad se guarda como 'retira'/'envio').
+function valorLegible(k: string, v: unknown): string {
+  if (k === 'modalidad') return v === 'retira' ? 'Paso a retirar' : v === 'envio' ? 'Enviar a una ubicación' : String(v)
+  return String(v)
 }
 
 const inputStyle: React.CSSProperties = {
@@ -148,7 +155,7 @@ export default function SolicitudModal({ solicitud, notify, onClose, onPaid }: P
               {Object.entries(solicitud.datos).map(([k, v]) => (
                 <div key={k} className="flex justify-between gap-3 text-sm">
                   <span style={{ color: 'rgba(148,163,184,0.6)' }}>{CAMPO_LABEL[k] || k}</span>
-                  <span className="text-right font-medium break-all" style={{ color: 'rgba(226,232,240,0.9)' }}>{String(v)}</span>
+                  <span className="text-right font-medium break-all" style={{ color: 'rgba(226,232,240,0.9)' }}>{valorLegible(k, v)}</span>
                 </div>
               ))}
             </div>

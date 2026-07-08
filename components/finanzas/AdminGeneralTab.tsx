@@ -13,6 +13,8 @@ const TIPO_LABEL: Record<TransferTipo, string> = {
   ars: 'una transferencia ARS',
   usd: 'una transferencia USD',
   usdt: 'una transferencia USDT',
+  usd_billete: 'recibir USD billete',
+  ars_billete: 'recibir ARS billete',
 }
 
 interface Props {

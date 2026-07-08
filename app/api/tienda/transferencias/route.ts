@@ -3,7 +3,7 @@ import { requireUser, resolveStoreScope } from '@/lib/auth/server'
 import { crearSolicitud, listarSolicitudesTienda, validarDatosSolicitud } from '@/lib/transferencias'
 import type { TransferTipo } from '@/lib/types'
 
-const TIPOS: TransferTipo[] = ['ars', 'usd', 'usdt']
+const TIPOS: TransferTipo[] = ['ars', 'usd', 'usdt', 'usd_billete', 'ars_billete']
 
 // GET /api/tienda/transferencias[?storeId=]  → solicitudes de la tienda
 export async function GET(req: NextRequest) {

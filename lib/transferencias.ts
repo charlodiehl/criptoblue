@@ -76,6 +76,24 @@ export function validarDatosSolicitud(tipo: TransferTipo, datos: Record<string, 
         blockchain: reqStr(datos.blockchain, 'Blockchain'),
         montoUsdt: reqMonto(datos.montoUsdt, 'Monto USDT'),
       }
+    // Recibir billete (USD o ARS): monto + modalidad (paso a retirar / enviar a una
+    // ubicación) con campos condicionales según la modalidad.
+    case 'usd_billete':
+    case 'ars_billete': {
+      const modalidad = str(datos.modalidad)
+      if (modalidad !== 'retira' && modalidad !== 'envio') {
+        throw new Error('Elegí cómo querés recibir (paso a retirar / enviar a una ubicación)')
+      }
+      const out: Record<string, string | number> = {
+        monto: reqMonto(datos.monto, 'Monto'),
+        modalidad,
+        nombreCompleto: reqStr(datos.nombreCompleto, modalidad === 'retira' ? 'Nombre completo de quien retira' : 'Nombre completo de quien recibe'),
+        dni: reqStr(datos.dni, 'DNI'),
+        contacto: reqStr(datos.contacto, 'Número de contacto'),
+      }
+      if (modalidad === 'envio') out.direccion = reqStr(datos.direccion, 'Dirección donde entregar')
+      return out
+    }
     default:
       throw new Error(`Tipo de transferencia desconocido: ${tipo}`)
   }

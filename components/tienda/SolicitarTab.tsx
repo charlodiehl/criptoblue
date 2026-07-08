@@ -15,6 +15,8 @@ const TIPO_LABEL: Record<TransferTipo, string> = {
   ars: 'Transferencia ARS',
   usd: 'Transferencia USD',
   usdt: 'Transferencia USDT',
+  usd_billete: 'Recibir USD billete',
+  ars_billete: 'Recibir ARS billete',
 }
 
 const BLOCKCHAINS = ['TRC-20', 'ERC-20', 'BEP-20', 'Polygon']
@@ -34,7 +36,9 @@ const optionStyle: React.CSSProperties = { background: '#0d1117', color: 'rgba(2
 function montoDeSolicitud(s: TransferRequest): string {
   if (s.tipo === 'ars') return `${Number(s.datos.montoArs).toLocaleString('es-AR')} ARS`
   if (s.tipo === 'usd') return `${Number(s.datos.montoUsd).toLocaleString('es-AR')} USD`
-  return `${Number(s.datos.montoUsdt).toLocaleString('es-AR')} USDT`
+  if (s.tipo === 'usdt') return `${Number(s.datos.montoUsdt).toLocaleString('es-AR')} USDT`
+  if (s.tipo === 'usd_billete') return `${Number(s.datos.monto).toLocaleString('es-AR')} USD billete`
+  return `${Number(s.datos.monto).toLocaleString('es-AR')} ARS billete`
 }
 
 export default function SolicitarTab({ qs, notify }: Props) {
@@ -77,8 +81,12 @@ export default function SolicitarTab({ qs, notify }: Props) {
       datos = { cbu: form.cbu || '', montoArs: form.montoArs || '', nombreBeneficiario: form.nombreBeneficiario || '', cuitBeneficiario: form.cuitBeneficiario || '' }
     } else if (tipo === 'usd') {
       datos = { numeroCuenta: form.numeroCuenta || '', montoUsd: form.montoUsd || '', nombreCompleto: form.nombreCompleto || '', domicilio: form.domicilio || '' }
-    } else {
+    } else if (tipo === 'usdt') {
       datos = { wallet: form.wallet || '', blockchain: form.blockchain || '', montoUsdt: form.montoUsdt || '' }
+    } else {
+      // usd_billete / ars_billete
+      datos = { monto: form.monto || '', modalidad: form.modalidad || '', nombreCompleto: form.nombreCompleto || '', dni: form.dni || '', contacto: form.contacto || '' }
+      if (form.modalidad === 'envio') datos.direccion = form.direccion || ''
     }
 
     setEnviando(true)
@@ -113,6 +121,8 @@ export default function SolicitarTab({ qs, notify }: Props) {
             <option value="ars" style={optionStyle}>Transferencia ARS</option>
             <option value="usd" style={optionStyle}>Transferencia USD</option>
             <option value="usdt" style={optionStyle}>Transferencia USDT</option>
+            <option value="usd_billete" style={optionStyle}>Recibir USD billete</option>
+            <option value="ars_billete" style={optionStyle}>Recibir ARS billete</option>
           </select>
         </div>
 
@@ -151,6 +161,39 @@ export default function SolicitarTab({ qs, notify }: Props) {
               <datalist id="blockchains">{BLOCKCHAINS.map(b => <option key={b} value={b} />)}</datalist></div>
             <div><label style={labelStyle}>Monto USDT *</label>
               <input type="number" min="0" step="0.01" style={inputStyle} value={form.montoUsdt || ''} onChange={e => set('montoUsdt', e.target.value)} placeholder="0.00" /></div>
+          </div>
+        )}
+
+        {(tipo === 'usd_billete' || tipo === 'ars_billete') && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div><label style={labelStyle}>Monto {tipo === 'usd_billete' ? 'USD' : 'ARS'} *</label>
+              <input type="number" min="0" step="0.01" style={inputStyle} value={form.monto || ''} onChange={e => set('monto', e.target.value)} placeholder="0.00" /></div>
+            <div><label style={labelStyle}>¿Cómo querés recibir? *</label>
+              <select style={{ ...inputStyle, colorScheme: 'dark', cursor: 'pointer' }} value={form.modalidad || ''} onChange={e => set('modalidad', e.target.value)}>
+                <option value="" style={optionStyle}>Elegí una opción…</option>
+                <option value="retira" style={optionStyle}>Paso a retirar</option>
+                <option value="envio" style={optionStyle}>Enviar a una ubicación</option>
+              </select></div>
+
+            {form.modalidad === 'retira' && (<>
+              <div><label style={labelStyle}>Nombre completo de quien retira *</label>
+                <input style={inputStyle} value={form.nombreCompleto || ''} onChange={e => set('nombreCompleto', e.target.value)} /></div>
+              <div><label style={labelStyle}>DNI *</label>
+                <input style={inputStyle} value={form.dni || ''} onChange={e => set('dni', e.target.value)} /></div>
+              <div className="sm:col-span-2"><label style={labelStyle}>Número de contacto (para coordinar ubicación y horario) *</label>
+                <input style={inputStyle} value={form.contacto || ''} onChange={e => set('contacto', e.target.value)} placeholder="Tel / WhatsApp" /></div>
+            </>)}
+
+            {form.modalidad === 'envio' && (<>
+              <div><label style={labelStyle}>Nombre completo de quien recibe *</label>
+                <input style={inputStyle} value={form.nombreCompleto || ''} onChange={e => set('nombreCompleto', e.target.value)} /></div>
+              <div><label style={labelStyle}>DNI *</label>
+                <input style={inputStyle} value={form.dni || ''} onChange={e => set('dni', e.target.value)} /></div>
+              <div className="sm:col-span-2"><label style={labelStyle}>Dirección donde entregar *</label>
+                <input style={inputStyle} value={form.direccion || ''} onChange={e => set('direccion', e.target.value)} /></div>
+              <div className="sm:col-span-2"><label style={labelStyle}>Número de contacto *</label>
+                <input style={inputStyle} value={form.contacto || ''} onChange={e => set('contacto', e.target.value)} placeholder="Tel / WhatsApp" /></div>
+            </>)}
           </div>
         )}
 
