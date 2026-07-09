@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { motion } from 'framer-motion'
 import { ARS, fmtDate } from '@/lib/utils'
+import AnimatedNumber, { NumberSkeleton } from '@/components/AnimatedNumber'
 import type { Toast } from './TiendaPortal'
 
 interface Props {
@@ -11,10 +12,11 @@ interface Props {
   notify: (msg: string, type?: Toast['type']) => void
 }
 
-interface Balance { ars: number; usdt: number; pendientes: number }
+interface Balance { ars: number; usdt: number; pendientes: number; comisionArs: number; comisionUsdt: number; comisionPct: number }
 interface Row {
   fecha: string
   monto: number
+  comision: number
   cuit: string
   nombre: string
   orderNumber: string
@@ -33,6 +35,8 @@ function hoyART(): string {
 const CUTOFF_DATE = '2026-07-08'
 
 const fmtUsdt = (n: number) => n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const fmtPct = (n: number) => n.toLocaleString('es-AR', { maximumFractionDigits: 2 })
+const fmtArs = (n: number) => ARS.format(n)
 
 export default function BalanceTab({ qs, notify }: Props) {
   const [balance, setBalance] = useState<Balance | null>(null)
@@ -80,10 +84,12 @@ export default function BalanceTab({ qs, notify }: Props) {
 
   return (
     <div className="space-y-5">
-      {/* Tarjeta de balance global */}
+      {/* Tarjeta de balance global (NETO, con la comisión ya descontada) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <BalanceCard label="Saldo en USDT" value={loadingBalance ? '—' : fmtUsdt(balance?.usdt ?? 0)} suffix="USDT" color="#00d4ff" delay={0} />
-        <BalanceCard label="Saldo en ARS" value={loadingBalance ? '—' : ARS.format(balance?.ars ?? 0)} color="#00ff88" delay={0.06} />
+        <BalanceCard label="Saldo en USDT" value={balance?.usdt ?? 0} format={fmtUsdt} suffix="USDT" color="#00d4ff" delay={0} loading={loadingBalance}
+          comisionValue={balance?.comisionUsdt} comisionFormat={fmtUsdt} comisionPct={balance?.comisionPct} comisionSuffix="USDT" />
+        <BalanceCard label="Saldo en ARS" value={balance?.ars ?? 0} format={fmtArs} color="#00ff88" delay={0.06} loading={loadingBalance}
+          comisionValue={balance?.comisionArs} comisionFormat={fmtArs} comisionPct={balance?.comisionPct} />
       </div>
 
       {balance && balance.pendientes > 0 && (
@@ -114,7 +120,7 @@ export default function BalanceTab({ qs, notify }: Props) {
           <table className="w-full text-sm" style={{ borderCollapse: 'collapse', minWidth: '900px' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid rgba(0,212,255,0.12)' }}>
-                {['Fecha y hora', 'Monto (ARS)', 'Cotización USDT', 'Equivalente USDT', 'CUIT/CUIL/DNI', 'Nombre y apellido', 'N° orden', 'Billetera'].map(h => (
+                {['Fecha y hora', 'Monto (ARS)', `Comisión (${fmtPct(balance?.comisionPct ?? 0)}%)`, 'Cotización USDT', 'Equivalente USDT', 'CUIT/CUIL/DNI', 'Nombre y apellido', 'N° orden', 'Billetera'].map(h => (
                   <th key={h} className="text-left px-3 py-3 text-[11px] font-semibold uppercase tracking-wider whitespace-nowrap"
                     style={{ color: 'rgba(148,163,184,0.7)' }}>{h}</th>
                 ))}
@@ -122,14 +128,16 @@ export default function BalanceTab({ qs, notify }: Props) {
             </thead>
             <tbody>
               {loadingRows ? (
-                <tr><td colSpan={8} className="px-3 py-8 text-center text-sm" style={{ color: 'rgba(148,163,184,0.5)' }}>Cargando…</td></tr>
+                <tr><td colSpan={9} className="px-3 py-8 text-center text-sm" style={{ color: 'rgba(148,163,184,0.5)' }}>Cargando…</td></tr>
               ) : rows.length === 0 ? (
-                <tr><td colSpan={8} className="px-3 py-8 text-center text-sm" style={{ color: 'rgba(148,163,184,0.5)' }}>Sin órdenes acreditadas este día</td></tr>
+                <tr><td colSpan={9} className="px-3 py-8 text-center text-sm" style={{ color: 'rgba(148,163,184,0.5)' }}>Sin órdenes acreditadas este día</td></tr>
               ) : (
                 rows.map((r, i) => (
-                  <tr key={i} style={{ borderBottom: '1px solid rgba(148,163,184,0.05)' }}>
+                  <motion.tr key={i} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3, delay: Math.min(i * 0.025, 0.4) }}
+                    style={{ borderBottom: '1px solid rgba(148,163,184,0.05)' }}>
                     <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: 'rgba(226,232,240,0.85)' }}>{fmtDate(r.fecha)}</td>
                     <td className="px-3 py-2.5 whitespace-nowrap font-medium" style={{ color: '#00ff88' }}>{ARS.format(r.monto)}</td>
+                    <td className="px-3 py-2.5 whitespace-nowrap font-medium" style={{ color: '#f87171' }}>−{ARS.format(r.comision)}</td>
                     <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: r.usdtRate == null ? 'rgba(245,158,11,0.9)' : 'rgba(226,232,240,0.7)' }}>
                       {r.usdtRate == null ? 'Pendiente' : ARS.format(r.usdtRate)}
                     </td>
@@ -140,7 +148,7 @@ export default function BalanceTab({ qs, notify }: Props) {
                     <td className="px-3 py-2.5" style={{ color: 'rgba(226,232,240,0.85)' }}>{r.nombre || '—'}</td>
                     <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: 'rgba(226,232,240,0.7)' }}>{r.orderNumber ? `#${r.orderNumber}` : '—'}</td>
                     <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: 'rgba(0,212,255,0.75)' }}>{r.billetera}</td>
-                  </tr>
+                  </motion.tr>
                 ))
               )}
             </tbody>
@@ -151,7 +159,10 @@ export default function BalanceTab({ qs, notify }: Props) {
   )
 }
 
-function BalanceCard({ label, value, suffix, color, delay }: { label: string; value: string; suffix?: string; color: string; delay: number }) {
+function BalanceCard({ label, value, format, suffix, color, delay, loading, comisionValue, comisionFormat, comisionPct, comisionSuffix }: {
+  label: string; value: number; format: (n: number) => string; suffix?: string; color: string; delay: number; loading: boolean
+  comisionValue?: number; comisionFormat?: (n: number) => string; comisionPct?: number; comisionSuffix?: string
+}) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -164,8 +175,16 @@ function BalanceCard({ label, value, suffix, color, delay }: { label: string; va
         style={{ background: color, filter: 'blur(32px)', transform: 'translate(30%, -30%)' }} />
       <p className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: 'rgba(148,163,184,0.7)' }}>{label}</p>
       <p className="text-4xl font-black" style={{ color, textShadow: `0 0 20px ${color}60` }}>
-        {value}{suffix && <span className="text-lg font-bold ml-2" style={{ opacity: 0.7 }}>{suffix}</span>}
+        {loading
+          ? <NumberSkeleton width={170} height={40} />
+          : <AnimatedNumber value={value} format={format} />}
+        {!loading && suffix && <span className="text-lg font-bold ml-2" style={{ opacity: 0.7 }}>{suffix}</span>}
       </p>
+      {!loading && comisionValue != null && comisionValue > 0 && (
+        <p className="text-xs font-semibold mt-2" style={{ color: '#f87171' }}>
+          Comisión {fmtPct(comisionPct ?? 0)}% · −<AnimatedNumber value={comisionValue} format={comisionFormat ?? format} pop={false} />{comisionSuffix ? ` ${comisionSuffix}` : ''}
+        </p>
+      )}
     </motion.div>
   )
 }

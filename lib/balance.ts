@@ -2,6 +2,7 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import { getUsdtRate } from './cotizacion'
 import { toUTCISO } from './utils'
 import { BALANCE_CUTOFF } from './config'
+import { getComisiones, comisionTienda } from './comisiones'
 import type { LogEntry, StoreBalance, DescuentoMoneda, TransferDescuento, BalanceMovement } from './types'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -139,6 +140,27 @@ export async function backfillCotizacionesPendientes(): Promise<{ actualizados: 
   return { actualizados, rate }
 }
 
+// Reembolso de una orden: RESTA del saldo (ars y usdt en NEGATIVO) el día que se
+// reembolsa. Cotización manual (la pone el admin) → rate_source 'manual', no entra
+// al backfill. tipo 'reembolso' → NO cuenta como ingreso (no afecta la base de
+// comisión), solo baja el saldo. Devuelve el id del movimiento creado.
+export async function registrarReembolso(
+  storeId: string, arsMonto: number, usdtMonto: number, cotizacion: number, descripcion: string,
+): Promise<number> {
+  const { data, error } = await getClient().from(TABLE).insert({
+    store_id: storeId,
+    tipo: 'reembolso',
+    fecha: new Date().toISOString(),
+    ars: -Math.abs(arsMonto),
+    usdt: -Math.abs(usdtMonto),
+    usdt_rate: cotizacion,
+    rate_source: 'manual',
+    descripcion,
+  }).select('id').single()
+  if (error) throw new Error(`registrarReembolso falló: ${error.message} [${error.code}]`)
+  return data.id as number
+}
+
 // Ajuste manual (saldos iniciales, correcciones). ars/usdt SIGNADOS.
 export async function registrarAjuste(storeId: string, ars: number, usdt: number, descripcion: string): Promise<void> {
   const { error } = await getClient().from(TABLE).insert({
@@ -157,22 +179,35 @@ export async function registrarAjuste(storeId: string, ars: number, usdt: number
 // ─── Lecturas ────────────────────────────────────────────────────────────────
 
 // Balance de TODAS las tiendas con movimientos (una sola llamada RPC).
+// ars/usdt son NETOS: se descuenta la comisión (% de los ingresos por órdenes).
 export async function getBalances(): Promise<StoreBalance[]> {
-  const { data, error } = await getClient().rpc('balances_tiendas')
+  const [rpc, cfg] = await Promise.all([getClient().rpc('balances_tiendas'), getComisiones()])
+  const { data, error } = rpc
   if (error) throw new Error(`getBalances falló: ${error.message} [${error.code}]`)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return (data ?? []).map((r: any) => ({
-    storeId: r.store_id,
-    ars: Number(r.ars) || 0,
-    usdt: Number(r.usdt) || 0,
-    pendientes: Number(r.pendientes) || 0,
-  }))
+  return (data ?? []).map((r: any) => {
+    const grossArs = Number(r.ars) || 0
+    const grossUsdt = Number(r.usdt) || 0
+    const pct = comisionTienda(cfg, r.store_id)
+    const comisionArs = (Number(r.ingreso_ars) || 0) * pct / 100
+    const comisionUsdt = (Number(r.ingreso_usdt) || 0) * pct / 100
+    return {
+      storeId: r.store_id,
+      ars: grossArs - comisionArs,     // NETO
+      usdt: grossUsdt - comisionUsdt,  // NETO
+      pendientes: Number(r.pendientes) || 0,
+      comisionArs, comisionUsdt, comisionPct: pct,
+    }
+  })
 }
 
-// Balance de una tienda puntual. Sin movimientos → todo en 0.
+// Balance de una tienda puntual. Sin movimientos → todo en 0 (pero con su % de comisión).
 export async function getBalance(storeId: string): Promise<StoreBalance> {
   const balances = await getBalances()
-  return balances.find(b => b.storeId === storeId) ?? { storeId, ars: 0, usdt: 0, pendientes: 0 }
+  const found = balances.find(b => b.storeId === storeId)
+  if (found) return found
+  const cfg = await getComisiones()
+  return { storeId, ars: 0, usdt: 0, pendientes: 0, comisionArs: 0, comisionUsdt: 0, comisionPct: comisionTienda(cfg, storeId) }
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

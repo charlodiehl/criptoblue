@@ -19,6 +19,8 @@
 
 import { getClient, kvGet, loadHotState } from './storage'
 import { PAYMENT_SOURCE_TO_WALLET, PAYMENT_SOURCE_NAMES, WALLETS, BALANCE_CUTOFF } from './config'
+import { getComisiones, comisionBilletera } from './comisiones'
+import { sumRefundsByWallet, getRefundsDeWallet } from './reembolsos'
 
 const OCULTAS_KEY = 'criptoblue:billeteras-ocultas'
 const EXTRACTO_LIMIT = 200
@@ -26,22 +28,37 @@ const MATCHED_ACTIONS = ['auto_paid', 'manual_paid']
 
 export interface IngresoBilletera {
   wallet: string
-  totalArs: number
+  totalArs: number          // NETO (comisión y reembolsos ya descontados)
   cantidad: number
+  comisionArs: number       // comisión cobrada en ARS (positivo)
+  comisionPct: number       // porcentaje aplicado (ej. 1)
+  reembolsosArs: number     // total reembolsado desde esta billetera (positivo)
 }
 
 export interface PagoBilletera {
   fecha: string
   titular: string
   monto: number
+  comision: number          // comisión ARS de este pago (monto × pct/100)
   estado: 'emparejado' | 'en_cola'
+}
+
+export interface ReembolsoBilletera {
+  orderNumber: string
+  monto: number             // ARS reembolsado (positivo)
+  seq: number
+  fecha: string
 }
 
 export interface DetalleBilletera {
   wallet: string
-  totalArs: number          // acumulado desde el corte (no cambia al elegir un día)
+  totalArs: number          // NETO acumulado desde el corte (comisión y reembolsos descontados)
   cantidad: number
-  totalDia?: number         // subtotal del día seleccionado (si se pidió un día)
+  comisionArs: number       // comisión total ARS
+  comisionPct: number
+  reembolsosArs: number     // total reembolsado desde esta billetera (positivo)
+  reembolsos: ReembolsoBilletera[]  // detalle de los reembolsos (misma info que a la tienda)
+  totalDia?: number         // subtotal (bruto) del día seleccionado
   cantidadDia?: number
   pagos: PagoBilletera[]    // del día seleccionado, o todos si no se pidió día
 }
@@ -60,7 +77,7 @@ interface Ingreso {
 // Lacar, …) o su nombre para mostrar (Mileidy = mercadopago → MF). Los sources
 // desconocidos (nombres sueltos, "-", etc.) devuelven null → no se cuentan.
 const WALLET_SET = new Set<string>(WALLETS as readonly string[])
-function resolveWallet(source?: string | null): string | null {
+export function resolveWallet(source?: string | null): string | null {
   if (!source) return null
   const canon = PAYMENT_SOURCE_TO_WALLET[source]
   if (canon) return canon
@@ -154,10 +171,12 @@ function ingresosEnColaDesdeCorte(hot: any, labelSet?: Set<string>): Ingreso[] {
 // Total por billetera (para los ítems del menú). Muestra TODAS las billeteras
 // (como las tiendas, aunque el saldo desde el corte sea 0), salvo las ocultas.
 export async function getIngresosBilleteras(): Promise<IngresoBilletera[]> {
-  const [emparejados, hot, ocultas] = await Promise.all([
+  const [emparejados, hot, ocultas, cfg, reembolsosPorWallet] = await Promise.all([
     ingresosEmparejadosDesdeCorte(),
     loadHotState(),
     getBilleterasOcultas(),
+    getComisiones(),
+    sumRefundsByWallet(),
   ])
   const cola = ingresosEnColaDesdeCorte(hot)
 
@@ -177,7 +196,13 @@ export async function getIngresosBilleteras(): Promise<IngresoBilletera[]> {
   const ocultasSet = new Set(ocultas)
   return [...acc.entries()]
     .filter(([wallet]) => !ocultasSet.has(wallet))
-    .map(([wallet, v]) => ({ wallet, totalArs: v.totalArs, cantidad: v.cantidad }))
+    .map(([wallet, v]) => {
+      const pct = comisionBilletera(cfg, wallet)
+      const comisionArs = v.totalArs * pct / 100
+      const reembolsosArs = reembolsosPorWallet[wallet] ?? 0
+      // El saldo baja por la comisión (nuestra) y por los reembolsos (dinero devuelto).
+      return { wallet, totalArs: v.totalArs - comisionArs - reembolsosArs, cantidad: v.cantidad, comisionArs, comisionPct: pct, reembolsosArs }
+    })
     .sort((a, b) => a.wallet.localeCompare(b.wallet))
 }
 
@@ -185,19 +210,23 @@ export async function getIngresosBilleteras(): Promise<IngresoBilletera[]> {
 // Si se pasa diaART ('YYYY-MM-DD'), el extracto se acota a ese día (ART) y se
 // devuelve además el subtotal del día. El total acumulado no cambia por el día.
 export async function getIngresosBilletera(wallet: string, diaART?: string): Promise<DetalleBilletera> {
+  const cfg = await getComisiones()
+  const pct = comisionBilletera(cfg, wallet)
   const labels = sourceLabelsDeBilletera(wallet)
-  if (labels.length === 0) return { wallet, totalArs: 0, cantidad: 0, pagos: [] }
+  if (labels.length === 0) return { wallet, totalArs: 0, cantidad: 0, comisionArs: 0, comisionPct: pct, reembolsosArs: 0, reembolsos: [], pagos: [] }
   const labelSet = new Set(labels)
 
-  const [emparejados, hot] = await Promise.all([ingresosEmparejadosDesdeCorte(), loadHotState()])
+  const [emparejados, hot, refunds] = await Promise.all([ingresosEmparejadosDesdeCorte(), loadHotState(), getRefundsDeWallet(wallet)])
   const ingresos = [
     ...emparejados.filter(m => labelSet.has(m.source)),
     ...ingresosEnColaDesdeCorte(hot, labelSet),
   ]
 
-  // Total acumulado desde el corte (todos los días).
-  let totalArs = 0
-  for (const m of ingresos) totalArs += m.monto
+  // Total acumulado (bruto) desde el corte → comisión → reembolsos → neto.
+  let totalArsBruto = 0
+  for (const m of ingresos) totalArsBruto += m.monto
+  const comisionArs = totalArsBruto * pct / 100
+  const reembolsosArs = refunds.reduce((s, r) => s + r.monto, 0)
 
   // Filtro por día (ART) para el extracto.
   let visibles = ingresos
@@ -218,14 +247,18 @@ export async function getIngresosBilletera(wallet: string, diaART?: string): Pro
 
   return {
     wallet,
-    totalArs,
+    totalArs: totalArsBruto - comisionArs - reembolsosArs,  // NETO (comisión + reembolsos)
     cantidad: ingresos.length,
+    comisionArs, comisionPct: pct,
+    reembolsosArs,
+    reembolsos: refunds.map(r => ({ orderNumber: r.orderNumber, monto: r.monto, seq: r.seq, fecha: r.createdAt })),
     totalDia,
     cantidadDia,
     pagos: visibles.slice(0, EXTRACTO_LIMIT).map(m => ({
       fecha: m.fecha,
       titular: m.titular,
       monto: m.monto,
+      comision: m.monto * pct / 100,
       estado: m.estado,
     })),
   }

@@ -220,7 +220,7 @@ export interface TransferRequest {
 export interface BalanceMovement {
   id: number
   storeId: string
-  tipo: 'ingreso_orden' | 'egreso_transferencia' | 'ajuste'
+  tipo: 'ingreso_orden' | 'egreso_transferencia' | 'ajuste' | 'reembolso'
   fecha: string
   ars: number                    // SIGNADO: ingresos +, egresos −
   usdt: number | null            // SIGNADO; null = cotización pendiente
@@ -234,9 +234,51 @@ export interface BalanceMovement {
 // Balance agregado de una tienda
 export interface StoreBalance {
   storeId: string
-  ars: number
-  usdt: number
+  ars: number                    // NETO (con la comisión ya descontada)
+  usdt: number                   // NETO
   pendientes: number             // movimientos sin cotización (el saldo USDT es parcial)
+  comisionArs: number            // comisión cobrada en ARS (positivo)
+  comisionUsdt: number           // comisión cobrada en USDT (positivo)
+  comisionPct: number            // porcentaje aplicado (ej. 3.5)
+}
+
+// ─── Reembolsos ───────────────────────────────────────────────────────────────
+
+// Reembolso EJECUTADO (tabla refunds). Cada orden puede tener varios (parciales):
+// seq numera cada uno → descripción "reembolso orden xxx", "… (2)", "… (3)".
+export interface Refund {
+  id: number
+  storeId: string
+  orderNumber: string
+  orderId?: string | null
+  orderTotal?: number | null     // total de la orden al momento del reembolso
+  monto: number                  // ARS reembolsado (positivo)
+  usdt?: number | null           // USDT descontado (positivo)
+  cotizacion?: number | null     // ARS por 1 USDT (manual)
+  wallet?: string | null         // billetera de la que vino el pago (se le resta el reembolso)
+  seq: number
+  comprobantePath: string        // obligatorio
+  requestId?: number | null
+  createdBy: string
+  createdAt: string
+}
+
+export type RefundRequestEstado = 'pendiente' | 'procesada' | 'rechazada'
+
+// Solicitud de reembolso de una tienda (tabla refund_requests). La tienda propone
+// un monto; el admin decide el monto final al ejecutar el reembolso.
+export interface RefundRequest {
+  id: number
+  storeId: string
+  orderNumber: string
+  orderId?: string | null
+  orderTotal?: number | null
+  montoSolicitado?: number | null
+  estado: RefundRequestEstado
+  createdBy: string
+  createdAt: string
+  processedAt?: string | null
+  processedBy?: string | null
 }
 
 // ─── Audit Log ──────────────────────────────────────────────────────────────

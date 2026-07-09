@@ -7,6 +7,7 @@ import TiendaPortal from '@/components/tienda/TiendaPortal'
 import AdminGeneralTab from './AdminGeneralTab'
 import BilleteraTab from './BilleteraTab'
 import NotificacionesToggle from '@/components/pwa/NotificacionesToggle'
+import AnimatedNumber, { NumberSkeleton } from '@/components/AnimatedNumber'
 import { ARS } from '@/lib/utils'
 
 export type Toast = { id: number; msg: string; type: 'success' | 'error' | 'info' }
@@ -14,6 +15,8 @@ export interface BalanceCard { storeId: string; storeName: string; ars: number; 
 export interface BilleteraItem { wallet: string; totalArs: number; cantidad: number }
 
 const fmtUsdt = (n: number) => n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const fmtArsInt = (n: number) => Math.round(n).toLocaleString('es-AR')
+const fmtArs = (n: number) => ARS.format(n)
 
 export default function FinanzasApp({ userEmail }: { userEmail?: string }) {
   const [cards, setCards] = useState<BalanceCard[]>([])
@@ -142,7 +145,14 @@ export default function FinanzasApp({ userEmail }: { userEmail?: string }) {
         {/* Franja de tarjetas de balance por tienda */}
         <div className="flex flex-wrap gap-3 mb-5">
           {loadingCards ? (
-            <div className="text-sm py-4" style={{ color: 'rgba(148,163,184,0.5)' }}>Cargando balances…</div>
+            Array.from({ length: 8 }).map((_, i) => (
+              <div key={i} className="rounded-2xl p-4 min-w-[150px] flex-1"
+                style={{ background: 'linear-gradient(135deg, #0d1117, #111827)', border: '1px solid rgba(0,212,255,0.14)' }}>
+                <NumberSkeleton width="55%" height={11} />
+                <div className="mt-2.5"><NumberSkeleton width="80%" height={22} /></div>
+                <div className="mt-1.5"><NumberSkeleton width="50%" height={13} /></div>
+              </div>
+            ))
           ) : cards.length === 0 ? (
             <div className="text-sm py-4" style={{ color: 'rgba(148,163,184,0.5)' }}>No hay tiendas conectadas.</div>
           ) : (
@@ -156,11 +166,11 @@ export default function FinanzasApp({ userEmail }: { userEmail?: string }) {
                 }}>
                 <div className="text-xs font-semibold truncate mb-2" style={{ color: 'rgba(226,232,240,0.85)' }}>{c.storeName}</div>
                 <div className="flex items-baseline gap-1">
-                  <span className="text-xl font-black" style={{ color: '#00d4ff' }}>{fmtUsdt(c.usdt)}</span>
+                  <AnimatedNumber value={c.usdt} format={fmtUsdt} className="text-xl font-black" style={{ color: '#00d4ff' }} />
                   <span className="text-[10px] font-bold" style={{ color: 'rgba(0,212,255,0.6)' }}>USDT</span>
                 </div>
                 <div className="flex items-baseline gap-1 mt-0.5">
-                  <span className="text-sm font-bold" style={{ color: '#00ff88' }}>{Math.round(c.ars).toLocaleString('es-AR')}</span>
+                  <AnimatedNumber value={c.ars} format={fmtArsInt} className="text-sm font-bold" style={{ color: '#00ff88' }} />
                   <span className="text-[10px] font-bold" style={{ color: 'rgba(0,255,136,0.6)' }}>ARS</span>
                 </div>
                 {c.pendientes > 0 && <div className="text-[10px] mt-1" style={{ color: '#fbbf24' }}>{c.pendientes} sin cotización</div>}
@@ -192,7 +202,7 @@ export default function FinanzasApp({ userEmail }: { userEmail?: string }) {
                       }}>
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-sm font-medium whitespace-nowrap md:truncate" style={{ color: isActive ? '#00d4ff' : 'rgba(148,163,184,0.8)' }}>{b.wallet}</span>
-                        <span className="text-xs font-bold whitespace-nowrap" style={{ color: '#00ff88' }}>{ARS.format(b.totalArs)}</span>
+                        <AnimatedNumber value={b.totalArs} format={fmtArs} className="text-xs font-bold whitespace-nowrap" style={{ color: '#00ff88' }} />
                       </div>
                     </button>
                   )

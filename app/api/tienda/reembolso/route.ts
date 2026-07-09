@@ -1,0 +1,73 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { requireUser, resolveStoreScope } from '@/lib/auth/server'
+import { getStores, loadLogs, saveLogs, appendActivity } from '@/lib/storage'
+import { buscarOrdenEnTienda } from '@/lib/buscar-orden'
+import { resumenReembolsos, crearRefundRequest, listarRefundRequestsTienda } from '@/lib/reembolsos'
+
+// POST /api/tienda/reembolso  { orderNumber, monto, storeId? }
+// La tienda solicita un reembolso: valida que la orden exista y que NO esté
+// totalmente reembolsada; propone un monto (el admin decide el final). Crea una
+// solicitud que llega al panel de Administración general.
+export async function POST(req: NextRequest) {
+  try {
+    const auth = await requireUser()
+    if ('error' in auth) return auth.error
+
+    const body = await req.json().catch(() => null)
+    const orderNumber = String(body?.orderNumber || '').trim()
+    const monto = Number(body?.monto)
+    if (!orderNumber) return NextResponse.json({ error: 'Ingresá el número de orden' }, { status: 400 })
+    if (!Number.isFinite(monto) || monto <= 0) return NextResponse.json({ error: 'Ingresá el monto a reembolsar' }, { status: 400 })
+
+    const storeId = resolveStoreScope(auth.user, req.nextUrl.searchParams.get('storeId') || body?.storeId)
+    if (!storeId) return NextResponse.json({ error: 'No hay tienda asignada' }, { status: 400 })
+
+    const stores = await getStores()
+    const store = stores[storeId]
+    if (!store) return NextResponse.json({ error: 'Tienda no encontrada' }, { status: 404 })
+
+    // La orden debe existir
+    let encontrada
+    try {
+      encontrada = await buscarOrdenEnTienda(store, orderNumber)
+    } catch (err) {
+      return NextResponse.json({ error: `No se pudo consultar la tienda: ${err instanceof Error ? err.message : err}` }, { status: 502 })
+    }
+    if (!encontrada) return NextResponse.json({ error: `La orden #${orderNumber} no existe` }, { status: 404 })
+    const order = encontrada.order
+    const total = Number(order.total) || 0
+
+    // No permitir pedir sobre una orden ya totalmente reembolsada
+    const { reembolsado } = await resumenReembolsos(storeId, order.orderNumber)
+    const restante = Math.max(0, total - reembolsado)
+    if (restante <= 0) {
+      return NextResponse.json({ error: `La orden #${order.orderNumber} ya fue reembolsada en su totalidad` }, { status: 409 })
+    }
+    if (monto > restante + 0.01) {
+      return NextResponse.json({ error: `El monto supera lo disponible para reembolsar (${restante.toFixed(2)})` }, { status: 400 })
+    }
+
+    // Evitar solicitudes duplicadas pendientes para la misma orden
+    const previas = await listarRefundRequestsTienda(storeId)
+    if (previas.some(r => r.estado === 'pendiente' && String(r.orderNumber) === String(order.orderNumber))) {
+      return NextResponse.json({ error: `Ya tenés una solicitud de reembolso pendiente para la orden #${order.orderNumber}` }, { status: 409 })
+    }
+
+    const solicitud = await crearRefundRequest({
+      storeId, orderNumber: order.orderNumber, orderId: order.orderId, orderTotal: total,
+      montoSolicitado: monto, createdBy: auth.user.email,
+    })
+
+    try {
+      const logs = await loadLogs()
+      appendActivity(logs, 'human', 'reembolso_solicitado', {
+        requestId: solicitud.id, storeName: store.storeName, orderNumber: order.orderNumber, monto, solicitadoPor: auth.user.email,
+      })
+      await saveLogs(logs)
+    } catch { /* ignore */ }
+
+    return NextResponse.json({ success: true, id: solicitud.id, orderNumber: order.orderNumber })
+  } catch (err) {
+    return NextResponse.json({ error: String(err) }, { status: 500 })
+  }
+}

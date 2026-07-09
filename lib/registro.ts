@@ -375,6 +375,25 @@ export async function getRegistroPaymentsBySource(source: string): Promise<{ mon
   return out
 }
 
+// Source del pago (billetera) con el que se emparejó una orden — para atribuir el
+// reembolso a la billetera de la que vino el dinero. Devuelve el source del match
+// más reciente de esa orden, o null si no hay registro (orden no emparejada en la app).
+export async function getWalletSourceByOrder(storeId: string, orderNumber: string): Promise<string | null> {
+  const supabase = getClient()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (supabase.from(TABLE) as any)
+    .select('source:payment->>source')
+    .eq('store_id', storeId)
+    .eq('order_number', String(orderNumber))
+    .eq('hidden', false)
+    .in('action', ['manual_paid', 'auto_paid'])
+    .order('ts', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  if (error) throw new Error(`getWalletSourceByOrder falló: ${error.message} [${error.code}]`)
+  return data?.source ?? null
+}
+
 export async function isPaymentAlreadyUsed(mpPaymentId: string): Promise<boolean> {
   const supabase = getClient()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

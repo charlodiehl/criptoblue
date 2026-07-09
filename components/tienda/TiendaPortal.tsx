@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import BalanceTab from './BalanceTab'
 import SolicitarTab from './SolicitarTab'
 import BuscarPagosTab from './BuscarPagosTab'
+import SolicitarReembolsoTab from './SolicitarReembolsoTab'
 import NotificacionesToggle from '@/components/pwa/NotificacionesToggle'
 
 export type Toast = { id: number; msg: string; type: 'success' | 'error' | 'info' }
@@ -18,12 +19,13 @@ interface Props {
   admin?: boolean
 }
 
-type Tab = 'balance' | 'solicitar' | 'buscar'
+type Tab = 'balance' | 'solicitar' | 'buscar' | 'reembolso'
 
 const TABS: { key: Tab; label: string }[] = [
   { key: 'balance', label: 'Balance de Saldo' },
   { key: 'solicitar', label: 'Solicitar transferencias' },
   { key: 'buscar', label: 'Buscar pagos' },
+  { key: 'reembolso', label: 'Solicitar reembolsos' },
 ]
 
 export default function TiendaPortal({ storeId, storeName, userEmail, admin = false }: Props) {
@@ -68,6 +70,7 @@ export default function TiendaPortal({ storeId, storeName, userEmail, admin = fa
         {tab === 'balance' && <BalanceTab storeId={storeId} qs={qs} notify={notify} />}
         {tab === 'solicitar' && <SolicitarTab storeId={storeId} qs={qs} notify={notify} />}
         {tab === 'buscar' && <BuscarPagosTab storeId={storeId} qs={qs} admin={admin} notify={notify} />}
+        {tab === 'reembolso' && <SolicitarReembolsoTab storeId={storeId} qs={qs} notify={notify} />}
       </motion.div>
     </AnimatePresence>
   )
