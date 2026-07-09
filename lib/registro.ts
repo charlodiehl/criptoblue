@@ -447,6 +447,37 @@ export async function queryRegistroByStoreDay(
   return (data ?? []).map((r: Row) => ({ registroId: r.id as number, entry: rowToEntry(r) }))
 }
 
+// Búsqueda de órdenes de una tienda en TODO su registro desde el corte (no por día),
+// por N° de orden, nombre, CUIT o monto. Para la barra buscadora del portal.
+export async function searchRegistroByStore(
+  storeId: string, query: string, limit = 100,
+): Promise<Array<{ registroId: number; entry: LogEntry }>> {
+  const supabase = getClient()
+  const q = (query ?? '').trim().replace(/[,()]/g, ' ').trim()
+  if (!q) return []
+  const desde = BALANCE_CUTOFF.toISOString()
+  const pat = `*${q}*`
+  const ors = [
+    `order_number.ilike.${pat}`,
+    `customer_name.ilike.${pat}`,
+    `cuit_pagador.ilike.${pat}`,
+    `payment->>nombrePagador.ilike.${pat}`,
+  ]
+  if (/^\d+(\.\d+)?$/.test(q)) ors.push(`amount.eq.${Number(q)}`)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (supabase.from(TABLE) as any)
+    .select('*')
+    .eq('store_id', storeId)
+    .eq('hidden', false)
+    .in('action', ['manual_paid', 'auto_paid'])
+    .gte('ts', desde)
+    .or(ors.join(','))
+    .order('ts', { ascending: false })
+    .limit(limit)
+  if (error) throw new Error(`searchRegistroByStore falló: ${error.message} [${error.code}]`)
+  return (data ?? []).map((r: Row) => ({ registroId: r.id as number, entry: rowToEntry(r) }))
+}
+
 // Reclamos de pagos hechos por tiendas (source='tienda_buscar') en una ventana.
 // Alimenta el feed informativo de Administración General (solo lectura).
 export async function getReclamosRecientes(

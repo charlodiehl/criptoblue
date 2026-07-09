@@ -58,11 +58,12 @@ export async function registrarIngresoOrden(registroId: number | null, entry: Lo
 
 // ─── Egresos (pago de solicitudes de transferencia) ──────────────────────────
 
-// ÚNICA fuente del cálculo de descuento. Tasas obligatorias según la moneda
-// retirada (el balance vive en ARS + USDT, cualquier retiro debe traducirse a ambos):
-//   ARS / ARS_BILLETE  → cotizacionUsdtArs        (ars = monto;              usdt = monto / cotización)
-//   USDT               → tasaUsdtArs              (ars = monto × tasa;       usdt = monto)
-//   USD / USD_BILLETE  → tasaUsdArs + tasaUsdUsdt (ars = monto × tasaUsdArs; usdt = monto × tasaUsdUsdt)
+// ÚNICA fuente del cálculo de descuento. El saldo de la tienda vive SOLO en USDT:
+// todo retiro se traduce a USDT y solo se piden las tasas necesarias para eso.
+//   ARS / ARS_BILLETE  → cotizacionUsdtArs  (usdt = monto / cotización)
+//   USDT               → sin tasa           (usdt = monto)
+//   USD / USD_BILLETE   → tasaUsdUsdt        (usdt = monto × tasaUsdUsdt)
+// arsDescontado queda en 0: la tienda ya no tiene saldo en ARS.
 export function calcularDescuento(
   moneda: DescuentoMoneda,
   monto: number,
@@ -78,17 +79,14 @@ export function calcularDescuento(
     case 'ARS':
     case 'ARS_BILLETE': {
       const cotizacion = pos(tasas.cotizacionUsdtArs, 'cotización USDT/ARS')
-      return { moneda, monto, cotizacionUsdtArs: cotizacion, arsDescontado: monto, usdtDescontado: monto / cotizacion }
+      return { moneda, monto, cotizacionUsdtArs: cotizacion, arsDescontado: 0, usdtDescontado: monto / cotizacion }
     }
-    case 'USDT': {
-      const tasa = pos(tasas.tasaUsdtArs, 'tasa USDT/ARS')
-      return { moneda, monto, tasaUsdtArs: tasa, arsDescontado: monto * tasa, usdtDescontado: monto }
-    }
+    case 'USDT':
+      return { moneda, monto, arsDescontado: 0, usdtDescontado: monto }
     case 'USD':
     case 'USD_BILLETE': {
-      const tasaArs = pos(tasas.tasaUsdArs, 'tasa USD/ARS')
       const tasaUsdt = pos(tasas.tasaUsdUsdt, 'tasa USD/USDT')
-      return { moneda, monto, tasaUsdArs: tasaArs, tasaUsdUsdt: tasaUsdt, arsDescontado: monto * tasaArs, usdtDescontado: monto * tasaUsdt }
+      return { moneda, monto, tasaUsdUsdt: tasaUsdt, arsDescontado: 0, usdtDescontado: monto * tasaUsdt }
     }
     default:
       throw new Error(`Moneda de descuento desconocida: ${moneda}`)
@@ -107,9 +105,9 @@ export async function registrarEgresoTransferencia(
     store_id: storeId,
     tipo: 'egreso_transferencia',
     fecha: new Date().toISOString(),
-    ars: -descuento.arsDescontado,
+    ars: -descuento.arsDescontado,   // 0: la tienda ya no lleva saldo en ARS
     usdt: -descuento.usdtDescontado,
-    usdt_rate: descuento.arsDescontado > 0 ? descuento.arsDescontado / descuento.usdtDescontado : null,
+    usdt_rate: descuento.cotizacionUsdtArs ?? null,   // solo aplica a retiros en ARS
     rate_source: 'manual',
     ref_transfer_id: transferId,
     descripcion,

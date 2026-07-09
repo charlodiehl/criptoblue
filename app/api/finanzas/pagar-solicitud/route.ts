@@ -80,8 +80,8 @@ export async function POST(req: NextRequest) {
     audit({
       category: 'user_action', action: 'finanzas.solicitud_pagada', result: 'success', actor: 'human',
       component: 'api/finanzas/pagar-solicitud', storeId: solicitud.storeId, storeName,
-      amount: descuento.arsDescontado,
-      message: `Solicitud #${solicitud.id} (${solicitud.tipo}) pagada por ${auth.user.email} — descontó ${descuento.arsDescontado} ARS / ${descuento.usdtDescontado} USDT`,
+      amount: descuento.usdtDescontado,
+      message: `Solicitud #${solicitud.id} (${solicitud.tipo}) pagada por ${auth.user.email} — descontó ${descuento.usdtDescontado} USDT`,
     })
 
     return NextResponse.json({ success: true, descuento })

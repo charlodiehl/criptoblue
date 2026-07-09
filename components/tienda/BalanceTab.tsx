@@ -36,14 +36,17 @@ const CUTOFF_DATE = '2026-07-08'
 
 const fmtUsdt = (n: number) => n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const fmtPct = (n: number) => n.toLocaleString('es-AR', { maximumFractionDigits: 2 })
-const fmtArs = (n: number) => ARS.format(n)
 
 export default function BalanceTab({ qs, notify }: Props) {
   const [balance, setBalance] = useState<Balance | null>(null)
   const [fecha, setFecha] = useState(hoyART())
+  const [search, setSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   const [rows, setRows] = useState<Row[]>([])
   const [loadingBalance, setLoadingBalance] = useState(true)
   const [loadingRows, setLoadingRows] = useState(true)
+
+  const searching = debouncedSearch.length > 0
 
   const fetchBalance = useCallback(async () => {
     setLoadingBalance(true)
@@ -58,11 +61,15 @@ export default function BalanceTab({ qs, notify }: Props) {
     }
   }, [qs, notify])
 
-  const fetchRows = useCallback(async (dia: string) => {
+  // Con búsqueda → busca en todo el registro; sin búsqueda → órdenes del día.
+  const fetchRows = useCallback(async () => {
     setLoadingRows(true)
     try {
       const sep = qs ? '&' : '?'
-      const res = await fetch(`/api/tienda/registro${qs}${sep}fecha=${dia}`)
+      const url = debouncedSearch
+        ? `/api/tienda/registro${qs}${sep}q=${encodeURIComponent(debouncedSearch)}`
+        : `/api/tienda/registro${qs}${sep}fecha=${fecha}`
+      const res = await fetch(url)
       if (!res.ok) throw new Error((await res.json()).error || 'Error')
       const data = await res.json()
       setRows(data.rows || [])
@@ -72,7 +79,13 @@ export default function BalanceTab({ qs, notify }: Props) {
     } finally {
       setLoadingRows(false)
     }
-  }, [qs, notify])
+  }, [qs, notify, fecha, debouncedSearch])
+
+  // Debounce del buscador (300ms) para no pegarle al server en cada tecla.
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search.trim()), 300)
+    return () => clearTimeout(t)
+  }, [search])
 
   // Carga inicial + refresco cada 60s (el balance cambia al emparejarse pagos o pagar transferencias)
   useEffect(() => {
@@ -80,16 +93,14 @@ export default function BalanceTab({ qs, notify }: Props) {
     const iv = setInterval(fetchBalance, 60_000)
     return () => clearInterval(iv)
   }, [fetchBalance])
-  useEffect(() => { fetchRows(fecha) }, [fecha, fetchRows])
+  useEffect(() => { fetchRows() }, [fetchRows])
 
   return (
     <div className="space-y-5">
-      {/* Tarjeta de balance global (NETO, con la comisión ya descontada) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      {/* Tarjeta de balance global — SOLO USDT (NETO, con la comisión ya descontada) */}
+      <div className="grid grid-cols-1 gap-3 max-w-sm">
         <BalanceCard label="Saldo en USDT" value={balance?.usdt ?? 0} format={fmtUsdt} suffix="USDT" color="#00d4ff" delay={0} loading={loadingBalance}
           comisionValue={balance?.comisionUsdt} comisionFormat={fmtUsdt} comisionPct={balance?.comisionPct} comisionSuffix="USDT" />
-        <BalanceCard label="Saldo en ARS" value={balance?.ars ?? 0} format={fmtArs} color="#00ff88" delay={0.06} loading={loadingBalance}
-          comisionValue={balance?.comisionArs} comisionFormat={fmtArs} comisionPct={balance?.comisionPct} />
       </div>
 
       {balance && balance.pendientes > 0 && (
@@ -100,18 +111,38 @@ export default function BalanceTab({ qs, notify }: Props) {
         </div>
       )}
 
-      {/* Selector de fecha */}
+      {/* Buscador de órdenes (en todo el registro desde el corte) */}
+      <div className="relative">
+        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm pointer-events-none" style={{ color: 'rgba(148,163,184,0.6)' }}>🔍</span>
+        <input
+          type="text"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Buscar orden por N° de orden, nombre, CUIT o monto…"
+          className="w-full rounded-xl py-2.5 pl-9 pr-9 text-sm outline-none"
+          style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(0,212,255,0.25)', color: 'rgba(226,232,240,0.92)' }}
+        />
+        {search && (
+          <button onClick={() => setSearch('')} aria-label="Limpiar búsqueda"
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-lg leading-none"
+            style={{ color: 'rgba(148,163,184,0.7)', cursor: 'pointer' }}>×</button>
+        )}
+      </div>
+
+      {/* Selector de fecha (se desactiva cuando hay búsqueda) */}
       <div className="flex items-center gap-3 flex-wrap">
-        <label className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'rgba(0,212,255,0.7)' }}>Día</label>
+        <label className="text-xs font-semibold uppercase tracking-widest" style={{ color: searching ? 'rgba(148,163,184,0.4)' : 'rgba(0,212,255,0.7)' }}>Día</label>
         <input
           type="date"
           value={fecha}
           min={CUTOFF_DATE}
           max={hoyART()}
+          disabled={searching}
           onChange={e => setFecha(e.target.value)}
-          className="rounded-lg px-3 py-2 text-sm outline-none"
+          className="rounded-lg px-3 py-2 text-sm outline-none disabled:opacity-40 disabled:cursor-not-allowed"
           style={{ background: 'rgba(0,212,255,0.05)', border: '1px solid rgba(0,212,255,0.35)', color: 'rgba(226,232,240,0.9)', colorScheme: 'dark' }}
         />
+        {searching && <span className="text-xs" style={{ color: 'rgba(0,212,255,0.7)' }}>Mostrando resultados de búsqueda en todo el registro</span>}
       </div>
 
       {/* Tabla de órdenes del día */}
@@ -130,7 +161,9 @@ export default function BalanceTab({ qs, notify }: Props) {
               {loadingRows ? (
                 <tr><td colSpan={9} className="px-3 py-8 text-center text-sm" style={{ color: 'rgba(148,163,184,0.5)' }}>Cargando…</td></tr>
               ) : rows.length === 0 ? (
-                <tr><td colSpan={9} className="px-3 py-8 text-center text-sm" style={{ color: 'rgba(148,163,184,0.5)' }}>Sin órdenes acreditadas este día</td></tr>
+                <tr><td colSpan={9} className="px-3 py-8 text-center text-sm" style={{ color: 'rgba(148,163,184,0.5)' }}>
+                  {searching ? `Sin resultados para "${debouncedSearch}"` : 'Sin órdenes acreditadas este día'}
+                </td></tr>
               ) : (
                 rows.map((r, i) => (
                   <motion.tr key={i} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3, delay: Math.min(i * 0.025, 0.4) }}

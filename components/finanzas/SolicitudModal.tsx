@@ -2,7 +2,6 @@
 
 import { useState, useMemo } from 'react'
 import { motion } from 'framer-motion'
-import { ARS } from '@/lib/utils'
 import type { DescuentoMoneda } from '@/lib/types'
 import type { SolicitudConTienda } from './AdminGeneralTab'
 import type { Toast } from './FinanzasApp'
@@ -22,13 +21,14 @@ const MONEDAS: { value: DescuentoMoneda; label: string }[] = [
   { value: 'ARS_BILLETE', label: 'ARS billete' },
 ]
 
-// Campos de tasa obligatorios por moneda (espejo de calcularDescuento en el server)
+// Campos de tasa obligatorios por moneda (espejo de calcularDescuento en el server).
+// El saldo vive solo en USDT → solo se piden las tasas para pasar A USDT.
 const TASAS_POR_MONEDA: Record<DescuentoMoneda, { key: string; label: string }[]> = {
   ARS: [{ key: 'cotizacionUsdtArs', label: 'Cotización USDT/ARS (cuántos ARS = 1 USDT)' }],
   ARS_BILLETE: [{ key: 'cotizacionUsdtArs', label: 'Cotización USDT/ARS (cuántos ARS = 1 USDT)' }],
-  USDT: [{ key: 'tasaUsdtArs', label: 'Tasa USDT/ARS (cuántos ARS = 1 USDT)' }],
-  USD: [{ key: 'tasaUsdArs', label: 'Tasa USD/ARS' }, { key: 'tasaUsdUsdt', label: 'Tasa USD/USDT' }],
-  USD_BILLETE: [{ key: 'tasaUsdArs', label: 'Tasa USD/ARS' }, { key: 'tasaUsdUsdt', label: 'Tasa USD/USDT' }],
+  USDT: [],
+  USD: [{ key: 'tasaUsdUsdt', label: 'Tasa USD/USDT (cuántos USDT = 1 USD)' }],
+  USD_BILLETE: [{ key: 'tasaUsdUsdt', label: 'Tasa USD/USDT (cuántos USDT = 1 USD)' }],
 }
 
 // Etiquetas legibles de los campos del formulario que envió la tienda
@@ -55,17 +55,18 @@ const labelStyle: React.CSSProperties = {
 // Fondo oscuro para las <option> del select nativo (sino el browser las pinta gris).
 const optionStyle: React.CSSProperties = { background: '#0d1117', color: 'rgba(226,232,240,0.92)' }
 
-// Cálculo de descuento en vivo (solo preview; el server recalcula y es la fuente de verdad)
-function preview(moneda: DescuentoMoneda, monto: number, tasas: Record<string, number>): { ars: number; usdt: number } | null {
+// Cálculo de descuento en vivo (solo preview; el server recalcula y es la fuente de
+// verdad). El saldo es USDT-only → solo se calcula el USDT a descontar.
+function preview(moneda: DescuentoMoneda, monto: number, tasas: Record<string, number>): { usdt: number } | null {
   if (!Number.isFinite(monto) || monto <= 0) return null
   const ok = (v: number | undefined) => Number.isFinite(v) && (v as number) > 0
   switch (moneda) {
     case 'ARS': case 'ARS_BILLETE':
-      return ok(tasas.cotizacionUsdtArs) ? { ars: monto, usdt: monto / tasas.cotizacionUsdtArs } : null
+      return ok(tasas.cotizacionUsdtArs) ? { usdt: monto / tasas.cotizacionUsdtArs } : null
     case 'USDT':
-      return ok(tasas.tasaUsdtArs) ? { ars: monto * tasas.tasaUsdtArs, usdt: monto } : null
+      return { usdt: monto }
     case 'USD': case 'USD_BILLETE':
-      return ok(tasas.tasaUsdArs) && ok(tasas.tasaUsdUsdt) ? { ars: monto * tasas.tasaUsdArs, usdt: monto * tasas.tasaUsdUsdt } : null
+      return ok(tasas.tasaUsdUsdt) ? { usdt: monto * tasas.tasaUsdUsdt } : null
   }
 }
 
@@ -122,7 +123,7 @@ export default function SolicitudModal({ solicitud, notify, onClose, onPaid }: P
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Error')
-      notify(`Pago confirmado. Se descontó ${ARS.format(data.descuento.arsDescontado)} y ${data.descuento.usdtDescontado.toFixed(2)} USDT ✓`, 'success')
+      notify(`Pago confirmado. Se descontó ${data.descuento.usdtDescontado.toFixed(2)} USDT del saldo ✓`, 'success')
       onPaid()
     } catch (err) {
       notify(err instanceof Error ? err.message : 'No se pudo confirmar', 'error')
@@ -205,11 +206,10 @@ export default function SolicitudModal({ solicitud, notify, onClose, onPaid }: P
                   style={{ background: calc ? 'rgba(248,113,113,0.06)' : 'rgba(255,255,255,0.02)', border: `1px solid ${calc ? 'rgba(248,113,113,0.2)' : 'rgba(148,163,184,0.1)'}` }}>
                   {calc ? (
                     <span style={{ color: 'rgba(226,232,240,0.85)' }}>
-                      Se descontarán <span className="font-bold" style={{ color: '#f87171' }}>{ARS.format(calc.ars)}</span> y{' '}
-                      <span className="font-bold" style={{ color: '#f87171' }}>{calc.usdt.toLocaleString('es-AR', { maximumFractionDigits: 2 })} USDT</span> del saldo.
+                      Se descontarán <span className="font-bold" style={{ color: '#f87171' }}>{calc.usdt.toLocaleString('es-AR', { maximumFractionDigits: 2 })} USDT</span> del saldo.
                     </span>
                   ) : (
-                    <span style={{ color: 'rgba(148,163,184,0.5)' }}>Completá monto y tasas para ver el descuento.</span>
+                    <span style={{ color: 'rgba(148,163,184,0.5)' }}>Completá el monto{TASAS_POR_MONEDA[moneda].length ? ' y la tasa' : ''} para ver el descuento.</span>
                   )}
                 </div>
               )}

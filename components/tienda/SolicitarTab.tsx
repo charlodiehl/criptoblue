@@ -240,8 +240,7 @@ export default function SolicitarTab({ qs, notify }: Props) {
                 {s.estado === 'pagada' && s.descuento && (
                   <div className="text-[11px] mt-2 px-3 py-2 rounded-lg"
                     style={{ background: 'rgba(0,0,0,0.25)', color: 'rgba(226,232,240,0.7)' }}>
-                    Descontado del saldo: <span style={{ color: '#f87171' }}>−{Number(s.descuento.arsDescontado).toLocaleString('es-AR')} ARS</span>
-                    {' · '}<span style={{ color: '#f87171' }}>−{Number(s.descuento.usdtDescontado).toLocaleString('es-AR', { maximumFractionDigits: 2 })} USDT</span>
+                    Descontado del saldo: <span style={{ color: '#f87171' }}>−{Number(s.descuento.usdtDescontado).toLocaleString('es-AR', { maximumFractionDigits: 2 })} USDT</span>
                     {s.comprobantePath && (
                       <> · <a href={`/api/tienda/comprobante?id=${s.id}${qs ? `&${qs.slice(1)}` : ''}`} target="_blank" rel="noopener noreferrer" style={{ color: '#00d4ff', textDecoration: 'underline' }}>Ver comprobante</a></>
                     )}

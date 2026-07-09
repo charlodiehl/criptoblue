@@ -288,8 +288,8 @@ export default function ReembolsosAdmin({ notify, onReembolsado }: Props) {
                     <div className="rounded-xl px-4 py-3 text-sm" style={{ background: 'rgba(248,113,113,0.06)', border: '1px solid rgba(248,113,113,0.2)' }}>
                       {usdtPreview != null && montoNum > 0 ? (
                         <span style={{ color: 'rgba(226,232,240,0.85)' }}>
-                          Se restará del saldo: <span className="font-bold" style={{ color: '#f87171' }}>{ARS.format(montoNum)}</span> y{' '}
-                          <span className="font-bold" style={{ color: '#f87171' }}>{fmtNum(usdtPreview)} USDT</span>.
+                          Se restará <span className="font-bold" style={{ color: '#f87171' }}>{fmtNum(usdtPreview)} USDT</span> del saldo de la tienda
+                          {resultado.order.wallet && <> y <span className="font-bold" style={{ color: '#f87171' }}>{ARS.format(montoNum)}</span> de la billetera {resultado.order.wallet}</>}.
                         </span>
                       ) : (
                         <span style={{ color: 'rgba(148,163,184,0.5)' }}>Completá monto y cotización para ver el descuento.</span>

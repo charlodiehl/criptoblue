@@ -15,8 +15,7 @@ export interface BalanceCard { storeId: string; storeName: string; ars: number; 
 export interface BilleteraItem { wallet: string; totalArs: number; cantidad: number }
 
 const fmtUsdt = (n: number) => n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-const fmtArsInt = (n: number) => Math.round(n).toLocaleString('es-AR')
-const fmtArs = (n: number) => ARS.format(n)
+const fmtArs = (n: number) => ARS.format(n)  // usado en el menú lateral de billeteras (siguen en ARS)
 
 export default function FinanzasApp({ userEmail }: { userEmail?: string }) {
   const [cards, setCards] = useState<BalanceCard[]>([])
@@ -168,10 +167,6 @@ export default function FinanzasApp({ userEmail }: { userEmail?: string }) {
                 <div className="flex items-baseline gap-1">
                   <AnimatedNumber value={c.usdt} format={fmtUsdt} className="text-xl font-black" style={{ color: '#00d4ff' }} />
                   <span className="text-[10px] font-bold" style={{ color: 'rgba(0,212,255,0.6)' }}>USDT</span>
-                </div>
-                <div className="flex items-baseline gap-1 mt-0.5">
-                  <AnimatedNumber value={c.ars} format={fmtArsInt} className="text-sm font-bold" style={{ color: '#00ff88' }} />
-                  <span className="text-[10px] font-bold" style={{ color: 'rgba(0,255,136,0.6)' }}>ARS</span>
                 </div>
                 {c.pendientes > 0 && <div className="text-[10px] mt-1" style={{ color: '#fbbf24' }}>{c.pendientes} sin cotización</div>}
               </button>
