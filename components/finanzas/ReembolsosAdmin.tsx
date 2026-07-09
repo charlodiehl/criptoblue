@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ARS, fmtDate } from '@/lib/utils'
 import ComprobanteInput from '@/components/ComprobanteInput'
+import TasaInput from '@/components/TasaInput'
 import type { RefundRequest } from '@/lib/types'
 import type { Toast } from './FinanzasApp'
 
@@ -273,11 +274,7 @@ export default function ReembolsosAdmin({ notify, onReembolsado }: Props) {
                           onChange={e => setMonto(e.target.value)} placeholder="0.00" />
                         <div className="text-[11px] mt-1" style={{ color: 'rgba(148,163,184,0.6)' }}>Disponible: {ARS.format(restante)}</div>
                       </div>
-                      <div>
-                        <label style={labelStyle}>Cotización USDT/ARS</label>
-                        <input type="number" inputMode="decimal" min="0" step="0.0001" style={inputStyle} value={cotizacion}
-                          onChange={e => setCotizacion(e.target.value)} placeholder="Cuántos ARS = 1 USDT" />
-                      </div>
+                      <TasaInput key={`cot-${compKey}`} label="Cotización USDT/ARS" value={cotizacion} onChange={setCotizacion} notify={notify} />
                     </div>
 
                     <div>

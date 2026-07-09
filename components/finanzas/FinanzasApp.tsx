@@ -210,7 +210,7 @@ export default function FinanzasApp({ userEmail }: { userEmail?: string }) {
             <AnimatePresence mode="wait">
               <motion.div key={active} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.18 }}>
                 {active === 'general' ? (
-                  <AdminGeneralTab notify={notify} onSolicitudPagada={fetchBalances} />
+                  <AdminGeneralTab notify={notify} onSolicitudPagada={() => { fetchBalances(); fetchBilleteras() }} />
                 ) : active.startsWith('bill:') ? (
                   <BilleteraTab wallet={active.slice(5)} notify={notify} />
                 ) : activeStore ? (

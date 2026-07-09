@@ -5,6 +5,7 @@ import { ARS, fmtDate } from '@/lib/utils'
 import type { TransferRequest, TransferTipo } from '@/lib/types'
 import SolicitudModal from './SolicitudModal'
 import ReembolsosAdmin from './ReembolsosAdmin'
+import SaldoPersonalizado from './SaldoPersonalizado'
 import type { Toast } from './FinanzasApp'
 
 export type SolicitudConTienda = TransferRequest & { storeName: string }
@@ -183,6 +184,9 @@ export default function AdminGeneralTab({ notify, onSolicitudPagada }: Props) {
           </div>
         )}
       </section>
+
+      {/* Añadir saldo personalizado (ingreso manual a tienda/billetera) */}
+      <SaldoPersonalizado notify={notify} onSaldoAgregado={onSolicitudPagada} />
 
       {/* Solicitudes pendientes */}
       <section>

@@ -159,6 +159,26 @@ export async function registrarReembolso(
   return data.id as number
 }
 
+// Ingreso con cotización MANUAL (saldo personalizado del admin). tipo='ingreso_orden'
+// → cuenta en la base de comisión, igual que una orden. ars/usdt positivos, la tasa
+// la pone el admin → rate_source 'manual' (no entra al backfill).
+export async function registrarIngresoManual(
+  storeId: string, registroId: number | null, ars: number, usdt: number, tasa: number, descripcion: string,
+): Promise<void> {
+  const { error } = await getClient().from(TABLE).insert({
+    store_id: storeId,
+    tipo: 'ingreso_orden',
+    fecha: new Date().toISOString(),
+    ars,
+    usdt,
+    usdt_rate: tasa,
+    rate_source: 'manual',
+    ref_registro_id: registroId,
+    descripcion,
+  })
+  if (error) throw new Error(`registrarIngresoManual falló: ${error.message} [${error.code}]`)
+}
+
 // Ajuste manual (saldos iniciales, correcciones). ars/usdt SIGNADOS.
 export async function registrarAjuste(storeId: string, ars: number, usdt: number, descripcion: string): Promise<void> {
   const { error } = await getClient().from(TABLE).insert({

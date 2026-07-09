@@ -151,7 +151,7 @@ export default function BalanceTab({ qs, notify }: Props) {
           <table className="w-full text-sm" style={{ borderCollapse: 'collapse', minWidth: '900px' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid rgba(0,212,255,0.12)' }}>
-                {['Fecha y hora', 'Monto (ARS)', `Comisión (${fmtPct(balance?.comisionPct ?? 0)}%)`, 'Cotización USDT', 'Equivalente USDT', 'CUIT/CUIL/DNI', 'Nombre y apellido', 'N° orden', 'Billetera'].map(h => (
+                {['Fecha y hora', 'Monto (ARS)', `Comisión (${fmtPct(balance?.comisionPct ?? 0)}%)`, 'Cotización USDT', 'Equivalente USDT', 'CUIT/CUIL/DNI', 'Nombre y apellido', 'N° orden'].map(h => (
                   <th key={h} className="text-left px-3 py-3 text-[11px] font-semibold uppercase tracking-wider whitespace-nowrap"
                     style={{ color: 'rgba(148,163,184,0.7)' }}>{h}</th>
                 ))}
@@ -159,9 +159,9 @@ export default function BalanceTab({ qs, notify }: Props) {
             </thead>
             <tbody>
               {loadingRows ? (
-                <tr><td colSpan={9} className="px-3 py-8 text-center text-sm" style={{ color: 'rgba(148,163,184,0.5)' }}>Cargando…</td></tr>
+                <tr><td colSpan={8} className="px-3 py-8 text-center text-sm" style={{ color: 'rgba(148,163,184,0.5)' }}>Cargando…</td></tr>
               ) : rows.length === 0 ? (
-                <tr><td colSpan={9} className="px-3 py-8 text-center text-sm" style={{ color: 'rgba(148,163,184,0.5)' }}>
+                <tr><td colSpan={8} className="px-3 py-8 text-center text-sm" style={{ color: 'rgba(148,163,184,0.5)' }}>
                   {searching ? `Sin resultados para "${debouncedSearch}"` : 'Sin órdenes acreditadas este día'}
                 </td></tr>
               ) : (
@@ -180,7 +180,6 @@ export default function BalanceTab({ qs, notify }: Props) {
                     <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: 'rgba(226,232,240,0.7)' }}>{r.cuit || '—'}</td>
                     <td className="px-3 py-2.5" style={{ color: 'rgba(226,232,240,0.85)' }}>{r.nombre || '—'}</td>
                     <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: 'rgba(226,232,240,0.7)' }}>{r.orderNumber ? `#${r.orderNumber}` : '—'}</td>
-                    <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: 'rgba(0,212,255,0.75)' }}>{r.billetera}</td>
                   </motion.tr>
                 ))
               )}

@@ -79,6 +79,16 @@ export async function appendRegistroEntry(entry: LogEntry): Promise<void> {
   await registrarIngresoBestEffort(data?.id ?? null, entry)
 }
 
+// Inserta una entrada SIN el hook de balance (el caller crea el movimiento a mano,
+// p. ej. con cotización manual en el saldo personalizado). Devuelve el id de la fila.
+export async function insertRegistroEntry(entry: LogEntry): Promise<number> {
+  const supabase = getClient()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (supabase.from(TABLE) as any).insert(entryToRow(entry)).select('id').single()
+  if (error) throw new Error(`insertRegistroEntry falló: ${error.message} [${error.code}]`)
+  return data.id as number
+}
+
 export async function appendRegistroEntries(entries: LogEntry[]): Promise<void> {
   if (!entries.length) return
   const supabase = getClient()

@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from 'react'
 import { motion } from 'framer-motion'
+import TasaInput from '@/components/TasaInput'
 import type { DescuentoMoneda } from '@/lib/types'
 import type { SolicitudConTienda } from './AdminGeneralTab'
 import type { Toast } from './FinanzasApp'
@@ -192,10 +193,15 @@ export default function SolicitudModal({ solicitud, notify, onClose, onPaid }: P
                     <input type="number" min="0" step="0.01" style={inputStyle} value={monto} onChange={e => setMonto(e.target.value)} placeholder="0.00" />
                   </div>
                   {TASAS_POR_MONEDA[moneda].map(t => (
-                    <div key={t.key}>
-                      <label style={labelStyle}>{t.label} *</label>
-                      <input type="number" min="0" step="0.0001" style={inputStyle} value={tasas[t.key] || ''} onChange={e => setTasa(t.key, e.target.value)} placeholder="0.00" />
-                    </div>
+                    // La cotización ARS/USDT admite "Usar cotización estándar"; la USD/USDT no.
+                    t.key === 'cotizacionUsdtArs'
+                      ? <TasaInput key={t.key} label={`${t.label} *`} value={tasas[t.key] || ''} onChange={v => setTasa(t.key, v)} notify={notify} />
+                      : (
+                        <div key={t.key}>
+                          <label style={labelStyle}>{t.label} *</label>
+                          <input type="number" min="0" step="0.0001" style={inputStyle} value={tasas[t.key] || ''} onChange={e => setTasa(t.key, e.target.value)} placeholder="0.00" />
+                        </div>
+                      )
                   ))}
                 </>
               )}
