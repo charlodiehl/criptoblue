@@ -260,6 +260,52 @@ export async function getMovimientosDia(storeId: string, diaART: string): Promis
   return (data ?? []).map(rowToMovement)
 }
 
+// La descripción del movimiento ("Orden #123 · Tienda") se arma al crearlo. Si el
+// admin corrige el número de orden o el nombre de la tienda, hay que reescribirla:
+// si no, el extracto del balance sigue mostrando el número viejo.
+export async function actualizarDescripcionIngreso(registroId: number, descripcion: string): Promise<void> {
+  const { error } = await getClient()
+    .from(TABLE)
+    .update({ descripcion })
+    .eq('ref_registro_id', registroId)
+    .eq('tipo', 'ingreso_orden')
+  if (error) throw new Error(`actualizarDescripcionIngreso falló: ${error.message} [${error.code}]`)
+}
+
+// Cambia la cotización de un ingreso ya registrado y recalcula su USDT. Es la
+// única forma de que el saldo de la tienda cambie por una edición: el ARS no se
+// toca, solo cuántos USDT valían esos pesos.
+//
+// rate_source pasa a 'manual': la puso el admin a mano, así que el backfill de
+// cotizaciones no debe volver a pisarla.
+//
+// Devuelve el movimiento actualizado, o null si esa entrada no tiene movimiento de
+// balance (p. ej. una orden anterior a BALANCE_CUTOFF, que nunca generó ingreso).
+export async function actualizarCotizacionDeIngreso(
+  registroId: number, cotizacion: number,
+): Promise<BalanceMovement | null> {
+  if (!Number.isFinite(cotizacion) || cotizacion <= 0) throw new Error('Cotización inválida')
+
+  const { data: mov, error: selErr } = await getClient()
+    .from(TABLE)
+    .select('*')
+    .eq('ref_registro_id', registroId)
+    .eq('tipo', 'ingreso_orden')
+    .maybeSingle()
+  if (selErr) throw new Error(`actualizarCotizacionDeIngreso(select) falló: ${selErr.message} [${selErr.code}]`)
+  if (!mov) return null
+
+  const ars = Number(mov.ars) || 0
+  const { data, error } = await getClient()
+    .from(TABLE)
+    .update({ usdt: ars / cotizacion, usdt_rate: cotizacion, rate_source: 'manual' })
+    .eq('id', mov.id)
+    .select('*')
+    .single()
+  if (error) throw new Error(`actualizarCotizacionDeIngreso(update) falló: ${error.message} [${error.code}]`)
+  return rowToMovement(data)
+}
+
 // Días (ART) en los que la tienda tuvo algún movimiento: una orden acreditada, una
 // transferencia pagada, un reembolso o un ajuste. El calendario deshabilita el resto.
 // Paginado: la tabla crece sin cota y truncarla escondería días en silencio.

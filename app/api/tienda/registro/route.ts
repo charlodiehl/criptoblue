@@ -34,6 +34,7 @@ export async function GET(req: NextRequest) {
       const mov = movimientos.get(registroId)
       const monto = entry.amount ?? entry.payment?.monto ?? 0
       return {
+        registroId,   // lo necesita el admin para editar la entrada
         // Fecha y hora del PAGO (la que trajo la planilla), no la del emparejamiento.
         fecha: entry.paymentReceivedAt || entry.payment?.fechaPago || entry.timestamp,
         monto,

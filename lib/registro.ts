@@ -5,10 +5,13 @@
 // ─────────────────────────────────────────────────────────────
 import type { LogEntry, Payment, Order } from './types'
 import { getClient } from './storage'
-import { registrarIngresoOrden } from './balance'
+import { registrarIngresoOrden, actualizarDescripcionIngreso } from './balance'
 import { BALANCE_CUTOFF } from './config'
 
 const TABLE = 'registro_log'
+
+// Acciones que representan una orden efectivamente pagada.
+const MATCHED_ACTIONS = ['manual_paid', 'auto_paid']
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>
@@ -545,54 +548,153 @@ export async function getReclamosRecientes(
 // Edición / marcado (para /api/log PATCH)
 // ─────────────────────────────────────────────
 
-export type RegistroEdit = {
-  customerName?: string
-  cuit?: string
-  orderNumber?: string
-  storeName?: string
-  hidden?: boolean
-}
+// Alias histórico: el registro general lo llamaba RegistroEdit. Es el mismo
+// conjunto de campos que edita Administración Financiera.
+export type RegistroEdit = RegistroCampos
 
-// Edita una entrada identificada por su timestamp. Aplica cambios a las columnas
-// top-level y a los sub-campos de los JSONB payment/order (espejo de applyEdit viejo).
+// Edita la entrada identificada por su timestamp (así la referencia el registro
+// general). Resuelve el ts a ids y delega en updateRegistroPorId, para que ambas
+// pantallas escriban por el mismo camino y no se desincronicen.
 export async function updateRegistroByTimestamp(timestamp: string, edit: RegistroEdit): Promise<boolean> {
   const supabase = getClient()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: rows, error: selErr } = await (supabase.from(TABLE) as any)
-    .select('*')
+    .select('id')
     .eq('ts', timestamp)
   if (selErr) throw new Error(`updateRegistroByTimestamp(select) falló: ${selErr.message} [${selErr.code}]`)
   if (!rows || rows.length === 0) return false
 
-  for (const row of rows as Row[]) {
-    const patch: Row = {}
-    const payment = row.payment ? { ...row.payment } : null
-    const orderData = row.order_data ? { ...row.order_data } : null
+  for (const row of rows as Row[]) await updateRegistroPorId(row.id, edit)
+  return true
+}
 
-    if (edit.customerName !== undefined) {
-      patch.customer_name = edit.customerName
-      if (payment) payment.nombrePagador = edit.customerName
-    }
-    if (edit.cuit !== undefined) {
-      if (payment) payment.cuitPagador = edit.cuit
-    }
-    if (edit.orderNumber !== undefined) {
-      patch.order_number = edit.orderNumber
-      if (orderData) orderData.orderNumber = edit.orderNumber
-    }
-    if (edit.storeName !== undefined) {
-      patch.store_name = edit.storeName
-      if (orderData) orderData.storeName = edit.storeName
-    }
-    if (edit.hidden !== undefined) {
-      patch.hidden = edit.hidden
-    }
-    if (payment) patch.payment = payment
-    if (orderData) patch.order_data = orderData
+// ─────────────────────────────────────────────
+// Edición de una entrada por id (panel del admin)
+// ─────────────────────────────────────────────
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { error: updErr } = await (supabase.from(TABLE) as any).update(patch).eq('id', row.id)
-    if (updErr) throw new Error(`updateRegistroByTimestamp(update) falló: ${updErr.message} [${updErr.code}]`)
+// Un número de orden puede llevar un sufijo de pago parcial: "77349 (1)" es el
+// segundo pago de la orden 77349. La base es el número sin ese sufijo.
+export function baseOrden(orderNumber: string): string {
+  return String(orderNumber ?? '').replace(/\s*\(\d+\)\s*$/, '').trim()
+}
+
+export interface EntradaOrden {
+  registroId: number
+  orderNumber: string
+  fecha: string
+  monto: number
+  cliente: string
+}
+
+// Otras entradas del registro de esa tienda que usan el mismo número de orden.
+//   • exactas  → mismo string. Duplicar esto es un error: la edición se bloquea.
+//   • similares → misma orden con otro sufijo ("77349" vs "77349 (1)"). Es legítimo
+//     (pago parcial), así que solo se avisa.
+//
+// La tienda se identifica por store_id Y por store_name: las entradas emparejadas
+// desde la pestaña Pagos (source='manual_pagos') quedan con store_id en NULL, y son
+// justamente las que llevan el sufijo de pago parcial. Filtrar solo por store_id
+// dejaría pasar el duplicado en el caso que más importa.
+export async function buscarEntradasPorOrden(
+  storeId: string, storeName: string, orderNumber: string, excluirRegistroId?: number,
+): Promise<{ exactas: EntradaOrden[]; similares: EntradaOrden[] }> {
+  const supabase = getClient()
+  const base = baseOrden(orderNumber)
+  if (!base) return { exactas: [], similares: [] }
+
+  // Se acota por el número (pocas filas) y la tienda se resuelve acá abajo.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (supabase.from(TABLE) as any)
+    .select('id, order_number, store_id, store_name, ts, amount, customer_name, payment')
+    .eq('hidden', false)
+    .in('action', MATCHED_ACTIONS)
+    .like('order_number', `${base}%`)
+  if (error) throw new Error(`buscarEntradasPorOrden falló: ${error.message} [${error.code}]`)
+
+  const exactas: EntradaOrden[] = []
+  const similares: EntradaOrden[] = []
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const r of (data ?? []) as any[]) {
+    if (excluirRegistroId != null && r.id === excluirRegistroId) continue
+    const esDeLaTienda = r.store_id ? r.store_id === storeId : r.store_name === storeName
+    if (!esDeLaTienda) continue
+    const num = String(r.order_number ?? '')
+    // El LIKE trae falsos positivos ("7734" matchea "77349"): filtrar por base exacta.
+    if (baseOrden(num) !== base) continue
+    const e: EntradaOrden = {
+      registroId: r.id,
+      orderNumber: num,
+      fecha: r.payment?.fechaPago || r.ts,
+      monto: Number(r.payment?.monto ?? r.amount) || 0,
+      cliente: r.payment?.nombrePagador || r.customer_name || '',
+    }
+    if (num === String(orderNumber)) exactas.push(e)
+    else similares.push(e)
+  }
+  return { exactas, similares }
+}
+
+export interface RegistroCampos {
+  orderNumber?: string
+  customerName?: string
+  cuit?: string
+  storeName?: string
+  hidden?: boolean
+}
+
+// ÚNICO camino de edición del registro. Lo usan las dos pantallas —el registro
+// general y la tabla de Administración Financiera— para que una corrección hecha
+// en cualquiera de las dos se vea en la otra. registro_log es la fuente de verdad.
+//
+// No toca monto ni fecha: eso movería el saldo por la puerta de atrás.
+//
+// Los mismos datos viven duplicados en tres lugares por diseño de la tabla
+// (columnas top-level, el JSONB `payment` y el JSONB `order_data`) y hay que
+// escribirlos en los tres: la UI lee de uno u otro según la pantalla.
+export async function updateRegistroPorId(registroId: number, campos: RegistroCampos): Promise<boolean> {
+  const supabase = getClient()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: row, error: selErr } = await (supabase.from(TABLE) as any)
+    .select('*').eq('id', registroId).maybeSingle()
+  if (selErr) throw new Error(`updateRegistroPorId(select) falló: ${selErr.message} [${selErr.code}]`)
+  if (!row) return false
+
+  const patch: Row = {}
+  const payment = row.payment ? { ...row.payment } : null
+  const orderData = row.order_data ? { ...row.order_data } : null
+
+  if (campos.customerName !== undefined) {
+    patch.customer_name = campos.customerName
+    // La tabla del portal muestra payment.nombrePagador primero: se actualizan los dos.
+    if (payment) payment.nombrePagador = campos.customerName
+    if (orderData) orderData.customerName = campos.customerName
+  }
+  if (campos.cuit !== undefined) {
+    patch.cuit_pagador = campos.cuit
+    if (payment) payment.cuitPagador = campos.cuit
+  }
+  if (campos.orderNumber !== undefined) {
+    patch.order_number = campos.orderNumber
+    if (orderData) orderData.orderNumber = campos.orderNumber
+  }
+  if (campos.storeName !== undefined) {
+    patch.store_name = campos.storeName
+    if (orderData) orderData.storeName = campos.storeName
+  }
+  if (campos.hidden !== undefined) patch.hidden = campos.hidden
+  if (payment) patch.payment = payment
+  if (orderData) patch.order_data = orderData
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error } = await (supabase.from(TABLE) as any).update(patch).eq('id', registroId)
+  if (error) throw new Error(`updateRegistroPorId(update) falló: ${error.message} [${error.code}]`)
+
+  // El movimiento de balance guarda "Orden #123 · Tienda" congelado al crearse. Si
+  // cambió alguno de los dos, hay que reescribirlo o el extracto muestra el viejo.
+  if (campos.orderNumber !== undefined || campos.storeName !== undefined) {
+    const orden = campos.orderNumber ?? row.order_number
+    const tienda = campos.storeName ?? row.store_name
+    await actualizarDescripcionIngreso(registroId, `Orden #${orden || '—'} · ${tienda || ''}`.trim())
   }
   return true
 }

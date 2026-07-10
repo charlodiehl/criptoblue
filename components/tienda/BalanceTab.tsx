@@ -5,12 +5,15 @@ import { motion } from 'framer-motion'
 import { ARS, fmtDate } from '@/lib/utils'
 import AnimatedNumber, { NumberSkeleton } from '@/components/AnimatedNumber'
 import SelectorDia from '@/components/SelectorDia'
+import EditarRegistroModal, { type FilaEditable } from './EditarRegistroModal'
 import type { Toast } from './TiendaPortal'
 
 interface Props {
   storeId: string
   qs: string
   notify: (msg: string, type?: Toast['type']) => void
+  // Solo el admin puede corregir el registro (vista espejo desde /finanzas).
+  admin?: boolean
 }
 
 interface Movimiento {
@@ -42,6 +45,7 @@ interface Balance {
   dia?: BalanceDia
 }
 interface Row {
+  registroId: number
   fecha: string
   monto: number
   comision: number
@@ -62,7 +66,8 @@ function hoyART(): string {
 const fmtUsdt = (n: number) => n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const fmtPct = (n: number) => n.toLocaleString('es-AR', { maximumFractionDigits: 2 })
 
-export default function BalanceTab({ qs, notify }: Props) {
+export default function BalanceTab({ storeId, qs, notify, admin = false }: Props) {
+  const [editando, setEditando] = useState<FilaEditable | null>(null)
   const [balance, setBalance] = useState<Balance | null>(null)
   const [fecha, setFecha] = useState(hoyART())
   const [search, setSearch] = useState('')
@@ -217,7 +222,7 @@ export default function BalanceTab({ qs, notify }: Props) {
           <table className="w-full text-sm" style={{ borderCollapse: 'collapse', minWidth: '900px' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid rgba(0,212,255,0.12)' }}>
-                {['Fecha y hora', 'Monto (ARS)', `Comisión (${fmtPct(balance?.comisionPct ?? 0)}%)`, 'Cotización USDT', 'Equivalente USDT', 'CUIT/CUIL/DNI', 'Nombre y apellido', 'N° orden'].map(h => (
+                {[...['Fecha y hora', 'Monto (ARS)', `Comisión (${fmtPct(balance?.comisionPct ?? 0)}%)`, 'Cotización USDT', 'Equivalente USDT', 'CUIT/CUIL/DNI', 'Nombre y apellido', 'N° orden'], ...(admin ? [''] : [])].map(h => (
                   <th key={h} className="text-left px-3 py-3 text-[11px] font-semibold uppercase tracking-wider whitespace-nowrap"
                     style={{ color: 'rgba(148,163,184,0.7)' }}>{h}</th>
                 ))}
@@ -225,9 +230,9 @@ export default function BalanceTab({ qs, notify }: Props) {
             </thead>
             <tbody>
               {loadingRows ? (
-                <tr><td colSpan={8} className="px-3 py-8 text-center text-sm" style={{ color: 'rgba(148,163,184,0.5)' }}>Cargando…</td></tr>
+                <tr><td colSpan={admin ? 9 : 8} className="px-3 py-8 text-center text-sm" style={{ color: 'rgba(148,163,184,0.5)' }}>Cargando…</td></tr>
               ) : rows.length === 0 ? (
-                <tr><td colSpan={8} className="px-3 py-8 text-center text-sm" style={{ color: 'rgba(148,163,184,0.5)' }}>
+                <tr><td colSpan={admin ? 9 : 8} className="px-3 py-8 text-center text-sm" style={{ color: 'rgba(148,163,184,0.5)' }}>
                   {searching ? `Sin resultados para "${debouncedSearch}"` : 'Sin órdenes acreditadas este día'}
                 </td></tr>
               ) : (
@@ -246,6 +251,16 @@ export default function BalanceTab({ qs, notify }: Props) {
                     <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: 'rgba(226,232,240,0.7)' }}>{r.cuit || '—'}</td>
                     <td className="px-3 py-2.5" style={{ color: 'rgba(226,232,240,0.85)' }}>{r.nombre || '—'}</td>
                     <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: 'rgba(226,232,240,0.7)' }}>{r.orderNumber ? `#${r.orderNumber}` : '—'}</td>
+                    {admin && (
+                      <td className="px-3 py-2.5 whitespace-nowrap text-right">
+                        <button
+                          onClick={() => setEditando({ registroId: r.registroId, monto: r.monto, cuit: r.cuit, nombre: r.nombre, orderNumber: r.orderNumber, usdtRate: r.usdtRate })}
+                          className="rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-all"
+                          style={{ background: 'rgba(0,212,255,0.08)', border: '1px solid rgba(0,212,255,0.3)', color: '#00d4ff' }}>
+                          Editar
+                        </button>
+                      </td>
+                    )}
                   </motion.tr>
                 ))
               )}
@@ -296,6 +311,16 @@ export default function BalanceTab({ qs, notify }: Props) {
           </div>
         </div>
       )}
+
+      {editando && (
+        <EditarRegistroModal
+          fila={editando}
+          storeId={storeId}
+          onCerrar={() => setEditando(null)}
+          onGuardado={() => { fetchRows(); fetchBalance() }}
+          notify={notify}
+        />
+      )}
     </div>
   )
 }
@@ -307,14 +332,17 @@ const TIPO_LABEL: Record<string, string> = {
 }
 
 // Una línea del desglose del saldo del día. Todo en USDT: el saldo de tienda vive
-// en esa moneda y mostrar el equivalente en ARS al lado sólo agregaba ruido.
+// en esa moneda y mostrar el equivalente en ARS al lado sólo agregaba ruido. La
+// unidad se escribe acá una vez, y no en cada llamada.
 function Linea({ label, valor, color, signo }: {
   label: string; valor: string; color: string; signo: '+' | '−'
 }) {
   return (
     <div className="flex items-center justify-between gap-3">
       <span style={{ color: 'rgba(148,163,184,0.7)' }}>{label}</span>
-      <span className="font-semibold whitespace-nowrap" style={{ color }}>{signo}{valor}</span>
+      <span className="font-semibold whitespace-nowrap" style={{ color }}>
+        {signo}{valor}<span className="ml-1" style={{ opacity: 0.6 }}>USDT</span>
+      </span>
     </div>
   )
 }

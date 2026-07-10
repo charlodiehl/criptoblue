@@ -67,7 +67,7 @@ export default function TiendaPortal({ storeId, storeName, userEmail, admin = fa
         exit={{ opacity: 0, y: -8 }}
         transition={{ duration: 0.18 }}
       >
-        {tab === 'balance' && <BalanceTab storeId={storeId} qs={qs} notify={notify} />}
+        {tab === 'balance' && <BalanceTab storeId={storeId} qs={qs} notify={notify} admin={admin} />}
         {tab === 'solicitar' && <SolicitarTab storeId={storeId} qs={qs} notify={notify} />}
         {tab === 'buscar' && <BuscarPagosTab storeId={storeId} qs={qs} admin={admin} notify={notify} />}
         {tab === 'reembolso' && <SolicitarReembolsoTab storeId={storeId} qs={qs} notify={notify} />}
