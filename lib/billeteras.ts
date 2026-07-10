@@ -68,10 +68,14 @@ export interface DetalleBilletera {
   pagos: PagoBilletera[]    // del día seleccionado, o todos si no se pidió día
 }
 
+// Dos fechas distintas, y no hay que confundirlas:
+//   • fechaDia   → agrupa/filtra por día. Emparejado: el día del match. En cola: el de ingreso.
+//   • fechaPago  → lo que se MUESTRA. Siempre cuándo entró la plata, aunque sea de otro día.
 interface Ingreso {
   source: string
   monto: number
-  fecha: string
+  fechaDia: string
+  fechaPago: string
   titular: string
   estado: 'emparejado' | 'en_cola'
 }
@@ -134,10 +138,12 @@ async function idsEmparejados(): Promise<Set<string>> {
   return out
 }
 
-// Pagos EMPAREJADOS, fechados por el DÍA DEL EMPAREJAMIENTO (`ts`), no por el de
-// ingreso. Al emparejarse (manual o auto) el pago sale de la cola y pasa a figurar
-// en el día del match. Por eso un pago que ingresó antes del corte pero se emparejó
-// después SÍ cuenta: su fecha efectiva (el match) es ≥ corte.
+// Pagos EMPAREJADOS. Se agrupan por el DÍA DEL EMPAREJAMIENTO (`ts`), pero se
+// muestran con la fecha en que ingresó la plata (`payment.fechaPago`, con
+// `payment_received_at` de respaldo). Al emparejarse (manual o auto) el pago sale
+// de la cola y salta al día del match, conservando su fecha y hora original.
+// Por eso un pago que ingresó antes del corte pero se emparejó después SÍ cuenta:
+// su día efectivo (el match) es ≥ corte.
 // El filtro por corte lo hace el SQL sobre `ts` (indexado) — no hace falta refinar.
 async function ingresosEmparejadosDesdeCorte(): Promise<Ingreso[]> {
   const c = getClient()
@@ -148,7 +154,7 @@ async function ingresosEmparejadosDesdeCorte(): Promise<Ingreso[]> {
   for (;;) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data, error } = await (c.from('registro_log') as any)
-      .select('amount, ts, source:payment->>source, monto:payment->>monto, titular:payment->>nombrePagador')
+      .select('amount, ts, payment_received_at, source:payment->>source, monto:payment->>monto, titular:payment->>nombrePagador, fechaPago:payment->>fechaPago')
       .eq('hidden', false)
       .in('action', MATCHED_ACTIONS)
       .gte('ts', cutoffISO)
@@ -160,7 +166,8 @@ async function ingresosEmparejadosDesdeCorte(): Promise<Ingreso[]> {
       out.push({
         source: r.source,
         monto: Number(r.monto ?? r.amount) || 0,
-        fecha: r.ts,              // día del emparejamiento
+        fechaDia: r.ts,                                             // agrupa: día del match
+        fechaPago: r.fechaPago || r.payment_received_at || r.ts,    // muestra: ingreso del pago
         titular: r.titular || '',
         estado: 'emparejado',
       })
@@ -192,7 +199,8 @@ function ingresosEnColaDesdeCorte(hot: any, emparejadosIds: Set<string>, labelSe
     out.push({
       source: p.source,
       monto: Number(p.monto) || 0,
-      fecha,
+      fechaDia: fecha,     // mientras está en cola, agrupa por su día de ingreso…
+      fechaPago: fecha,    // …que es la misma fecha que se muestra
       titular: p.nombrePagador || '',
       estado: 'en_cola',
     })
@@ -263,7 +271,8 @@ export async function getIngresosBilletera(wallet: string, diaART?: string): Pro
   const comisionArs = totalArsBruto * pct / 100
   const reembolsosArs = refunds.reduce((s, r) => s + r.monto, 0)
 
-  // Filtro por día (ART) para el extracto.
+  // Filtro por día (ART) para el extracto: se acota por fechaDia (el día del match
+  // si está emparejado, el de ingreso si sigue en cola).
   let visibles = ingresos
   let totalDia: number | undefined
   let cantidadDia: number | undefined
@@ -271,14 +280,15 @@ export async function getIngresosBilletera(wallet: string, diaART?: string): Pro
     const desde = new Date(`${diaART}T00:00:00-03:00`).getTime()
     const hasta = desde + 24 * 60 * 60 * 1000
     visibles = ingresos.filter(m => {
-      const t = new Date(m.fecha).getTime() || 0
+      const t = new Date(m.fechaDia).getTime() || 0
       return t >= desde && t < hasta
     })
     totalDia = visibles.reduce((s, m) => s + m.monto, 0)
     cantidadDia = visibles.length
   }
 
-  visibles.sort((a, b) => (new Date(b.fecha).getTime() || 0) - (new Date(a.fecha).getTime() || 0))
+  // Se ordena por la fecha que se muestra (la del pago), que es la que el usuario lee.
+  visibles.sort((a, b) => (new Date(b.fechaPago).getTime() || 0) - (new Date(a.fechaPago).getTime() || 0))
 
   return {
     wallet,
@@ -290,7 +300,7 @@ export async function getIngresosBilletera(wallet: string, diaART?: string): Pro
     totalDia,
     cantidadDia,
     pagos: visibles.slice(0, EXTRACTO_LIMIT).map(m => ({
-      fecha: m.fecha,
+      fecha: m.fechaPago,   // siempre la fecha del pago, aunque el día elegido sea otro
       titular: m.titular,
       monto: m.monto,
       comision: m.monto * pct / 100,

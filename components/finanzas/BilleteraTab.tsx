@@ -76,7 +76,7 @@ export default function BilleteraTab({ wallet, notify }: { wallet: string; notif
       <div>
         <h2 className="text-lg font-bold" style={{ color: '#00d4ff' }}>Billetera {wallet}</h2>
         <p className="text-xs" style={{ color: 'rgba(148,163,184,0.5)' }}>
-          Ingresos desde el 08/07 (00:00). Los pagos en cola figuran en su día de ingreso; al emparejarse pasan al día del emparejamiento. Los marcados “No es de tiendas” no cuentan.
+          Ingresos desde el 08/07 (00:00). El día agrupa por emparejamiento: un pago en cola figura en su día de ingreso y, al emparejarse, pasa al día del match conservando su fecha y hora originales. Los marcados “No es de tiendas” no cuentan.
         </p>
       </div>
 
@@ -145,7 +145,7 @@ export default function BilleteraTab({ wallet, notify }: { wallet: string; notif
         />
         {data && (
           <span className="text-xs" style={{ color: 'rgba(148,163,184,0.7)' }}>
-            Ingresó este día: <AnimatedNumber value={data.totalDia ?? 0} format={fmtArs} className="font-bold" style={{ color: '#00ff88' }} />
+            Total de este día: <AnimatedNumber value={data.totalDia ?? 0} format={fmtArs} className="font-bold" style={{ color: '#00ff88' }} />
             <span style={{ color: 'rgba(148,163,184,0.5)' }}> · {data.cantidadDia ?? 0} pago{(data.cantidadDia ?? 0) === 1 ? '' : 's'}</span>
           </span>
         )}
@@ -157,7 +157,7 @@ export default function BilleteraTab({ wallet, notify }: { wallet: string; notif
           <table className="w-full text-sm" style={{ borderCollapse: 'collapse', minWidth: '640px' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid rgba(0,212,255,0.12)' }}>
-                {['Fecha y hora', 'Titular', 'Monto (ARS)', `Comisión (${fmtPct(data?.comisionPct ?? 0)}%)`, 'Estado'].map(h => (
+                {['Fecha y hora del pago', 'Titular', 'Monto (ARS)', `Comisión (${fmtPct(data?.comisionPct ?? 0)}%)`, 'Estado'].map(h => (
                   <th key={h} className="text-left px-3 py-3 text-[11px] font-semibold uppercase tracking-wider whitespace-nowrap"
                     style={{ color: 'rgba(148,163,184,0.7)' }}>{h}</th>
                 ))}
@@ -167,7 +167,7 @@ export default function BilleteraTab({ wallet, notify }: { wallet: string; notif
               {loading && !data ? (
                 <tr><td colSpan={5} className="px-3 py-8 text-center text-sm" style={{ color: 'rgba(148,163,184,0.5)' }}>Cargando…</td></tr>
               ) : !data || data.pagos.length === 0 ? (
-                <tr><td colSpan={5} className="px-3 py-8 text-center text-sm" style={{ color: 'rgba(148,163,184,0.5)' }}>Sin pagos ingresados este día</td></tr>
+                <tr><td colSpan={5} className="px-3 py-8 text-center text-sm" style={{ color: 'rgba(148,163,184,0.5)' }}>Sin pagos este día</td></tr>
               ) : (
                 data.pagos.map((p, i) => (
                   <motion.tr key={i} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3, delay: Math.min(i * 0.025, 0.4) }}
