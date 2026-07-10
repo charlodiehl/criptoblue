@@ -287,8 +287,8 @@ export async function getIngresosBilletera(wallet: string, diaART?: string): Pro
     cantidadDia = visibles.length
   }
 
-  // Se ordena por la fecha que se muestra (la del pago), que es la que el usuario lee.
-  visibles.sort((a, b) => (new Date(b.fechaPago).getTime() || 0) - (new Date(a.fechaPago).getTime() || 0))
+  // Ascendente por la fecha que se muestra (la del pago): los más antiguos arriba.
+  visibles.sort((a, b) => (new Date(a.fechaPago).getTime() || 0) - (new Date(b.fechaPago).getTime() || 0))
 
   return {
     wallet,
@@ -299,6 +299,7 @@ export async function getIngresosBilletera(wallet: string, diaART?: string): Pro
     reembolsos: refunds.map(r => ({ orderNumber: r.orderNumber, monto: r.monto, seq: r.seq, fecha: r.createdAt })),
     totalDia,
     cantidadDia,
+    // Al estar ordenado ascendente, el tope deja los EXTRACTO_LIMIT más antiguos.
     pagos: visibles.slice(0, EXTRACTO_LIMIT).map(m => ({
       fecha: m.fechaPago,   // siempre la fecha del pago, aunque el día elegido sea otro
       titular: m.titular,

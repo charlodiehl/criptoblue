@@ -194,7 +194,7 @@ export default function BilleteraTab({ wallet, notify }: { wallet: string; notif
 
       {data && (data.cantidadDia ?? 0) > data.pagos.length && (
         <p className="text-xs" style={{ color: 'rgba(148,163,184,0.5)' }}>
-          Mostrando los {data.pagos.length} pagos más recientes de {data.cantidadDia} del día.
+          Mostrando los {data.pagos.length} pagos más antiguos de {data.cantidadDia} del día.
         </p>
       )}
     </div>
