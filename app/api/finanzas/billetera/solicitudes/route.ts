@@ -1,18 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireUser } from '@/lib/auth/server'
 import { WALLETS } from '@/lib/config'
-import {
-  crearSolicitudBilletera, listarSolicitudesBilletera, calcularSalidaArs, type SalidaTipo,
-} from '@/lib/billetera-salidas'
+import { validarDatosSolicitud } from '@/lib/transferencias'
+import { crearSolicitudBilletera, listarSolicitudesBilletera, TIPOS_SALIDA, TIPO_LABEL } from '@/lib/billetera-salidas'
 import { audit } from '@/lib/audit'
-
-const TIPOS: SalidaTipo[] = ['transferencia_ars', 'usd_billete']
+import type { TransferTipo } from '@/lib/types'
 
 function walletValido(w: string): boolean {
   return !!w && (WALLETS as readonly string[]).includes(w)
 }
 
-// GET /api/finanzas/billetera/solicitudes?wallet=Lacar → solicitudes de esa billetera
+// GET /api/finanzas/billetera/solicitudes?wallet=Lacar
 export async function GET(req: NextRequest) {
   try {
     const auth = await requireUser('admin')
@@ -27,11 +25,11 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// POST /api/finanzas/billetera/solicitudes
-//   { wallet, tipo: 'transferencia_ars'|'usd_billete', montoArs?, montoUsd?, cotizacion?, motivo?, fecha? }
+// POST /api/finanzas/billetera/solicitudes  { wallet, tipo, datos, fecha? }
 //
-// Crea la solicitud en estado pendiente. No mueve el saldo: eso ocurre recién al
-// pagarla (POST pagar-solicitud), igual que en el flujo de las tiendas.
+// Los mismos 5 tipos y los mismos campos obligatorios que las tiendas:
+// validarDatosSolicitud es la fuente de verdad y lanza con un mensaje claro.
+// No mueve el saldo: eso ocurre al pagarla, donde se pide la cotización si hace falta.
 export async function POST(req: NextRequest) {
   try {
     const auth = await requireUser('admin')
@@ -41,21 +39,12 @@ export async function POST(req: NextRequest) {
     if (!body || typeof body !== 'object') return NextResponse.json({ error: 'JSON inválido' }, { status: 400 })
 
     const wallet = String(body.wallet || '').trim()
-    const tipo = body.tipo as SalidaTipo
+    const tipo = body.tipo as TransferTipo
     if (!walletValido(wallet)) return NextResponse.json({ error: 'Billetera inválida' }, { status: 400 })
-    if (!TIPOS.includes(tipo)) return NextResponse.json({ error: 'Tipo de salida inválido' }, { status: 400 })
+    if (!TIPOS_SALIDA.includes(tipo)) return NextResponse.json({ error: 'Tipo de retiro inválido' }, { status: 400 })
 
-    // calcularSalidaArs valida los montos y lanza con un mensaje claro.
-    const { ars, usd, usdRate } = calcularSalidaArs(tipo, {
-      montoArs: Number(body.montoArs),
-      montoUsd: Number(body.montoUsd),
-      cotizacion: Number(body.cotizacion),
-    })
-
-    const datos: Record<string, string | number> = {
-      ars, motivo: String(body.motivo || '').trim() || (tipo === 'usd_billete' ? 'Retiro usd billete' : 'Transferencia ARS'),
-    }
-    if (usd != null) { datos.usd = usd; datos.cotizacion = usdRate as number }
+    const datos = validarDatosSolicitud(tipo, body.datos ?? {})
+    if (body.motivo) datos.motivo = String(body.motivo).trim()
     if (body.fecha) datos.fecha = String(body.fecha)
 
     const id = await crearSolicitudBilletera(wallet, tipo, datos, auth.user.email)
@@ -63,10 +52,10 @@ export async function POST(req: NextRequest) {
     await audit({
       category: 'user_action', action: 'billetera.solicitud.crear', result: 'success',
       actor: 'human', component: 'billetera-salidas',
-      message: `Solicitud #${id} de ${wallet}: ${tipo} por $${ars}`,
+      message: `Solicitud #${id} de ${wallet}: ${TIPO_LABEL[tipo]}`,
     })
 
-    return NextResponse.json({ id, ars })
+    return NextResponse.json({ id })
   } catch (err) {
     return NextResponse.json({ error: err instanceof Error ? err.message : String(err) }, { status: 400 })
   }

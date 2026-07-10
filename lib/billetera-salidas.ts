@@ -1,16 +1,20 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Salidas de billetera: retiros y transferencias que bajan el saldo.
 //
-// Espejo del flujo de tiendas (transfer_requests → movimiento), pero el saldo de
-// billetera vive en ARS, no en USDT, así que tiene su propio libro: wallet_movements.
+// Espejo del flujo de tiendas (transfer_requests → movimiento) y con los MISMOS
+// cinco tipos, para que el operador no tenga que aprender dos formularios. La
+// validación de los campos de cada tipo la hace validarDatosSolicitud, que ya es
+// la fuente de verdad del portal de tiendas.
+//
+// Diferencia con las tiendas: el saldo de tienda vive en USDT y el de billetera en
+// ARS. Por eso un retiro en USD o USDT necesita una cotización para descontarse, y
+// se guarda en wallet_movements como (moneda, monto_origen, cotizacion) → ars.
 //
 // Convención: `ars` es POSITIVO y dice cuánto SALE. getIngresosBilletera lo resta.
-// Dos tipos, los que pidió el usuario:
-//   • transferencia_ars → monto en ARS, directo.
-//   • usd_billete       → monto en USD + cotización → ars = usd × usd_rate.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
+import type { TransferTipo } from './types'
 
 const TABLE = 'wallet_movements'
 const REQUESTS = 'transfer_requests'
@@ -25,16 +29,35 @@ function getClient(): SupabaseClient {
   return _client
 }
 
-export type SalidaTipo = 'transferencia_ars' | 'usd_billete' | 'ajuste'
+export const TIPOS_SALIDA: TransferTipo[] = ['ars', 'usd', 'usdt', 'usd_billete', 'ars_billete']
+
+export const TIPO_LABEL: Record<TransferTipo, string> = {
+  ars: 'Transferencia ARS',
+  usd: 'Transferencia USD',
+  usdt: 'Transferencia USDT',
+  usd_billete: 'Recibir USD billete',
+  ars_billete: 'Recibir ARS billete',
+}
+
+export type MonedaSalida = 'ARS' | 'USD' | 'USDT'
+
+// Qué moneda mueve cada tipo, y de qué campo del formulario sale el monto.
+const MONEDA_DE: Record<TransferTipo, MonedaSalida> = {
+  ars: 'ARS', ars_billete: 'ARS', usd: 'USD', usd_billete: 'USD', usdt: 'USDT',
+}
+const CAMPO_MONTO: Record<TransferTipo, string> = {
+  ars: 'montoArs', usd: 'montoUsd', usdt: 'montoUsdt', usd_billete: 'monto', ars_billete: 'monto',
+}
 
 export interface SalidaBilletera {
   id: number
   wallet: string
-  tipo: SalidaTipo
+  tipo: TransferTipo | 'ajuste'
   fecha: string
-  ars: number          // POSITIVO: lo que sale
-  usd: number | null
-  usdRate: number | null
+  ars: number                 // POSITIVO: lo que sale, ya convertido
+  moneda: MonedaSalida
+  montoOrigen: number         // el monto en la moneda del retiro
+  cotizacion: number | null   // ARS por 1 unidad; null si el retiro ya era en ARS
   motivo: string
   refTransferId: number | null
   createdBy: string
@@ -48,41 +71,50 @@ function rowToSalida(r: any): SalidaBilletera {
     tipo: r.tipo,
     fecha: r.fecha,
     ars: Number(r.ars) || 0,
-    usd: r.usd == null ? null : Number(r.usd),
-    usdRate: r.usd_rate == null ? null : Number(r.usd_rate),
+    moneda: r.moneda,
+    montoOrigen: Number(r.monto_origen) || 0,
+    cotizacion: r.cotizacion == null ? null : Number(r.cotizacion),
     motivo: r.motivo ?? '',
     refTransferId: r.ref_transfer_id ?? null,
     createdBy: r.created_by ?? '',
   }
 }
 
-// Calcula el ARS que sale, según el tipo. Única fuente del cálculo: el endpoint
-// no debe hacer la cuenta por su cuenta.
-export function calcularSalidaArs(
-  tipo: SalidaTipo,
-  datos: { montoArs?: number; montoUsd?: number; cotizacion?: number },
-): { ars: number; usd: number | null; usdRate: number | null } {
-  const pos = (v: number | undefined, nombre: string): number => {
-    const n = Number(v)
-    if (!Number.isFinite(n) || n <= 0) throw new Error(`Valor inválido: ${nombre}`)
-    return n
-  }
-  if (tipo === 'usd_billete') {
-    const usd = pos(datos.montoUsd, 'Monto USD')
-    const rate = pos(datos.cotizacion, 'Cotización ARS/USD')
-    return { ars: usd * rate, usd, usdRate: rate }
-  }
-  return { ars: pos(datos.montoArs, 'Monto ARS'), usd: null, usdRate: null }
+// Monto en la moneda del retiro, leído del campo que corresponde a su tipo.
+export function montoDeSolicitud(tipo: TransferTipo, datos: Record<string, unknown>): number {
+  const n = Number(datos[CAMPO_MONTO[tipo]])
+  if (!Number.isFinite(n) || n <= 0) throw new Error('Monto inválido en la solicitud')
+  return n
 }
 
-// Registra la salida. `fecha` es el momento real del retiro (puede ser pasado).
+export function monedaDeTipo(tipo: TransferTipo): MonedaSalida {
+  return MONEDA_DE[tipo]
+}
+
+// ÚNICA fuente del cálculo del ARS que sale. Los retiros en ARS no llevan
+// cotización; los de USD/USDT la exigen (si falta, es un error, no un 0 silencioso).
+export function calcularSalidaArs(
+  tipo: TransferTipo, datos: Record<string, unknown>, cotizacion?: number,
+): { ars: number; moneda: MonedaSalida; montoOrigen: number; cotizacion: number | null } {
+  const moneda = MONEDA_DE[tipo]
+  const montoOrigen = montoDeSolicitud(tipo, datos)
+  if (moneda === 'ARS') return { ars: montoOrigen, moneda, montoOrigen, cotizacion: null }
+
+  const c = Number(cotizacion)
+  if (!Number.isFinite(c) || c <= 0) {
+    throw new Error(`Falta la cotización ARS por 1 ${moneda} para descontar el retiro`)
+  }
+  return { ars: montoOrigen * c, moneda, montoOrigen, cotizacion: c }
+}
+
 export async function registrarSalida(input: {
   wallet: string
-  tipo: SalidaTipo
+  tipo: TransferTipo | 'ajuste'
   fecha: string
   ars: number
-  usd?: number | null
-  usdRate?: number | null
+  moneda: MonedaSalida
+  montoOrigen: number
+  cotizacion?: number | null
   motivo: string
   refTransferId?: number | null
   createdBy: string
@@ -91,15 +123,9 @@ export async function registrarSalida(input: {
   const { data, error } = await getClient()
     .from(TABLE)
     .insert({
-      wallet: input.wallet,
-      tipo: input.tipo,
-      fecha: input.fecha,
-      ars: input.ars,
-      usd: input.usd ?? null,
-      usd_rate: input.usdRate ?? null,
-      motivo: input.motivo,
-      ref_transfer_id: input.refTransferId ?? null,
-      created_by: input.createdBy,
+      wallet: input.wallet, tipo: input.tipo, fecha: input.fecha, ars: input.ars,
+      moneda: input.moneda, monto_origen: input.montoOrigen, cotizacion: input.cotizacion ?? null,
+      motivo: input.motivo, ref_transfer_id: input.refTransferId ?? null, created_by: input.createdBy,
     })
     .select('*')
     .single()
@@ -115,10 +141,7 @@ export async function sumSalidasByWallet(): Promise<Record<string, number>> {
   let from = 0
   for (;;) {
     const { data, error } = await getClient()
-      .from(TABLE)
-      .select('wallet, ars')
-      .order('id', { ascending: true })
-      .range(from, from + PAGE - 1)
+      .from(TABLE).select('wallet, ars').order('id', { ascending: true }).range(from, from + PAGE - 1)
     if (error) throw new Error(`sumSalidasByWallet falló: ${error.message} [${error.code}]`)
     for (const r of data ?? []) out[r.wallet as string] = (out[r.wallet as string] ?? 0) + (Number(r.ars) || 0)
     if (!data || data.length < PAGE) break
@@ -133,11 +156,8 @@ export async function getSalidasDeWallet(wallet: string): Promise<SalidaBilleter
   let from = 0
   for (;;) {
     const { data, error } = await getClient()
-      .from(TABLE)
-      .select('*')
-      .eq('wallet', wallet)
-      .order('fecha', { ascending: false })
-      .order('id', { ascending: false })
+      .from(TABLE).select('*').eq('wallet', wallet)
+      .order('fecha', { ascending: false }).order('id', { ascending: false })
       .range(from, from + PAGE - 1)
     if (error) throw new Error(`getSalidasDeWallet falló: ${error.message} [${error.code}]`)
     out.push(...(data ?? []).map(rowToSalida))
@@ -150,13 +170,11 @@ export async function getSalidasDeWallet(wallet: string): Promise<SalidaBilleter
 // ─── Solicitudes de pago de una billetera (transfer_requests con wallet) ─────
 
 export async function crearSolicitudBilletera(
-  wallet: string, tipo: SalidaTipo, datos: Record<string, string | number>, createdBy: string,
+  wallet: string, tipo: TransferTipo, datos: Record<string, string | number>, createdBy: string,
 ): Promise<number> {
-  // transfer_requests.tipo usa el vocabulario de las tiendas: 'ars' | 'usd_billete'
-  const tipoRequest = tipo === 'usd_billete' ? 'usd_billete' : 'ars'
   const { data, error } = await getClient()
     .from(REQUESTS)
-    .insert({ store_id: null, wallet, tipo: tipoRequest, estado: 'pendiente', datos, created_by: createdBy })
+    .insert({ store_id: null, wallet, tipo, estado: 'pendiente', datos, created_by: createdBy })
     .select('id')
     .single()
   if (error) throw new Error(`crearSolicitudBilletera falló: ${error.message} [${error.code}]`)
@@ -166,10 +184,7 @@ export async function crearSolicitudBilletera(
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function listarSolicitudesBilletera(wallet: string): Promise<any[]> {
   const { data, error } = await getClient()
-    .from(REQUESTS)
-    .select('*')
-    .eq('wallet', wallet)
-    .order('created_at', { ascending: false })
+    .from(REQUESTS).select('*').eq('wallet', wallet).order('created_at', { ascending: false })
   if (error) throw new Error(`listarSolicitudesBilletera falló: ${error.message} [${error.code}]`)
   return data ?? []
 }
@@ -180,9 +195,7 @@ export async function marcarSolicitudPagada(id: number, paidBy: string): Promise
   const { data, error } = await getClient()
     .from(REQUESTS)
     .update({ estado: 'pagada', paid_at: new Date().toISOString(), paid_by: paidBy })
-    .eq('id', id)
-    .eq('estado', 'pendiente')
-    .select('id')
+    .eq('id', id).eq('estado', 'pendiente').select('id')
   if (error) throw new Error(`marcarSolicitudPagada falló: ${error.message} [${error.code}]`)
   return (data?.length ?? 0) > 0
 }
