@@ -1,20 +1,25 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Ingresos por billetera (para el menú lateral de Administración Financiera).
 //
-// A diferencia del balance de tienda (que se acredita AL EMPAREJAR), acá se
-// cuenta el INGRESO del pago: los pagos que ENTRAN por una billetera, por su
-// fecha de ingreso (payment.fechaPago), estén emparejados o no.
+// Un pago pasa por dos estados, y se fecha distinto en cada uno:
+//   • EN COLA (aún sin emparejar) → figura en su día de INGRESO (payment.fechaPago).
+//   • EMPAREJADO (manual o auto)  → sale de la cola y pasa a figurar en el día del
+//     EMPAREJAMIENTO (registro_log.ts). Su línea "en cola" del día de ingreso
+//     desaparece sola, porque el pago ya no está en unmatchedPayments.
+// Consecuencia buscada: un pago que ingresó ANTES del corte pero se empareja
+// después SÍ cuenta, porque su fecha efectiva (el match) es ≥ corte.
 //
-// Corte: igual que las tiendas, se cuenta desde BALANCE_CUTOFF (hoy 00:00 ART).
-// El filtro es por FECHA DE INGRESO del pago (no la de emparejamiento): un pago
-// que ingresó antes del corte pero se empareja después NO cuenta.
+// Los pagos marcados "No es de tiendas" (externallyMarkedPayments) se EXCLUYEN
+// de la liquidación: no suman al total ni aparecen en el extracto.
+//
+// Corte: igual que las tiendas, desde BALANCE_CUTOFF.
 //
 // Fuente derivada, sin tabla nueva:
-//   • Emparejados  → tabla registro_log (prefiltrado por ts ≥ corte —un pago se
-//     empareja después de ingresar— y refinado por fecha de ingreso en JS).
-//   • No emparejados → cola unmatchedPayments de criptoblue:state, EXCLUYENDO los
-//     marcados "No es de tiendas" (externallyMarkedPayments).
-// Un pago está emparejado O en la cola, nunca ambos → no hay doble conteo.
+//   • Emparejados    → tabla registro_log (filtrado por ts ≥ corte).
+//   • No emparejados → cola unmatchedPayments de criptoblue:state.
+// En teoría un pago está emparejado O en la cola, nunca en las dos. En la práctica
+// se vieron pagos emparejados que quedaron igual en la cola (se contaban dos veces),
+// así que la cola se deduplica contra los ids de registro_log: manda el registro.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { getClient, kvGet, loadHotState } from './storage'
@@ -104,12 +109,38 @@ export async function getBilleterasOcultas(): Promise<string[]> {
   return Array.isArray(list) ? list : []
 }
 
-// Pagos EMPAREJADOS que ingresaron desde el corte. Se prefiltra por ts ≥ corte
-// (indexado; como un pago se empareja después de ingresar, entry ≥ corte ⊆ ts ≥
-// corte) y se refina por fecha de ingreso en JS. Selección liviana (paths JSONB).
+// IDs de todos los pagos ya emparejados (de cualquier fecha). El emparejamiento
+// debería sacar el pago de la cola, pero si por una inconsistencia queda en las
+// dos partes lo contaríamos dos veces. Con este set la cola se deduplica contra
+// el registro: manda el registro (el pago ya está emparejado).
+async function idsEmparejados(): Promise<Set<string>> {
+  const c = getClient()
+  const out = new Set<string>()
+  const PAGE = 1000
+  let from = 0
+  for (;;) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (c.from('registro_log') as any)
+      .select('mp_payment_id')
+      .eq('hidden', false)
+      .in('action', MATCHED_ACTIONS)
+      .not('mp_payment_id', 'is', null)
+      .range(from, from + PAGE - 1)
+    if (error) throw new Error(`idsEmparejados falló: ${error.message} [${error.code}]`)
+    for (const r of data ?? []) if (r.mp_payment_id) out.add(r.mp_payment_id as string)
+    if (!data || data.length < PAGE) break
+    from += PAGE
+  }
+  return out
+}
+
+// Pagos EMPAREJADOS, fechados por el DÍA DEL EMPAREJAMIENTO (`ts`), no por el de
+// ingreso. Al emparejarse (manual o auto) el pago sale de la cola y pasa a figurar
+// en el día del match. Por eso un pago que ingresó antes del corte pero se emparejó
+// después SÍ cuenta: su fecha efectiva (el match) es ≥ corte.
+// El filtro por corte lo hace el SQL sobre `ts` (indexado) — no hace falta refinar.
 async function ingresosEmparejadosDesdeCorte(): Promise<Ingreso[]> {
   const c = getClient()
-  const cutoffMs = BALANCE_CUTOFF.getTime()
   const cutoffISO = BALANCE_CUTOFF.toISOString()
   const out: Ingreso[] = []
   const PAGE = 1000
@@ -117,7 +148,7 @@ async function ingresosEmparejadosDesdeCorte(): Promise<Ingreso[]> {
   for (;;) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data, error } = await (c.from('registro_log') as any)
-      .select('amount, payment_received_at, ts, source:payment->>source, monto:payment->>monto, titular:payment->>nombrePagador, fpago:payment->>fechaPago')
+      .select('amount, ts, source:payment->>source, monto:payment->>monto, titular:payment->>nombrePagador')
       .eq('hidden', false)
       .in('action', MATCHED_ACTIONS)
       .gte('ts', cutoffISO)
@@ -125,13 +156,11 @@ async function ingresosEmparejadosDesdeCorte(): Promise<Ingreso[]> {
     if (error) throw new Error(`ingresosEmparejadosDesdeCorte falló: ${error.message} [${error.code}]`)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     for (const r of (data ?? []) as any[]) {
-      if (!r.source) continue
-      const fecha = r.fpago || r.payment_received_at || r.ts || ''
-      if ((new Date(fecha).getTime() || 0) < cutoffMs) continue
+      if (!r.source || !r.ts) continue
       out.push({
         source: r.source,
         monto: Number(r.monto ?? r.amount) || 0,
-        fecha,
+        fecha: r.ts,              // día del emparejamiento
         titular: r.titular || '',
         estado: 'emparejado',
       })
@@ -143,9 +172,11 @@ async function ingresosEmparejadosDesdeCorte(): Promise<Ingreso[]> {
 }
 
 // Pagos EN COLA (no emparejados) que ingresaron desde el corte, excluyendo los
-// marcados "No es de tiendas". labelSet opcional acota a una billetera.
+// marcados "No es de tiendas" y los que YA están emparejados en el registro
+// (quedaron en la cola por una inconsistencia: se contarían dos veces).
+// labelSet opcional acota a una billetera.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function ingresosEnColaDesdeCorte(hot: any, labelSet?: Set<string>): Ingreso[] {
+function ingresosEnColaDesdeCorte(hot: any, emparejadosIds: Set<string>, labelSet?: Set<string>): Ingreso[] {
   const cutoffMs = BALANCE_CUTOFF.getTime()
   const externos = new Set((hot.externallyMarkedPayments ?? []).map((e: { id: string }) => e.id))
   const out: Ingreso[] = []
@@ -155,6 +186,7 @@ function ingresosEnColaDesdeCorte(hot: any, labelSet?: Set<string>): Ingreso[] {
     if (labelSet && !labelSet.has(p.source)) continue
     const id = u.mpPaymentId || p.mpPaymentId
     if (externos.has(id)) continue
+    if (emparejadosIds.has(id)) continue   // ya emparejado: lo aporta el registro
     const fecha = p.fechaPago || u.timestamp || ''
     if ((new Date(fecha).getTime() || 0) < cutoffMs) continue
     out.push({
@@ -171,14 +203,15 @@ function ingresosEnColaDesdeCorte(hot: any, labelSet?: Set<string>): Ingreso[] {
 // Total por billetera (para los ítems del menú). Muestra TODAS las billeteras
 // (como las tiendas, aunque el saldo desde el corte sea 0), salvo las ocultas.
 export async function getIngresosBilleteras(): Promise<IngresoBilletera[]> {
-  const [emparejados, hot, ocultas, cfg, reembolsosPorWallet] = await Promise.all([
+  const [emparejados, hot, ocultas, cfg, reembolsosPorWallet, yaEmparejados] = await Promise.all([
     ingresosEmparejadosDesdeCorte(),
     loadHotState(),
     getBilleterasOcultas(),
     getComisiones(),
     sumRefundsByWallet(),
+    idsEmparejados(),
   ])
-  const cola = ingresosEnColaDesdeCorte(hot)
+  const cola = ingresosEnColaDesdeCorte(hot, yaEmparejados)
 
   // Arranca todas las billeteras en 0 → siempre aparecen, con su saldo de hoy.
   const acc = new Map<string, { totalArs: number; cantidad: number }>()
@@ -216,10 +249,12 @@ export async function getIngresosBilletera(wallet: string, diaART?: string): Pro
   if (labels.length === 0) return { wallet, totalArs: 0, cantidad: 0, comisionArs: 0, comisionPct: pct, reembolsosArs: 0, reembolsos: [], pagos: [] }
   const labelSet = new Set(labels)
 
-  const [emparejados, hot, refunds] = await Promise.all([ingresosEmparejadosDesdeCorte(), loadHotState(), getRefundsDeWallet(wallet)])
+  const [emparejados, hot, refunds, yaEmparejados] = await Promise.all([
+    ingresosEmparejadosDesdeCorte(), loadHotState(), getRefundsDeWallet(wallet), idsEmparejados(),
+  ])
   const ingresos = [
     ...emparejados.filter(m => labelSet.has(m.source)),
-    ...ingresosEnColaDesdeCorte(hot, labelSet),
+    ...ingresosEnColaDesdeCorte(hot, yaEmparejados, labelSet),
   ]
 
   // Total acumulado (bruto) desde el corte → comisión → reembolsos → neto.

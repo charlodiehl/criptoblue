@@ -76,7 +76,7 @@ export default function BilleteraTab({ wallet, notify }: { wallet: string; notif
       <div>
         <h2 className="text-lg font-bold" style={{ color: '#00d4ff' }}>Billetera {wallet}</h2>
         <p className="text-xs" style={{ color: 'rgba(148,163,184,0.5)' }}>
-          Ingresos desde el 08/07 (00:00), contados por la fecha de ingreso del pago (emparejados o no) — igual que el balance de tiendas.
+          Ingresos desde el 08/07 (00:00). Los pagos en cola figuran en su día de ingreso; al emparejarse pasan al día del emparejamiento. Los marcados “No es de tiendas” no cuentan.
         </p>
       </div>
 
