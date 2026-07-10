@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { motion } from 'framer-motion'
 import { ARS, fmtDate } from '@/lib/utils'
 import AnimatedNumber, { NumberSkeleton } from '@/components/AnimatedNumber'
+import SelectorDia from '@/components/SelectorDia'
 import type { Toast } from './TiendaPortal'
 
 interface Props {
@@ -12,7 +13,34 @@ interface Props {
   notify: (msg: string, type?: Toast['type']) => void
 }
 
-interface Balance { ars: number; usdt: number; pendientes: number; comisionArs: number; comisionUsdt: number; comisionPct: number }
+interface Movimiento {
+  id: number
+  tipo: 'egreso_transferencia' | 'reembolso' | 'ajuste'
+  fecha: string
+  ars: number
+  usdt: number | null
+  descripcion: string | null
+}
+interface BalanceDia {
+  ingresosArs: number
+  ingresosUsdt: number
+  cantidadIngresos: number
+  comisionArs: number
+  comisionUsdt: number
+  comisionPct: number
+  transferenciasUsdt: number
+  reembolsosArs: number
+  reembolsosUsdt: number
+  ajustesUsdt: number
+  saldoUsdt: number
+  movimientos: Movimiento[]
+}
+interface Balance {
+  ars: number; usdt: number; pendientes: number
+  comisionArs: number; comisionUsdt: number; comisionPct: number
+  dias: string[]
+  dia?: BalanceDia
+}
 interface Row {
   fecha: string
   monto: number
@@ -30,9 +58,6 @@ function hoyART(): string {
   return new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString().slice(0, 10)
 }
 
-// Fecha de corte del balance (debe coincidir con BALANCE_CUTOFF de lib/config.ts):
-// el saldo y esta tabla solo cuentan órdenes desde acá. El server es el que manda.
-const CUTOFF_DATE = '2026-07-08'
 
 const fmtUsdt = (n: number) => n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const fmtPct = (n: number) => n.toLocaleString('es-AR', { maximumFractionDigits: 2 })
@@ -48,10 +73,12 @@ export default function BalanceTab({ qs, notify }: Props) {
 
   const searching = debouncedSearch.length > 0
 
+  // Trae el saldo total y, en la misma llamada, el balance del día seleccionado.
   const fetchBalance = useCallback(async () => {
     setLoadingBalance(true)
     try {
-      const res = await fetch(`/api/tienda/balance${qs}`)
+      const sep = qs ? '&' : '?'
+      const res = await fetch(`/api/tienda/balance${qs}${sep}fecha=${fecha}`)
       if (!res.ok) throw new Error((await res.json()).error || 'Error')
       setBalance(await res.json())
     } catch (e) {
@@ -59,7 +86,7 @@ export default function BalanceTab({ qs, notify }: Props) {
     } finally {
       setLoadingBalance(false)
     }
-  }, [qs, notify])
+  }, [qs, notify, fecha])
 
   // Con búsqueda → busca en todo el registro; sin búsqueda → órdenes del día.
   const fetchRows = useCallback(async () => {
@@ -95,12 +122,19 @@ export default function BalanceTab({ qs, notify }: Props) {
   }, [fetchBalance])
   useEffect(() => { fetchRows() }, [fetchRows])
 
+  // Si el día abierto no tuvo movimientos (hoy todavía no entró nada), saltar al
+  // último que sí los tuvo: el calendario ya no deja elegirlo a mano.
+  const dias = balance?.dias
+  useEffect(() => {
+    if (dias?.length && !dias.includes(fecha)) setFecha(dias[dias.length - 1])
+  }, [dias, fecha])
+
   return (
     <div className="space-y-5">
-      {/* Tarjeta de balance global — SOLO USDT (NETO, con la comisión ya descontada) */}
+      {/* Tarjeta de balance global — SOLO USDT (NETO, con la comisión ya descontada).
+          El desglose no va acá: vive en la tarjeta del día, más abajo. */}
       <div className="grid grid-cols-1 gap-3 max-w-sm">
-        <BalanceCard label="Saldo en USDT" value={balance?.usdt ?? 0} format={fmtUsdt} suffix="USDT" color="#00d4ff" delay={0} loading={loadingBalance}
-          comisionValue={balance?.comisionUsdt} comisionFormat={fmtUsdt} comisionPct={balance?.comisionPct} comisionSuffix="USDT" />
+        <BalanceCard label="Saldo en USDT" value={balance?.usdt ?? 0} format={fmtUsdt} suffix="USDT" color="#00d4ff" delay={0} loading={loadingBalance} />
       </div>
 
       {balance && balance.pendientes > 0 && (
@@ -129,21 +163,53 @@ export default function BalanceTab({ qs, notify }: Props) {
         )}
       </div>
 
-      {/* Selector de fecha (se desactiva cuando hay búsqueda) */}
+      {/* Selector de día: solo deja elegir días con movimiento. Se desactiva al buscar. */}
       <div className="flex items-center gap-3 flex-wrap">
         <label className="text-xs font-semibold uppercase tracking-widest" style={{ color: searching ? 'rgba(148,163,184,0.4)' : 'rgba(0,212,255,0.7)' }}>Día</label>
-        <input
-          type="date"
-          value={fecha}
-          min={CUTOFF_DATE}
-          max={hoyART()}
-          disabled={searching}
-          onChange={e => setFecha(e.target.value)}
-          className="rounded-lg px-3 py-2 text-sm outline-none disabled:opacity-40 disabled:cursor-not-allowed"
-          style={{ background: 'rgba(0,212,255,0.05)', border: '1px solid rgba(0,212,255,0.35)', color: 'rgba(226,232,240,0.9)', colorScheme: 'dark' }}
-        />
+        <SelectorDia value={fecha} dias={balance?.dias ?? []} onChange={setFecha} disabled={searching || !balance?.dias?.length} />
         {searching && <span className="text-xs" style={{ color: 'rgba(0,212,255,0.7)' }}>Mostrando resultados de búsqueda en todo el registro</span>}
       </div>
+
+      {/* Balance del día: ingresos − comisión − transferencias − reembolsos.
+          Se oculta durante una búsqueda, porque entonces la tabla no es de un día. */}
+      {!searching && (
+        <motion.div
+          key={fecha}
+          initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}
+          className="rounded-2xl p-4 max-w-sm"
+          style={{ background: 'linear-gradient(135deg, #0d1117, #111827)', border: '1px solid rgba(0,212,255,0.18)' }}
+        >
+          <p className="text-[11px] font-semibold uppercase tracking-widest mb-2" style={{ color: 'rgba(0,212,255,0.7)' }}>
+            Saldo del día
+          </p>
+          <p className="text-2xl font-black" style={{ color: (balance?.dia?.saldoUsdt ?? 0) < 0 ? '#f87171' : '#00d4ff' }}>
+            {loadingBalance && !balance
+              ? <NumberSkeleton width={140} height={28} />
+              : <><AnimatedNumber value={balance?.dia?.saldoUsdt ?? 0} format={fmtUsdt} /><span className="text-sm font-bold ml-2" style={{ opacity: 0.7 }}>USDT</span></>}
+          </p>
+          <div className="mt-3 space-y-1 text-xs">
+            <Linea
+              label={`Ingresos (${balance?.dia?.cantidadIngresos ?? 0} orden${(balance?.dia?.cantidadIngresos ?? 0) === 1 ? '' : 'es'})`}
+              valor={fmtUsdt(balance?.dia?.ingresosUsdt ?? 0)}
+              color="#00ff88" signo="+" />
+            {(balance?.dia?.comisionUsdt ?? 0) > 0 && (
+              <Linea label={`Comisión ${fmtPct(balance?.dia?.comisionPct ?? 0)}%`}
+                valor={fmtUsdt(balance!.dia!.comisionUsdt)} color="#f87171" signo="−" />
+            )}
+            {(balance?.dia?.transferenciasUsdt ?? 0) > 0 && (
+              <Linea label="Transferencias" valor={fmtUsdt(balance!.dia!.transferenciasUsdt)} color="#f87171" signo="−" />
+            )}
+            {(balance?.dia?.reembolsosUsdt ?? 0) > 0 && (
+              <Linea label="Reembolsos" valor={fmtUsdt(balance!.dia!.reembolsosUsdt)} color="#f87171" signo="−" />
+            )}
+            {(balance?.dia?.ajustesUsdt ?? 0) !== 0 && (
+              <Linea label="Ajustes" valor={fmtUsdt(Math.abs(balance!.dia!.ajustesUsdt))}
+                color={balance!.dia!.ajustesUsdt > 0 ? '#00ff88' : '#f87171'}
+                signo={balance!.dia!.ajustesUsdt > 0 ? '+' : '−'} />
+            )}
+          </div>
+        </motion.div>
+      )}
 
       {/* Tabla de órdenes del día */}
       <div className="rounded-2xl overflow-hidden" style={{ border: '1px solid rgba(0,212,255,0.12)', background: 'linear-gradient(135deg, #0d1117, #111827)' }}>
@@ -187,13 +253,74 @@ export default function BalanceTab({ qs, notify }: Props) {
           </table>
         </div>
       </div>
+
+      {/* Transferencias, reembolsos y ajustes del día: a continuación de las órdenes,
+          con sus propias columnas, porque no son ingresos sino plata que sale. */}
+      {!searching && (balance?.dia?.movimientos.length ?? 0) > 0 && (
+        <div className="rounded-2xl overflow-hidden" style={{ border: '1px solid rgba(248,113,113,0.15)', background: 'linear-gradient(135deg, #0d1117, #111827)' }}>
+          <div style={{ overflowX: 'auto' }}>
+            <table className="w-full text-sm" style={{ borderCollapse: 'collapse', minWidth: '640px' }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid rgba(248,113,113,0.15)' }}>
+                  {['Fecha y hora', 'Concepto', 'Monto (ARS)', 'Monto (USDT)', 'Tipo'].map(h => (
+                    <th key={h} className="text-left px-3 py-3 text-[11px] font-semibold uppercase tracking-wider whitespace-nowrap"
+                      style={{ color: 'rgba(248,113,113,0.7)' }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {balance!.dia!.movimientos.map((m, i) => {
+                  const positivo = (m.usdt ?? 0) > 0
+                  return (
+                    <motion.tr key={m.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3, delay: Math.min(i * 0.03, 0.3) }}
+                      style={{ borderBottom: '1px solid rgba(148,163,184,0.05)' }}>
+                      <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: 'rgba(226,232,240,0.85)' }}>{fmtDate(m.fecha)}</td>
+                      <td className="px-3 py-2.5" style={{ color: 'rgba(226,232,240,0.85)' }}>{m.descripcion || '—'}</td>
+                      <td className="px-3 py-2.5 whitespace-nowrap font-medium" style={{ color: m.ars === 0 ? 'rgba(148,163,184,0.4)' : '#f87171' }}>
+                        {m.ars === 0 ? '—' : `−${ARS.format(Math.abs(m.ars))}`}
+                      </td>
+                      <td className="px-3 py-2.5 whitespace-nowrap font-medium" style={{ color: positivo ? '#00ff88' : '#f87171' }}>
+                        {m.usdt == null ? '—' : `${positivo ? '+' : '−'}${fmtUsdt(Math.abs(m.usdt))}`}
+                      </td>
+                      <td className="px-3 py-2.5 whitespace-nowrap">
+                        <span className="text-[11px] px-2 py-0.5 rounded-full"
+                          style={{ background: 'rgba(248,113,113,0.1)', color: '#f87171' }}>
+                          {TIPO_LABEL[m.tipo] ?? m.tipo}
+                        </span>
+                      </td>
+                    </motion.tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
 
-function BalanceCard({ label, value, format, suffix, color, delay, loading, comisionValue, comisionFormat, comisionPct, comisionSuffix }: {
+const TIPO_LABEL: Record<string, string> = {
+  egreso_transferencia: 'Transferencia',
+  reembolso: 'Reembolso',
+  ajuste: 'Ajuste',
+}
+
+// Una línea del desglose del saldo del día. Todo en USDT: el saldo de tienda vive
+// en esa moneda y mostrar el equivalente en ARS al lado sólo agregaba ruido.
+function Linea({ label, valor, color, signo }: {
+  label: string; valor: string; color: string; signo: '+' | '−'
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span style={{ color: 'rgba(148,163,184,0.7)' }}>{label}</span>
+      <span className="font-semibold whitespace-nowrap" style={{ color }}>{signo}{valor}</span>
+    </div>
+  )
+}
+
+function BalanceCard({ label, value, format, suffix, color, delay, loading }: {
   label: string; value: number; format: (n: number) => string; suffix?: string; color: string; delay: number; loading: boolean
-  comisionValue?: number; comisionFormat?: (n: number) => string; comisionPct?: number; comisionSuffix?: string
 }) {
   return (
     <motion.div
@@ -212,11 +339,6 @@ function BalanceCard({ label, value, format, suffix, color, delay, loading, comi
           : <AnimatedNumber value={value} format={format} />}
         {!loading && suffix && <span className="text-lg font-bold ml-2" style={{ opacity: 0.7 }}>{suffix}</span>}
       </p>
-      {!loading && comisionValue != null && comisionValue > 0 && (
-        <p className="text-xs font-semibold mt-2" style={{ color: '#f87171' }}>
-          Comisión {fmtPct(comisionPct ?? 0)}% · −<AnimatedNumber value={comisionValue} format={comisionFormat ?? format} pop={false} />{comisionSuffix ? ` ${comisionSuffix}` : ''}
-        </p>
-      )}
     </motion.div>
   )
 }

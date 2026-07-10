@@ -260,6 +260,82 @@ export async function getMovimientosDia(storeId: string, diaART: string): Promis
   return (data ?? []).map(rowToMovement)
 }
 
+// Días (ART) en los que la tienda tuvo algún movimiento: una orden acreditada, una
+// transferencia pagada, un reembolso o un ajuste. El calendario deshabilita el resto.
+// Paginado: la tabla crece sin cota y truncarla escondería días en silencio.
+export async function getDiasConMovimiento(storeId: string): Promise<string[]> {
+  const dias = new Set<string>()
+  const PAGE = 1000
+  let from = 0
+  for (;;) {
+    const { data, error } = await getClient()
+      .from(TABLE)
+      .select('fecha')
+      .eq('store_id', storeId)
+      .order('id', { ascending: true })
+      .range(from, from + PAGE - 1)
+    if (error) throw new Error(`getDiasConMovimiento falló: ${error.message} [${error.code}]`)
+    for (const r of data ?? []) {
+      const t = new Date(r.fecha as string).getTime()
+      // Argentina es UTC-3 fijo: restar 3h y quedarse con la fecha.
+      if (Number.isFinite(t)) dias.add(new Date(t - 3 * 60 * 60 * 1000).toISOString().slice(0, 10))
+    }
+    if (!data || data.length < PAGE) break
+    from += PAGE
+  }
+  return [...dias].sort()
+}
+
+// Balance de UN día: la misma cuenta que getBalances (bruto − comisión sobre los
+// ingresos), pero acotada a los movimientos de ese día. Suma de los saldos diarios
+// = saldo total, porque cada movimiento cae en un único día.
+//
+// En balance_movements los egresos y reembolsos ya vienen en NEGATIVO, así que el
+// bruto es la suma directa; acá se devuelven en positivo, para mostrarlos como "sale".
+export interface BalanceDia {
+  ingresosArs: number
+  ingresosUsdt: number
+  cantidadIngresos: number
+  comisionArs: number
+  comisionUsdt: number
+  comisionPct: number
+  transferenciasUsdt: number   // positivo
+  reembolsosArs: number        // positivo
+  reembolsosUsdt: number       // positivo
+  ajustesUsdt: number          // signado
+  saldoUsdt: number            // neto del día
+  movimientos: BalanceMovement[]  // egresos, reembolsos y ajustes (los ingresos ya van en la tabla de órdenes)
+}
+
+export async function getBalanceDia(storeId: string, diaART: string): Promise<BalanceDia> {
+  const [movs, cfg] = await Promise.all([getMovimientosDia(storeId, diaART), getComisiones()])
+  const pct = comisionTienda(cfg, storeId)
+
+  const suma = (fn: (m: BalanceMovement) => number, filtro: (m: BalanceMovement) => boolean) =>
+    movs.filter(filtro).reduce((s, m) => s + fn(m), 0)
+
+  const esIngreso = (m: BalanceMovement) => m.tipo === 'ingreso_orden'
+  const ingresosArs = suma(m => m.ars, esIngreso)
+  const ingresosUsdt = suma(m => m.usdt ?? 0, esIngreso)
+  const comisionArs = ingresosArs * pct / 100
+  const comisionUsdt = ingresosUsdt * pct / 100
+
+  const transferenciasUsdt = Math.abs(suma(m => m.usdt ?? 0, m => m.tipo === 'egreso_transferencia'))
+  const reembolsosArs = Math.abs(suma(m => m.ars, m => m.tipo === 'reembolso'))
+  const reembolsosUsdt = Math.abs(suma(m => m.usdt ?? 0, m => m.tipo === 'reembolso'))
+  const ajustesUsdt = suma(m => m.usdt ?? 0, m => m.tipo === 'ajuste')
+
+  const brutoUsdt = movs.reduce((s, m) => s + (m.usdt ?? 0), 0)
+
+  return {
+    ingresosArs, ingresosUsdt, cantidadIngresos: movs.filter(esIngreso).length,
+    comisionArs, comisionUsdt, comisionPct: pct,
+    transferenciasUsdt, reembolsosArs, reembolsosUsdt, ajustesUsdt,
+    saldoUsdt: brutoUsdt - comisionUsdt,
+    movimientos: movs.filter(m => !esIngreso(m)),
+  }
+}
+
 // Movimientos de ingreso vinculados a entradas del registro (para cruzar la
 // cotización en la tabla del portal). Devuelve mapa ref_registro_id → movimiento.
 export async function getMovimientosPorRegistroIds(registroIds: number[]): Promise<Map<number, BalanceMovement>> {
