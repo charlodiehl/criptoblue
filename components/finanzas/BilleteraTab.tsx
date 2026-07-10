@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { motion } from 'framer-motion'
 import { ARS, fmtDate } from '@/lib/utils'
 import AnimatedNumber, { NumberSkeleton } from '@/components/AnimatedNumber'
+import BilleteraSolicitudes from './BilleteraSolicitudes'
 import type { Toast } from './FinanzasApp'
 
 interface Pago {
@@ -19,6 +20,15 @@ interface Reembolso {
   seq: number
   fecha: string
 }
+interface Salida {
+  id: number
+  tipo: 'transferencia_ars' | 'usd_billete' | 'ajuste'
+  fecha: string
+  ars: number
+  usd: number | null
+  usdRate: number | null
+  motivo: string
+}
 interface Detalle {
   wallet: string
   totalArs: number
@@ -27,6 +37,8 @@ interface Detalle {
   comisionPct: number
   reembolsosArs: number
   reembolsos: Reembolso[]
+  salidasArs: number
+  salidas: Salida[]
   totalDia?: number
   cantidadDia?: number
   pagos: Pago[]
@@ -40,16 +52,13 @@ function hoyART(): string {
   return new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString().slice(0, 10)
 }
 
-// Corte del balance (coincide con BALANCE_CUTOFF de lib/config.ts): no se cuenta
-// nada anterior. El server es el que manda; acá solo acota el selector de fecha.
-const CUTOFF_DATE = '2026-07-08'
-
-// Vista de ingresos de una billetera: total acumulado desde el corte + extracto
-// dividido por día (calendario). Espejo del balance de tienda, pero solo en ARS.
+// Vista de una billetera: saldo histórico (sin corte, a diferencia de las tiendas)
+// + extracto dividido por día, y la pestaña para solicitar pagos (retiros).
 export default function BilleteraTab({ wallet, notify }: { wallet: string; notify: (msg: string, type?: Toast['type']) => void }) {
   const [data, setData] = useState<Detalle | null>(null)
   const [fecha, setFecha] = useState(hoyART())
   const [loading, setLoading] = useState(true)
+  const [vista, setVista] = useState<'balance' | 'pagos'>('balance')
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -71,14 +80,43 @@ export default function BilleteraTab({ wallet, notify }: { wallet: string; notif
     return () => clearInterval(iv)
   }, [fetchData])
 
+  const tabs: { key: 'balance' | 'pagos'; label: string }[] = [
+    { key: 'balance', label: 'Balance de Saldo' },
+    { key: 'pagos', label: 'Solicitar pagos' },
+  ]
+
   return (
     <div className="space-y-5">
       <div>
         <h2 className="text-lg font-bold" style={{ color: '#00d4ff' }}>Billetera {wallet}</h2>
         <p className="text-xs" style={{ color: 'rgba(148,163,184,0.5)' }}>
-          Ingresos desde el 08/07 (00:00). El día agrupa por emparejamiento: un pago en cola figura en su día de ingreso y, al emparejarse, pasa al día del match conservando su fecha y hora originales. Los marcados “No es de tiendas” no cuentan.
+          Saldo histórico completo. El día agrupa por emparejamiento: un pago en cola figura en su día de ingreso y, al emparejarse, pasa al día del match conservando su fecha y hora originales. Los marcados “No es de tiendas” no cuentan.
         </p>
       </div>
+
+      <div className="flex flex-wrap gap-1.5">
+        {tabs.map(t => {
+          const activo = vista === t.key
+          return (
+            <button
+              key={t.key}
+              onClick={() => setVista(t.key)}
+              className="rounded-xl px-4 py-2 text-xs font-semibold transition-all"
+              style={{
+                background: activo ? 'rgba(0,212,255,0.12)' : 'rgba(255,255,255,0.03)',
+                border: `1px solid ${activo ? 'rgba(0,212,255,0.4)' : 'rgba(148,163,184,0.12)'}`,
+                color: activo ? '#00d4ff' : 'rgba(148,163,184,0.75)',
+              }}
+            >
+              {t.label}
+            </button>
+          )
+        })}
+      </div>
+
+      {vista === 'pagos' && <BilleteraSolicitudes wallet={wallet} notify={notify} onPagada={fetchData} />}
+
+      {vista === 'balance' && <>
 
       {/* Tarjeta de total acumulado (no cambia con el día) */}
       <motion.div
@@ -88,7 +126,7 @@ export default function BilleteraTab({ wallet, notify }: { wallet: string; notif
       >
         <div className="absolute top-0 right-0 w-28 h-28 opacity-10 rounded-full pointer-events-none"
           style={{ background: '#00ff88', filter: 'blur(32px)', transform: 'translate(30%, -30%)' }} />
-        <p className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: 'rgba(148,163,184,0.7)' }}>Ingresos totales</p>
+        <p className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: 'rgba(148,163,184,0.7)' }}>Saldo</p>
         <p className="text-4xl font-black" style={{ color: '#00ff88', textShadow: '0 0 20px #00ff8860' }}>
           {loading && !data
             ? <NumberSkeleton width={200} height={40} />
@@ -104,10 +142,42 @@ export default function BilleteraTab({ wallet, notify }: { wallet: string; notif
             Reembolsos · −<AnimatedNumber value={data.reembolsosArs} format={fmtArs} pop={false} />
           </p>
         )}
+        {data && data.salidasArs > 0 && (
+          <p className="text-xs font-semibold mt-1" style={{ color: '#f87171' }}>
+            Retiros y transferencias · −<AnimatedNumber value={data.salidasArs} format={fmtArs} pop={false} />
+          </p>
+        )}
         <p className="text-xs mt-2" style={{ color: 'rgba(148,163,184,0.5)' }}>
-          {data?.cantidad ?? 0} pago{(data?.cantidad ?? 0) === 1 ? '' : 's'} desde el 08/07 (comisión y reembolsos ya descontados)
+          {data?.cantidad ?? 0} pago{(data?.cantidad ?? 0) === 1 ? '' : 's'} · comisión, reembolsos y retiros ya descontados
         </p>
       </motion.div>
+
+      {/* Salidas: retiros y transferencias hechas desde la billetera */}
+      {data && data.salidas.length > 0 && (
+        <div className="rounded-2xl p-4" style={{ background: 'linear-gradient(135deg, #0d1117, #111827)', border: '1px solid rgba(248,113,113,0.2)' }}>
+          <h3 className="text-xs font-semibold uppercase tracking-widest mb-2" style={{ color: 'rgba(248,113,113,0.85)' }}>
+            Retiros y transferencias ({data.salidas.length})
+          </h3>
+          <div className="space-y-1">
+            {data.salidas.map(s => (
+              <div key={s.id} className="flex items-center justify-between gap-3 text-sm flex-wrap">
+                <span style={{ color: 'rgba(226,232,240,0.85)' }}>
+                  {s.motivo}
+                  {s.usd != null && (
+                    <span className="text-[11px] ml-1" style={{ color: 'rgba(148,163,184,0.6)' }}>
+                      (USD {s.usd.toLocaleString('es-AR')} × {s.usdRate?.toLocaleString('es-AR')})
+                    </span>
+                  )}
+                </span>
+                <span className="flex items-center gap-2">
+                  <span className="font-medium" style={{ color: '#f87171' }}>−{ARS.format(s.ars)}</span>
+                  <span className="text-[11px]" style={{ color: 'rgba(148,163,184,0.5)' }}>{fmtDate(s.fecha)}</span>
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Reembolsos que restaron saldo a esta billetera (misma info que a la tienda) */}
       {data && data.reembolsos.length > 0 && (
@@ -137,7 +207,6 @@ export default function BilleteraTab({ wallet, notify }: { wallet: string; notif
         <input
           type="date"
           value={fecha}
-          min={CUTOFF_DATE}
           max={hoyART()}
           onChange={e => setFecha(e.target.value)}
           className="rounded-lg px-3 py-2 text-sm outline-none"
@@ -197,6 +266,7 @@ export default function BilleteraTab({ wallet, notify }: { wallet: string; notif
           Mostrando los {data.pagos.length} pagos más antiguos de {data.cantidadDia} del día.
         </p>
       )}
+      </>}
     </div>
   )
 }
