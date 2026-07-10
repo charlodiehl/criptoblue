@@ -60,6 +60,16 @@ export interface ReembolsoBilletera {
   fecha: string
 }
 
+// Una salida de plata del día: retiro/transferencia o reembolso. Se muestran juntos
+// en una tabla debajo de los pagos, porque ambos bajan el saldo de ese día.
+export interface MovimientoDia {
+  clase: 'retiro' | 'reembolso'
+  fecha: string
+  concepto: string          // motivo del retiro, u "Orden #123" del reembolso
+  detalle?: string          // p.ej. "USD 13.800 × 1.540"
+  ars: number               // POSITIVO: lo que sale
+}
+
 export interface DetalleBilletera {
   wallet: string
   totalArs: number          // NETO acumulado (comisión, reembolsos y salidas descontados)
@@ -70,8 +80,14 @@ export interface DetalleBilletera {
   reembolsos: ReembolsoBilletera[]  // detalle de los reembolsos (misma info que a la tienda)
   salidasArs: number        // total retirado/transferido (positivo)
   salidas: SalidaBilletera[]        // detalle de retiros y transferencias
-  totalDia?: number         // subtotal (bruto) del día seleccionado
+  totalDia?: number         // ingresos brutos del día seleccionado
   cantidadDia?: number
+  // Balance del día: ingresos − comisión − retiros − reembolsos
+  comisionDia?: number
+  salidasDiaArs?: number
+  reembolsosDiaArs?: number
+  saldoDia?: number
+  movimientosDia?: MovimientoDia[]  // retiros y reembolsos de ese día
   pagos: PagoBilletera[]    // del día seleccionado, o todos si no se pidió día
 }
 
@@ -284,19 +300,49 @@ export async function getIngresosBilletera(wallet: string, diaART?: string): Pro
   const salidasArs = salidas.reduce((s, r) => s + r.ars, 0)
 
   // Filtro por día (ART) para el extracto: se acota por fechaDia (el día del match
-  // si está emparejado, el de ingreso si sigue en cola).
+  // si está emparejado, el de ingreso si sigue en cola). Los retiros y reembolsos
+  // se acotan por su propia fecha: figuran en el día en que se hicieron.
   let visibles = ingresos
   let totalDia: number | undefined
   let cantidadDia: number | undefined
+  let comisionDia: number | undefined
+  let salidasDiaArs: number | undefined
+  let reembolsosDiaArs: number | undefined
+  let saldoDia: number | undefined
+  let movimientosDia: MovimientoDia[] | undefined
+
   if (diaART && /^\d{4}-\d{2}-\d{2}$/.test(diaART)) {
     const desde = new Date(`${diaART}T00:00:00-03:00`).getTime()
     const hasta = desde + 24 * 60 * 60 * 1000
-    visibles = ingresos.filter(m => {
-      const t = new Date(m.fechaDia).getTime() || 0
+    const enElDia = (f: string) => {
+      const t = new Date(f).getTime() || 0
       return t >= desde && t < hasta
-    })
+    }
+
+    visibles = ingresos.filter(m => enElDia(m.fechaDia))
     totalDia = visibles.reduce((s, m) => s + m.monto, 0)
     cantidadDia = visibles.length
+
+    const salidasDelDia = salidas.filter(s => enElDia(s.fecha))
+    const refundsDelDia = refunds.filter(r => enElDia(r.createdAt))
+    salidasDiaArs = salidasDelDia.reduce((s, r) => s + r.ars, 0)
+    reembolsosDiaArs = refundsDelDia.reduce((s, r) => s + r.monto, 0)
+    comisionDia = totalDia * pct / 100
+    saldoDia = totalDia - comisionDia - salidasDiaArs - reembolsosDiaArs
+
+    movimientosDia = [
+      ...salidasDelDia.map((s): MovimientoDia => ({
+        clase: 'retiro', fecha: s.fecha, concepto: s.motivo, ars: s.ars,
+        // Solo tiene sentido mostrar la conversión si el retiro no era en ARS.
+        detalle: s.cotizacion != null
+          ? `${s.moneda} ${s.montoOrigen.toLocaleString('es-AR')} × ${s.cotizacion.toLocaleString('es-AR')}`
+          : undefined,
+      })),
+      ...refundsDelDia.map((r): MovimientoDia => ({
+        clase: 'reembolso', fecha: r.createdAt, ars: r.monto,
+        concepto: `Reembolso orden #${r.orderNumber}${r.seq > 1 ? ` (${r.seq})` : ''}`,
+      })),
+    ].sort((a, b) => (new Date(a.fecha).getTime() || 0) - (new Date(b.fecha).getTime() || 0))
   }
 
   // Ascendente por la fecha que se muestra (la del pago): los más antiguos arriba.
@@ -313,6 +359,11 @@ export async function getIngresosBilletera(wallet: string, diaART?: string): Pro
     salidas,
     totalDia,
     cantidadDia,
+    comisionDia,
+    salidasDiaArs,
+    reembolsosDiaArs,
+    saldoDia,
+    movimientosDia,
     // Al estar ordenado ascendente, el tope deja los EXTRACTO_LIMIT más antiguos.
     pagos: visibles.slice(0, EXTRACTO_LIMIT).map(m => ({
       fecha: m.fechaPago,   // siempre la fecha del pago, aunque el día elegido sea otro

@@ -14,33 +14,25 @@ interface Pago {
   comision: number
   estado: 'emparejado' | 'en_cola'
 }
-interface Reembolso {
-  orderNumber: string
-  monto: number
-  seq: number
+interface MovimientoDia {
+  clase: 'retiro' | 'reembolso'
   fecha: string
-}
-interface Salida {
-  id: number
-  tipo: 'transferencia_ars' | 'usd_billete' | 'ajuste'
-  fecha: string
+  concepto: string
+  detalle?: string
   ars: number
-  usd: number | null
-  usdRate: number | null
-  motivo: string
 }
 interface Detalle {
   wallet: string
   totalArs: number
   cantidad: number
-  comisionArs: number
   comisionPct: number
-  reembolsosArs: number
-  reembolsos: Reembolso[]
-  salidasArs: number
-  salidas: Salida[]
   totalDia?: number
   cantidadDia?: number
+  comisionDia?: number
+  salidasDiaArs?: number
+  reembolsosDiaArs?: number
+  saldoDia?: number
+  movimientosDia?: MovimientoDia[]
   pagos: Pago[]
 }
 
@@ -132,74 +124,10 @@ export default function BilleteraTab({ wallet, notify }: { wallet: string; notif
             ? <NumberSkeleton width={200} height={40} />
             : <AnimatedNumber value={data?.totalArs ?? 0} format={fmtArs} />}
         </p>
-        {data && data.comisionArs > 0 && (
-          <p className="text-xs font-semibold mt-2" style={{ color: '#f87171' }}>
-            Comisión {fmtPct(data.comisionPct)}% · −<AnimatedNumber value={data.comisionArs} format={fmtArs} pop={false} />
-          </p>
-        )}
-        {data && data.reembolsosArs > 0 && (
-          <p className="text-xs font-semibold mt-1" style={{ color: '#f87171' }}>
-            Reembolsos · −<AnimatedNumber value={data.reembolsosArs} format={fmtArs} pop={false} />
-          </p>
-        )}
-        {data && data.salidasArs > 0 && (
-          <p className="text-xs font-semibold mt-1" style={{ color: '#f87171' }}>
-            Retiros y transferencias · −<AnimatedNumber value={data.salidasArs} format={fmtArs} pop={false} />
-          </p>
-        )}
         <p className="text-xs mt-2" style={{ color: 'rgba(148,163,184,0.5)' }}>
           {data?.cantidad ?? 0} pago{(data?.cantidad ?? 0) === 1 ? '' : 's'} · comisión, reembolsos y retiros ya descontados
         </p>
       </motion.div>
-
-      {/* Salidas: retiros y transferencias hechas desde la billetera */}
-      {data && data.salidas.length > 0 && (
-        <div className="rounded-2xl p-4" style={{ background: 'linear-gradient(135deg, #0d1117, #111827)', border: '1px solid rgba(248,113,113,0.2)' }}>
-          <h3 className="text-xs font-semibold uppercase tracking-widest mb-2" style={{ color: 'rgba(248,113,113,0.85)' }}>
-            Retiros y transferencias ({data.salidas.length})
-          </h3>
-          <div className="space-y-1">
-            {data.salidas.map(s => (
-              <div key={s.id} className="flex items-center justify-between gap-3 text-sm flex-wrap">
-                <span style={{ color: 'rgba(226,232,240,0.85)' }}>
-                  {s.motivo}
-                  {s.usd != null && (
-                    <span className="text-[11px] ml-1" style={{ color: 'rgba(148,163,184,0.6)' }}>
-                      (USD {s.usd.toLocaleString('es-AR')} × {s.usdRate?.toLocaleString('es-AR')})
-                    </span>
-                  )}
-                </span>
-                <span className="flex items-center gap-2">
-                  <span className="font-medium" style={{ color: '#f87171' }}>−{ARS.format(s.ars)}</span>
-                  <span className="text-[11px]" style={{ color: 'rgba(148,163,184,0.5)' }}>{fmtDate(s.fecha)}</span>
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Reembolsos que restaron saldo a esta billetera (misma info que a la tienda) */}
-      {data && data.reembolsos.length > 0 && (
-        <div className="rounded-2xl p-4" style={{ background: 'linear-gradient(135deg, #0d1117, #111827)', border: '1px solid rgba(248,113,113,0.2)' }}>
-          <h3 className="text-xs font-semibold uppercase tracking-widest mb-2" style={{ color: 'rgba(248,113,113,0.85)' }}>
-            Reembolsos ({data.reembolsos.length})
-          </h3>
-          <div className="space-y-1">
-            {data.reembolsos.map((r, i) => (
-              <div key={i} className="flex items-center justify-between gap-3 text-sm flex-wrap">
-                <span style={{ color: 'rgba(226,232,240,0.85)' }}>
-                  Reembolso orden #{r.orderNumber}{r.seq > 1 ? ` (${r.seq})` : ''}
-                </span>
-                <span className="flex items-center gap-2">
-                  <span className="font-medium" style={{ color: '#f87171' }}>−{ARS.format(r.monto)}</span>
-                  <span className="text-[11px]" style={{ color: 'rgba(148,163,184,0.5)' }}>{fmtDate(r.fecha)}</span>
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       {/* Selector de día */}
       <div className="flex items-center gap-3 flex-wrap">
@@ -212,13 +140,35 @@ export default function BilleteraTab({ wallet, notify }: { wallet: string; notif
           className="rounded-lg px-3 py-2 text-sm outline-none"
           style={{ background: 'rgba(0,212,255,0.05)', border: '1px solid rgba(0,212,255,0.35)', color: 'rgba(226,232,240,0.9)', colorScheme: 'dark' }}
         />
-        {data && (
-          <span className="text-xs" style={{ color: 'rgba(148,163,184,0.7)' }}>
-            Total de este día: <AnimatedNumber value={data.totalDia ?? 0} format={fmtArs} className="font-bold" style={{ color: '#00ff88' }} />
-            <span style={{ color: 'rgba(148,163,184,0.5)' }}> · {data.cantidadDia ?? 0} pago{(data.cantidadDia ?? 0) === 1 ? '' : 's'}</span>
-          </span>
-        )}
       </div>
+
+      {/* Balance del día: ingresos − comisión − retiros − reembolsos */}
+      <motion.div
+        key={fecha}
+        initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}
+        className="rounded-2xl p-4 max-w-sm"
+        style={{ background: 'linear-gradient(135deg, #0d1117, #111827)', border: '1px solid rgba(0,212,255,0.18)' }}
+      >
+        <p className="text-[11px] font-semibold uppercase tracking-widest mb-2" style={{ color: 'rgba(0,212,255,0.7)' }}>
+          Saldo del día
+        </p>
+        <p className="text-2xl font-black" style={{ color: (data?.saldoDia ?? 0) < 0 ? '#f87171' : '#00ff88' }}>
+          {loading && !data ? <NumberSkeleton width={140} height={28} /> : <AnimatedNumber value={data?.saldoDia ?? 0} format={fmtArs} />}
+        </p>
+        <div className="mt-3 space-y-1 text-xs">
+          <Linea label={`Ingresos (${data?.cantidadDia ?? 0} pago${(data?.cantidadDia ?? 0) === 1 ? '' : 's'})`}
+            valor={data?.totalDia ?? 0} color="#00ff88" signo="+" />
+          {(data?.comisionDia ?? 0) > 0 && (
+            <Linea label={`Comisión ${fmtPct(data?.comisionPct ?? 0)}%`} valor={data?.comisionDia ?? 0} color="#f87171" signo="−" />
+          )}
+          {(data?.salidasDiaArs ?? 0) > 0 && (
+            <Linea label="Retiros y transferencias" valor={data?.salidasDiaArs ?? 0} color="#f87171" signo="−" />
+          )}
+          {(data?.reembolsosDiaArs ?? 0) > 0 && (
+            <Linea label="Reembolsos" valor={data?.reembolsosDiaArs ?? 0} color="#f87171" signo="−" />
+          )}
+        </div>
+      </motion.div>
 
       {/* Extracto del día */}
       <div className="rounded-2xl overflow-hidden" style={{ border: '1px solid rgba(0,212,255,0.12)', background: 'linear-gradient(135deg, #0d1117, #111827)' }}>
@@ -266,7 +216,57 @@ export default function BilleteraTab({ wallet, notify }: { wallet: string; notif
           Mostrando los {data.pagos.length} pagos más antiguos de {data.cantidadDia} del día.
         </p>
       )}
+
+      {/* Retiros y reembolsos del día: van a continuación de los pagos, con sus
+          propias columnas, porque no son ingresos sino plata que sale. */}
+      {data && (data.movimientosDia?.length ?? 0) > 0 && (
+        <div className="rounded-2xl overflow-hidden" style={{ border: '1px solid rgba(248,113,113,0.15)', background: 'linear-gradient(135deg, #0d1117, #111827)' }}>
+          <div style={{ overflowX: 'auto' }}>
+            <table className="w-full text-sm" style={{ borderCollapse: 'collapse', minWidth: '640px' }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid rgba(248,113,113,0.15)' }}>
+                  {['Fecha y hora', 'Concepto', 'Monto (ARS)', 'Tipo'].map(h => (
+                    <th key={h} className="text-left px-3 py-3 text-[11px] font-semibold uppercase tracking-wider whitespace-nowrap"
+                      style={{ color: 'rgba(248,113,113,0.7)' }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {data.movimientosDia!.map((m, i) => (
+                  <motion.tr key={i} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3, delay: Math.min(i * 0.03, 0.3) }}
+                    style={{ borderBottom: '1px solid rgba(148,163,184,0.05)' }}>
+                    <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: 'rgba(226,232,240,0.85)' }}>{fmtDate(m.fecha)}</td>
+                    <td className="px-3 py-2.5" style={{ color: 'rgba(226,232,240,0.85)' }}>
+                      {m.concepto}
+                      {m.detalle && (
+                        <span className="text-[11px] ml-1" style={{ color: 'rgba(148,163,184,0.6)' }}>({m.detalle})</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2.5 whitespace-nowrap font-medium" style={{ color: '#f87171' }}>−{ARS.format(m.ars)}</td>
+                    <td className="px-3 py-2.5 whitespace-nowrap">
+                      <span className="text-[11px] px-2 py-0.5 rounded-full"
+                        style={{ background: 'rgba(248,113,113,0.1)', color: '#f87171' }}>
+                        {m.clase === 'retiro' ? 'Retiro' : 'Reembolso'}
+                      </span>
+                    </td>
+                  </motion.tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
       </>}
+    </div>
+  )
+}
+
+// Una línea del desglose del saldo del día.
+function Linea({ label, valor, color, signo }: { label: string; valor: number; color: string; signo: '+' | '−' }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span style={{ color: 'rgba(148,163,184,0.7)' }}>{label}</span>
+      <span className="font-semibold whitespace-nowrap" style={{ color }}>{signo}{ARS.format(valor)}</span>
     </div>
   )
 }
