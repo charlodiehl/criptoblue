@@ -62,12 +62,16 @@ export interface ReembolsoBilletera {
 
 // Una salida de plata del día: retiro/transferencia o reembolso. Se muestran juntos
 // en una tabla debajo de los pagos, porque ambos bajan el saldo de ese día.
+// moneda/montoOrigen/cotizacion vienen del formulario de "Retirar saldo": si el
+// retiro fue en USD o USDT, la tabla muestra el monto original y la tasa aplicada.
 export interface MovimientoDia {
   clase: 'retiro' | 'reembolso'
   fecha: string
-  concepto: string          // motivo del retiro, u "Orden #123" del reembolso
-  detalle?: string          // p.ej. "USD 13.800 × 1.540"
-  ars: number               // POSITIVO: lo que sale
+  concepto: string                        // motivo del retiro, u "Orden #123" del reembolso
+  moneda: 'ARS' | 'USD' | 'USDT'
+  montoOrigen: number                     // monto en la moneda del retiro
+  cotizacion: number | null               // ARS por unidad; null si ya era ARS
+  ars: number                             // POSITIVO: lo que sale
 }
 
 export interface DetalleBilletera {
@@ -272,6 +276,36 @@ export async function getIngresosBilleteras(): Promise<IngresoBilletera[]> {
     .sort((a, b) => a.wallet.localeCompare(b.wallet))
 }
 
+// Días (ART) en los que la billetera tuvo algún movimiento: un pago que entró o se
+// emparejó, un retiro o un reembolso. El calendario deshabilita el resto, para que
+// no se pueda elegir un día que seguro está vacío.
+export async function getDiasConMovimiento(wallet: string): Promise<string[]> {
+  const labels = sourceLabelsDeBilletera(wallet)
+  if (labels.length === 0) return []
+  const labelSet = new Set(labels)
+
+  const [emparejados, hot, refunds, salidas, yaEmparejados] = await Promise.all([
+    ingresosEmparejados(), loadHotState(), getRefundsDeWallet(wallet), getSalidasDeWallet(wallet), idsEmparejados(),
+  ])
+
+  // Argentina es UTC-3 fijo: restar 3h y quedarse con la fecha.
+  const diaART = (f: string) => {
+    const t = new Date(f).getTime()
+    if (!Number.isFinite(t)) return null
+    return new Date(t - 3 * 60 * 60 * 1000).toISOString().slice(0, 10)
+  }
+
+  const dias = new Set<string>()
+  const agregar = (f: string) => { const d = diaART(f); if (d) dias.add(d) }
+
+  for (const m of emparejados) if (labelSet.has(m.source)) agregar(m.fechaDia)
+  for (const m of ingresosEnCola(hot, yaEmparejados, labelSet)) agregar(m.fechaDia)
+  for (const s of salidas) agregar(s.fecha)
+  for (const r of refunds) agregar(r.createdAt)
+
+  return [...dias].sort()
+}
+
 // Detalle de una billetera: total acumulado (histórico) + extracto de pagos.
 // Si se pasa diaART ('YYYY-MM-DD'), el extracto se acota a ese día (ART) y se
 // devuelve además el subtotal del día. El total acumulado no cambia por el día.
@@ -333,14 +367,13 @@ export async function getIngresosBilletera(wallet: string, diaART?: string): Pro
     movimientosDia = [
       ...salidasDelDia.map((s): MovimientoDia => ({
         clase: 'retiro', fecha: s.fecha, concepto: s.motivo, ars: s.ars,
-        // Solo tiene sentido mostrar la conversión si el retiro no era en ARS.
-        detalle: s.cotizacion != null
-          ? `${s.moneda} ${s.montoOrigen.toLocaleString('es-AR')} × ${s.cotizacion.toLocaleString('es-AR')}`
-          : undefined,
+        moneda: s.moneda, montoOrigen: s.montoOrigen, cotizacion: s.cotizacion,
       })),
+      // Un reembolso siempre se devuelve en ARS: no hay conversión que mostrar.
       ...refundsDelDia.map((r): MovimientoDia => ({
         clase: 'reembolso', fecha: r.createdAt, ars: r.monto,
         concepto: `Reembolso orden #${r.orderNumber}${r.seq > 1 ? ` (${r.seq})` : ''}`,
+        moneda: 'ARS' as const, montoOrigen: r.monto, cotizacion: null,
       })),
     ].sort((a, b) => (new Date(a.fecha).getTime() || 0) - (new Date(b.fecha).getTime() || 0))
   }

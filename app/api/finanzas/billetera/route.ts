@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireUser } from '@/lib/auth/server'
-import { getIngresosBilletera, getBilleterasOcultas } from '@/lib/billeteras'
+import { getIngresosBilletera, getBilleterasOcultas, getDiasConMovimiento } from '@/lib/billeteras'
 import { WALLETS } from '@/lib/config'
 
 // GET /api/finanzas/billetera?wallet=MS[&fecha=YYYY-MM-DD] → total + extracto (del
-// día si se pasa fecha). Admin-only.
+// día si se pasa fecha) + los días que tuvieron movimiento (para el calendario).
+// Admin-only.
 export async function GET(req: NextRequest) {
   try {
     const auth = await requireUser('admin')
@@ -21,8 +22,11 @@ export async function GET(req: NextRequest) {
     }
 
     const fecha = req.nextUrl.searchParams.get('fecha') || undefined
-    const detalle = await getIngresosBilletera(wallet, fecha)
-    return NextResponse.json(detalle)
+    const [detalle, dias] = await Promise.all([
+      getIngresosBilletera(wallet, fecha),
+      getDiasConMovimiento(wallet),
+    ])
+    return NextResponse.json({ ...detalle, dias })
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 })
   }
