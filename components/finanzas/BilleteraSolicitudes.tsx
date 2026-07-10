@@ -1,101 +1,145 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { motion } from 'framer-motion'
 import { ARS, fmtDate } from '@/lib/utils'
+import type { TransferTipo } from '@/lib/types'
 import type { Toast } from './FinanzasApp'
 
-// Solicitar pagos desde una billetera: mismos 5 tipos y mismos campos que el
-// portal de tiendas. La diferencia es que el saldo de billetera está en ARS, así
-// que al pagar un retiro en USD o USDT se pide la cotización.
+// "Retirar saldo" de una billetera. Copia del formulario del portal de tiendas
+// (components/tienda/SolicitarTab.tsx): mismos tipos, mismos campos, mismo aspecto.
+//
+// Dos diferencias, por ser una billetera y no una tienda:
+//   • Se carga la fecha/hora real del retiro (sirve para asentar retiros pasados).
+//   • El saldo de billetera está en ARS, así que al marcar pagada una solicitud en
+//     USD o USDT se pide la cotización para descontarla.
 
-type Tipo = 'ars' | 'usd' | 'usdt' | 'usd_billete' | 'ars_billete'
-
-const TIPO_LABEL: Record<Tipo, string> = {
+const TIPO_LABEL: Record<TransferTipo, string> = {
   ars: 'Transferencia ARS',
   usd: 'Transferencia USD',
   usdt: 'Transferencia USDT',
   usd_billete: 'Recibir USD billete',
   ars_billete: 'Recibir ARS billete',
 }
-const MONEDA: Record<Tipo, 'ARS' | 'USD' | 'USDT'> = {
+
+const MONEDA: Record<TransferTipo, 'ARS' | 'USD' | 'USDT'> = {
   ars: 'ARS', ars_billete: 'ARS', usd: 'USD', usd_billete: 'USD', usdt: 'USDT',
 }
-const CAMPO_MONTO: Record<Tipo, string> = {
-  ars: 'montoArs', usd: 'montoUsd', usdt: 'montoUsdt', usd_billete: 'monto', ars_billete: 'monto',
+
+const BLOCKCHAINS = ['TRC-20', 'ERC-20', 'BEP-20', 'Polygon']
+
+const inputStyle: React.CSSProperties = {
+  width: '100%', fontSize: '13px', padding: '9px 12px', borderRadius: '9px',
+  background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(0,212,255,0.18)',
+  color: 'rgba(226,232,240,0.92)', outline: 'none',
 }
+const labelStyle: React.CSSProperties = {
+  display: 'block', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase',
+  letterSpacing: '0.08em', color: 'rgba(0,212,255,0.7)', marginBottom: '5px',
+}
+// Fondo oscuro para las <option> del select nativo (sino el browser las pinta gris).
+const optionStyle: React.CSSProperties = { background: '#0d1117', color: 'rgba(226,232,240,0.92)' }
 
 interface Solicitud {
   id: number
-  tipo: Tipo
+  tipo: TransferTipo
   estado: 'pendiente' | 'pagada'
   datos: Record<string, string | number>
-  created_by: string
   created_at: string
   paid_at: string | null
 }
 
-function ahoraART(): string {
-  return new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString().slice(0, 16)
+function montoDeSolicitud(s: Solicitud): string {
+  if (s.tipo === 'ars') return `${Number(s.datos.montoArs).toLocaleString('es-AR')} ARS`
+  if (s.tipo === 'usd') return `${Number(s.datos.montoUsd).toLocaleString('es-AR')} USD`
+  if (s.tipo === 'usdt') return `${Number(s.datos.montoUsdt).toLocaleString('es-AR')} USDT`
+  if (s.tipo === 'usd_billete') return `${Number(s.datos.monto).toLocaleString('es-AR')} USD billete`
+  return `${Number(s.datos.monto).toLocaleString('es-AR')} ARS billete`
 }
 
-const fmtMonto = (s: Solicitud) => {
-  const n = Number(s.datos[CAMPO_MONTO[s.tipo]] ?? 0)
-  return `${n.toLocaleString('es-AR')} ${MONEDA[s.tipo]}${s.tipo.endsWith('billete') ? ' billete' : ''}`
+// Ahora en horario Argentina, para el input datetime-local
+function ahoraART(): string {
+  return new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString().slice(0, 16)
 }
 
 export default function BilleteraSolicitudes({
   wallet, notify, onPagada,
 }: { wallet: string; notify: (msg: string, type?: Toast['type']) => void; onPagada: () => void }) {
-  const [solicitudes, setSolicitudes] = useState<Solicitud[]>([])
-  const [tipo, setTipo] = useState<Tipo>('ars')
-  const [d, setD] = useState<Record<string, string>>({})
-  const [motivo, setMotivo] = useState('')
+  const [tipo, setTipo] = useState<TransferTipo | ''>('')
+  const [form, setForm] = useState<Record<string, string>>({})
   const [fecha, setFecha] = useState(ahoraART())
+  const [motivo, setMotivo] = useState('')
   const [enviando, setEnviando] = useState(false)
+  const [solicitudes, setSolicitudes] = useState<Solicitud[]>([])
+  const [loadingList, setLoadingList] = useState(true)
   const [pagando, setPagando] = useState<number | null>(null)
 
-  const cargar = useCallback(async () => {
+  const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
+
+  const fetchList = useCallback(async () => {
+    setLoadingList(true)
     try {
       const res = await fetch(`/api/finanzas/billetera/solicitudes?wallet=${encodeURIComponent(wallet)}`)
       if (!res.ok) throw new Error((await res.json()).error || 'Error')
-      setSolicitudes((await res.json()).solicitudes ?? [])
+      const data = await res.json()
+      setSolicitudes(data.solicitudes || [])
     } catch (e) {
       notify(`No se pudieron cargar las solicitudes: ${e instanceof Error ? e.message : e}`, 'error')
+    } finally {
+      setLoadingList(false)
     }
   }, [wallet, notify])
 
-  useEffect(() => { cargar() }, [cargar])
-  useEffect(() => { setD({}) }, [tipo])   // cada tipo tiene sus propios campos
+  useEffect(() => { fetchList() }, [fetchList])
 
-  const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
-    setD(prev => ({ ...prev, [k]: e.target.value }))
+  function cambiarTipo(t: TransferTipo | '') {
+    setTipo(t)
+    setForm({})
+  }
 
-  async function crear(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    if (!tipo || enviando) return
+
+    // Armar datos según tipo (mismos nombres que valida el server)
+    let datos: Record<string, string>
+    if (tipo === 'ars') {
+      datos = { cbu: form.cbu || '', montoArs: form.montoArs || '', nombreBeneficiario: form.nombreBeneficiario || '', cuitBeneficiario: form.cuitBeneficiario || '' }
+    } else if (tipo === 'usd') {
+      datos = { numeroCuenta: form.numeroCuenta || '', montoUsd: form.montoUsd || '', nombreCompleto: form.nombreCompleto || '', domicilio: form.domicilio || '' }
+    } else if (tipo === 'usdt') {
+      datos = { wallet: form.wallet || '', blockchain: form.blockchain || '', montoUsdt: form.montoUsdt || '' }
+    } else {
+      // usd_billete / ars_billete
+      datos = { monto: form.monto || '', modalidad: form.modalidad || '', nombreCompleto: form.nombreCompleto || '', dni: form.dni || '', contacto: form.contacto || '' }
+      if (form.modalidad === 'envio') datos.direccion = form.direccion || ''
+    }
+
     setEnviando(true)
     try {
       const res = await fetch('/api/finanzas/billetera/solicitudes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          wallet, tipo, datos: d, motivo: motivo.trim() || undefined,
+          wallet, tipo, datos,
+          motivo: motivo.trim() || undefined,
           fecha: new Date(`${fecha}:00-03:00`).toISOString(),
         }),
       })
-      const body = await res.json()
-      if (!res.ok) throw new Error(body.error || 'Error')
-      notify(`Solicitud #${body.id} creada`, 'success')
-      setD({}); setMotivo('')
-      cargar()
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Error')
+      notify('Solicitud creada ✓', 'success')
+      cambiarTipo('')
+      setMotivo('')
+      fetchList()
     } catch (e) {
-      notify(`No se pudo crear: ${e instanceof Error ? e.message : e}`, 'error')
+      notify(e instanceof Error ? e.message : 'No se pudo crear', 'error')
     } finally {
       setEnviando(false)
     }
   }
 
   async function pagar(s: Solicitud) {
+    // El saldo de billetera es ARS: si el retiro es en USD/USDT hace falta la tasa.
     let cotizacion: number | undefined
     if (MONEDA[s.tipo] !== 'ARS') {
       const txt = window.prompt(`Cotización: ARS por 1 ${MONEDA[s.tipo]}`, '')
@@ -110,151 +154,153 @@ export default function BilleteraSolicitudes({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ wallet, id: s.id, cotizacion }),
       })
-      const body = await res.json()
-      if (!res.ok) throw new Error(body.error || 'Error')
-      notify(`Solicitud #${s.id} pagada · −${ARS.format(body.salida.ars)}`, 'success')
-      cargar()
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Error')
+      notify(`Solicitud #${s.id} pagada · −${ARS.format(data.salida.ars)}`, 'success')
+      fetchList()
       onPagada()   // el saldo cambió: recargar el balance
     } catch (e) {
-      notify(`No se pudo pagar: ${e instanceof Error ? e.message : e}`, 'error')
+      notify(e instanceof Error ? e.message : 'No se pudo pagar', 'error')
     } finally {
       setPagando(null)
     }
   }
 
-  const inputStyle = {
-    background: 'rgba(0,212,255,0.05)', border: '1px solid rgba(0,212,255,0.25)',
-    color: 'rgba(226,232,240,0.9)', colorScheme: 'dark' as const,
-  }
-  const Campo = ({ k, label, tipoInput = 'text', req = false, placeholder = '' }:
-    { k: string; label: string; tipoInput?: string; req?: boolean; placeholder?: string }) => (
-    <label className="text-xs space-y-1" style={{ color: 'rgba(148,163,184,0.7)' }}>
-      <span>{label}{req && ' *'}</span>
-      <input type={tipoInput} step={tipoInput === 'number' ? '0.01' : undefined} min={tipoInput === 'number' ? '0' : undefined}
-        required={req} value={d[k] ?? ''} onChange={set(k)} placeholder={placeholder}
-        className="w-full rounded-lg px-3 py-2 text-sm outline-none" style={inputStyle} />
-    </label>
-  )
-
-  const esBillete = tipo === 'usd_billete' || tipo === 'ars_billete'
-
   return (
-    <div className="space-y-5">
-      <motion.form
-        onSubmit={crear}
-        initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
-        className="rounded-2xl p-5 space-y-4"
-        style={{ background: 'linear-gradient(135deg, #0d1117, #111827)', border: '1px solid rgba(0,212,255,0.15)' }}
-      >
-        <h3 className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'rgba(0,212,255,0.8)' }}>
-          Nuevo pago desde {wallet}
-        </h3>
-
-        <label className="text-xs space-y-1 block max-w-xs" style={{ color: 'rgba(148,163,184,0.7)' }}>
-          <span>Tipo de transferencia</span>
-          <select value={tipo} onChange={e => setTipo(e.target.value as Tipo)}
-            className="w-full rounded-lg px-3 py-2 text-sm outline-none" style={inputStyle}>
-            {(Object.keys(TIPO_LABEL) as Tipo[]).map(t => (
-              <option key={t} value={t} style={{ background: '#0d1117' }}>{TIPO_LABEL[t]}</option>
-            ))}
+    <div className="space-y-6">
+      {/* Formulario */}
+      <form onSubmit={handleSubmit} className="rounded-2xl p-6 space-y-4"
+        style={{ background: 'linear-gradient(135deg, #0d1117, #111827)', border: '1px solid rgba(0,212,255,0.12)' }}>
+        <div>
+          <label style={labelStyle}>Tipo de transferencia</label>
+          <select value={tipo} onChange={e => cambiarTipo(e.target.value as TransferTipo | '')}
+            style={{ ...inputStyle, colorScheme: 'dark', cursor: 'pointer' }}>
+            <option value="" style={optionStyle}>Seleccioná un tipo…</option>
+            <option value="ars" style={optionStyle}>Transferencia ARS</option>
+            <option value="usd" style={optionStyle}>Transferencia USD</option>
+            <option value="usdt" style={optionStyle}>Transferencia USDT</option>
+            <option value="usd_billete" style={optionStyle}>Recibir USD billete</option>
+            <option value="ars_billete" style={optionStyle}>Recibir ARS billete</option>
           </select>
-        </label>
-
-        <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(220px, 100%), 1fr))' }}>
-          {tipo === 'ars' && <>
-            <Campo k="cbu" label="CBU / CVU / Alias" req />
-            <Campo k="montoArs" label="Monto ARS" tipoInput="number" req />
-            <Campo k="nombreBeneficiario" label="Nombre del beneficiario" />
-            <Campo k="cuitBeneficiario" label="CUIT / CUIL / DNI del beneficiario" />
-          </>}
-
-          {tipo === 'usd' && <>
-            <Campo k="numeroCuenta" label="Número de cuenta" req />
-            <Campo k="montoUsd" label="Monto USD" tipoInput="number" req />
-            <Campo k="nombreCompleto" label="Nombre completo del beneficiario" req />
-            <Campo k="domicilio" label="Domicilio completo" req />
-          </>}
-
-          {tipo === 'usdt' && <>
-            <Campo k="wallet" label="Wallet cripto del beneficiario" req />
-            <Campo k="blockchain" label="Blockchain" req placeholder="TRC20, ERC20…" />
-            <Campo k="montoUsdt" label="Monto USDT" tipoInput="number" req />
-          </>}
-
-          {esBillete && <>
-            <Campo k="monto" label={`Monto ${MONEDA[tipo]}`} tipoInput="number" req />
-            <label className="text-xs space-y-1" style={{ color: 'rgba(148,163,184,0.7)' }}>
-              <span>Cómo se recibe *</span>
-              <select required value={d.modalidad ?? ''} onChange={set('modalidad')}
-                className="w-full rounded-lg px-3 py-2 text-sm outline-none" style={inputStyle}>
-                <option value="" style={{ background: '#0d1117' }}>Elegir…</option>
-                <option value="retira" style={{ background: '#0d1117' }}>Paso a retirar</option>
-                <option value="envio" style={{ background: '#0d1117' }}>Enviar a una ubicación</option>
-              </select>
-            </label>
-            <Campo k="nombreCompleto" label={d.modalidad === 'envio' ? 'Nombre completo de quien recibe' : 'Nombre completo de quien retira'} req />
-            <Campo k="dni" label="DNI" req />
-            <Campo k="contacto" label="Número de contacto" req />
-            {d.modalidad === 'envio' && <Campo k="direccion" label="Dirección donde entregar" req />}
-          </>}
-
-          <label className="text-xs space-y-1" style={{ color: 'rgba(148,163,184,0.7)' }}>
-            <span>Fecha y hora del retiro</span>
-            <input type="datetime-local" value={fecha} onChange={e => setFecha(e.target.value)}
-              className="w-full rounded-lg px-3 py-2 text-sm outline-none" style={inputStyle} />
-          </label>
-          <label className="text-xs space-y-1" style={{ color: 'rgba(148,163,184,0.7)' }}>
-            <span>Motivo (opcional)</span>
-            <input type="text" value={motivo} onChange={e => setMotivo(e.target.value)} placeholder={TIPO_LABEL[tipo]}
-              className="w-full rounded-lg px-3 py-2 text-sm outline-none" style={inputStyle} />
-          </label>
         </div>
 
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          <p className="text-xs" style={{ color: 'rgba(148,163,184,0.6)' }}>
-            {MONEDA[tipo] === 'ARS'
-              ? 'Se descuenta del saldo al marcarla pagada.'
-              : `Al marcarla pagada se pide la cotización (ARS por 1 ${MONEDA[tipo]}) para descontar el saldo.`}
-          </p>
+        {tipo === 'ars' && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="sm:col-span-2"><label style={labelStyle}>CBU / CVU / Alias *</label>
+              <input style={inputStyle} value={form.cbu || ''} onChange={e => set('cbu', e.target.value)} placeholder="Ej: micuenta.mp o 0000..." /></div>
+            <div><label style={labelStyle}>Monto ARS *</label>
+              <input type="number" min="0" step="0.01" style={inputStyle} value={form.montoArs || ''} onChange={e => set('montoArs', e.target.value)} placeholder="0.00" /></div>
+            <div><label style={labelStyle}>Nombre del beneficiario</label>
+              <input style={inputStyle} value={form.nombreBeneficiario || ''} onChange={e => set('nombreBeneficiario', e.target.value)} placeholder="Opcional" /></div>
+            <div className="sm:col-span-2"><label style={labelStyle}>CUIT / CUIL / DNI del beneficiario</label>
+              <input style={inputStyle} value={form.cuitBeneficiario || ''} onChange={e => set('cuitBeneficiario', e.target.value)} placeholder="Opcional" /></div>
+          </div>
+        )}
+
+        {tipo === 'usd' && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div><label style={labelStyle}>Número de cuenta *</label>
+              <input style={inputStyle} value={form.numeroCuenta || ''} onChange={e => set('numeroCuenta', e.target.value)} /></div>
+            <div><label style={labelStyle}>Monto USD *</label>
+              <input type="number" min="0" step="0.01" style={inputStyle} value={form.montoUsd || ''} onChange={e => set('montoUsd', e.target.value)} placeholder="0.00" /></div>
+            <div><label style={labelStyle}>Nombre completo del beneficiario *</label>
+              <input style={inputStyle} value={form.nombreCompleto || ''} onChange={e => set('nombreCompleto', e.target.value)} /></div>
+            <div><label style={labelStyle}>Domicilio completo *</label>
+              <input style={inputStyle} value={form.domicilio || ''} onChange={e => set('domicilio', e.target.value)} /></div>
+          </div>
+        )}
+
+        {tipo === 'usdt' && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="sm:col-span-2"><label style={labelStyle}>Wallet cripto del beneficiario *</label>
+              <input style={inputStyle} value={form.wallet || ''} onChange={e => set('wallet', e.target.value)} placeholder="Dirección de la wallet" /></div>
+            <div><label style={labelStyle}>Blockchain *</label>
+              <input style={inputStyle} list="blockchains-billetera" value={form.blockchain || ''} onChange={e => set('blockchain', e.target.value)} placeholder="TRC-20, ERC-20…" />
+              <datalist id="blockchains-billetera">{BLOCKCHAINS.map(b => <option key={b} value={b} />)}</datalist></div>
+            <div><label style={labelStyle}>Monto USDT *</label>
+              <input type="number" min="0" step="0.01" style={inputStyle} value={form.montoUsdt || ''} onChange={e => set('montoUsdt', e.target.value)} placeholder="0.00" /></div>
+          </div>
+        )}
+
+        {(tipo === 'usd_billete' || tipo === 'ars_billete') && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="sm:col-span-2 text-xs px-3 py-2.5 rounded-lg leading-relaxed"
+              style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.28)', color: '#fbbf24' }}>
+              ⚠️ La entrega de efectivo está <strong>sujeta a disponibilidad</strong> y se realiza únicamente en <strong>CABA y zonas seleccionadas de los alrededores</strong>. Una vez recibida la solicitud, te contactaremos por el medio indicado para coordinar los detalles de la entrega.
+            </div>
+            <div><label style={labelStyle}>Monto {tipo === 'usd_billete' ? 'USD' : 'ARS'} *</label>
+              <input type="number" min="0" step="0.01" style={inputStyle} value={form.monto || ''} onChange={e => set('monto', e.target.value)} placeholder="0.00" /></div>
+            <div><label style={labelStyle}>¿Cómo querés recibir? *</label>
+              <select style={{ ...inputStyle, colorScheme: 'dark', cursor: 'pointer' }} value={form.modalidad || ''} onChange={e => set('modalidad', e.target.value)}>
+                <option value="" style={optionStyle}>Elegí una opción…</option>
+                <option value="retira" style={optionStyle}>Paso a retirar</option>
+                <option value="envio" style={optionStyle}>Enviar a una ubicación</option>
+              </select></div>
+
+            {form.modalidad === 'retira' && (<>
+              <div><label style={labelStyle}>Nombre completo de quien retira *</label>
+                <input style={inputStyle} value={form.nombreCompleto || ''} onChange={e => set('nombreCompleto', e.target.value)} /></div>
+              <div><label style={labelStyle}>DNI *</label>
+                <input style={inputStyle} value={form.dni || ''} onChange={e => set('dni', e.target.value)} /></div>
+              <div className="sm:col-span-2"><label style={labelStyle}>Número de contacto (para coordinar ubicación y horario) *</label>
+                <input style={inputStyle} value={form.contacto || ''} onChange={e => set('contacto', e.target.value)} placeholder="Tel / WhatsApp" /></div>
+            </>)}
+
+            {form.modalidad === 'envio' && (<>
+              <div><label style={labelStyle}>Nombre completo de quien recibe *</label>
+                <input style={inputStyle} value={form.nombreCompleto || ''} onChange={e => set('nombreCompleto', e.target.value)} /></div>
+              <div><label style={labelStyle}>DNI *</label>
+                <input style={inputStyle} value={form.dni || ''} onChange={e => set('dni', e.target.value)} /></div>
+              <div className="sm:col-span-2"><label style={labelStyle}>Dirección donde entregar *</label>
+                <input style={inputStyle} value={form.direccion || ''} onChange={e => set('direccion', e.target.value)} /></div>
+              <div className="sm:col-span-2"><label style={labelStyle}>Número de contacto *</label>
+                <input style={inputStyle} value={form.contacto || ''} onChange={e => set('contacto', e.target.value)} placeholder="Tel / WhatsApp" /></div>
+            </>)}
+          </div>
+        )}
+
+        {/* Propio de la billetera: cuándo se hizo el retiro y con qué motivo. */}
+        {tipo && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div><label style={labelStyle}>Fecha y hora del retiro</label>
+              <input type="datetime-local" style={{ ...inputStyle, colorScheme: 'dark' }} value={fecha} onChange={e => setFecha(e.target.value)} /></div>
+            <div><label style={labelStyle}>Motivo</label>
+              <input style={inputStyle} value={motivo} onChange={e => setMotivo(e.target.value)} placeholder={TIPO_LABEL[tipo]} /></div>
+            {MONEDA[tipo] !== 'ARS' && (
+              <div className="sm:col-span-2 text-[11px]" style={{ color: 'rgba(148,163,184,0.6)' }}>
+                Al marcarla pagada se pide la cotización (ARS por 1 {MONEDA[tipo]}) para descontarla del saldo.
+              </div>
+            )}
+          </div>
+        )}
+
+        {tipo && (
           <button type="submit" disabled={enviando}
-            className="rounded-xl px-4 py-2 text-xs font-semibold transition-all disabled:opacity-40"
-            style={{ background: 'rgba(0,212,255,0.12)', border: '1px solid rgba(0,212,255,0.4)', color: '#00d4ff' }}>
+            className="w-full py-3 rounded-xl text-sm font-bold text-white transition-all disabled:opacity-50"
+            style={{ background: 'linear-gradient(135deg, #00d4ff, #0070f3)', boxShadow: '0 0 20px rgba(0,212,255,0.25)', cursor: enviando ? 'not-allowed' : 'pointer' }}>
             {enviando ? 'Creando…' : 'Crear solicitud'}
           </button>
-        </div>
-      </motion.form>
+        )}
+      </form>
 
-      <div className="rounded-2xl overflow-hidden" style={{ border: '1px solid rgba(0,212,255,0.12)', background: 'linear-gradient(135deg, #0d1117, #111827)' }}>
-        <div style={{ overflowX: 'auto' }}>
-          <table className="w-full text-sm" style={{ borderCollapse: 'collapse', minWidth: '720px' }}>
-            <thead>
-              <tr style={{ borderBottom: '1px solid rgba(0,212,255,0.12)' }}>
-                {['Fecha', 'Tipo', 'Motivo', 'Monto', 'Estado', ''].map(h => (
-                  <th key={h} className="text-left px-3 py-3 text-[11px] font-semibold uppercase tracking-wider whitespace-nowrap"
-                    style={{ color: 'rgba(148,163,184,0.7)' }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {solicitudes.length === 0 ? (
-                <tr><td colSpan={6} className="px-3 py-8 text-center text-sm" style={{ color: 'rgba(148,163,184,0.5)' }}>Sin solicitudes</td></tr>
-              ) : solicitudes.map(s => (
-                <tr key={s.id} style={{ borderBottom: '1px solid rgba(148,163,184,0.05)' }}>
-                  <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: 'rgba(226,232,240,0.85)' }}>
-                    {fmtDate(String(s.datos.fecha ?? s.created_at))}
-                  </td>
-                  <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: 'rgba(148,163,184,0.85)' }}>{TIPO_LABEL[s.tipo]}</td>
-                  <td className="px-3 py-2.5" style={{ color: 'rgba(226,232,240,0.85)' }}>{s.datos.motivo || '—'}</td>
-                  <td className="px-3 py-2.5 whitespace-nowrap font-medium" style={{ color: '#f87171' }}>−{fmtMonto(s)}</td>
-                  <td className="px-3 py-2.5 whitespace-nowrap">
-                    <span className="text-[11px] px-2 py-0.5 rounded-full"
-                      style={s.estado === 'pagada'
-                        ? { background: 'rgba(0,255,136,0.1)', color: '#00ff88' }
-                        : { background: 'rgba(245,158,11,0.1)', color: '#fbbf24' }}>
-                      {s.estado === 'pagada' ? 'Pagada' : 'Pendiente'}
-                    </span>
-                  </td>
-                  <td className="px-3 py-2.5 whitespace-nowrap text-right">
+      {/* Listado de solicitudes de la billetera */}
+      <div>
+        <h3 className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: 'rgba(0,212,255,0.7)' }}>Solicitudes de {wallet}</h3>
+        {loadingList ? (
+          <p className="text-sm py-6 text-center" style={{ color: 'rgba(148,163,184,0.5)' }}>Cargando…</p>
+        ) : solicitudes.length === 0 ? (
+          <p className="text-sm py-6 text-center" style={{ color: 'rgba(148,163,184,0.5)' }}>Todavía no hay solicitudes.</p>
+        ) : (
+          <div className="space-y-2">
+            {solicitudes.map(s => (
+              <div key={s.id} className="rounded-xl p-4"
+                style={{ background: 'linear-gradient(135deg, #0d1117, #111827)', border: '1px solid rgba(148,163,184,0.1)' }}>
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <div className="flex items-center gap-3">
+                    <span className="text-sm font-semibold" style={{ color: 'rgba(226,232,240,0.9)' }}>{TIPO_LABEL[s.tipo]}</span>
+                    <span className="text-sm font-bold" style={{ color: '#00d4ff' }}>{montoDeSolicitud(s)}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
                     {s.estado === 'pendiente' && (
                       <button onClick={() => pagar(s)} disabled={pagando === s.id}
                         className="rounded-lg px-3 py-1.5 text-[11px] font-semibold transition-all disabled:opacity-40"
@@ -262,12 +308,23 @@ export default function BilleteraSolicitudes({
                         {pagando === s.id ? 'Pagando…' : 'Marcar pagada'}
                       </button>
                     )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                    <span className="text-[11px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wide"
+                      style={s.estado === 'pagada'
+                        ? { background: 'rgba(0,255,136,0.12)', border: '1px solid rgba(0,255,136,0.3)', color: '#00ff88' }
+                        : { background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.3)', color: '#fbbf24' }}>
+                      {s.estado === 'pagada' ? 'Pagada' : 'Pendiente'}
+                    </span>
+                  </div>
+                </div>
+                <div className="text-[11px] mt-1.5" style={{ color: 'rgba(148,163,184,0.5)' }}>
+                  Retiro: {fmtDate(String(s.datos.fecha ?? s.created_at))}
+                  {s.datos.motivo ? ` · ${s.datos.motivo}` : ''}
+                  {s.paid_at ? ` · Pagada: ${fmtDate(s.paid_at)}` : ''}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )

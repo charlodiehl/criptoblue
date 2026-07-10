@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { motion } from 'framer-motion'
 import { ARS, fmtDate } from '@/lib/utils'
 import AnimatedNumber, { NumberSkeleton } from '@/components/AnimatedNumber'
+import SelectorDia from '@/components/SelectorDia'
 import BilleteraSolicitudes from './BilleteraSolicitudes'
 import type { Toast } from './FinanzasApp'
 
@@ -18,7 +19,9 @@ interface MovimientoDia {
   clase: 'retiro' | 'reembolso'
   fecha: string
   concepto: string
-  detalle?: string
+  moneda?: 'ARS' | 'USD' | 'USDT'
+  montoOrigen?: number
+  cotizacion?: number | null
   ars: number
 }
 interface Detalle {
@@ -26,6 +29,7 @@ interface Detalle {
   totalArs: number
   cantidad: number
   comisionPct: number
+  dias: string[]
   totalDia?: number
   cantidadDia?: number
   comisionDia?: number
@@ -45,7 +49,7 @@ function hoyART(): string {
 }
 
 // Vista de una billetera: saldo histórico (sin corte, a diferencia de las tiendas)
-// + extracto dividido por día, y la pestaña para solicitar pagos (retiros).
+// + extracto dividido por día, y la pestaña "Retirar saldo".
 export default function BilleteraTab({ wallet, notify }: { wallet: string; notify: (msg: string, type?: Toast['type']) => void }) {
   const [data, setData] = useState<Detalle | null>(null)
   const [fecha, setFecha] = useState(hoyART())
@@ -72,9 +76,16 @@ export default function BilleteraTab({ wallet, notify }: { wallet: string; notif
     return () => clearInterval(iv)
   }, [fetchData])
 
+  // Si el día abierto no tuvo movimientos (p. ej. hoy todavía no entró nada), saltar
+  // al último que sí los tuvo: el calendario ya no deja elegirlo a mano.
+  const dias = data?.dias
+  useEffect(() => {
+    if (dias?.length && !dias.includes(fecha)) setFecha(dias[dias.length - 1])
+  }, [dias, fecha])
+
   const tabs: { key: 'balance' | 'pagos'; label: string }[] = [
     { key: 'balance', label: 'Balance de Saldo' },
-    { key: 'pagos', label: 'Solicitar pagos' },
+    { key: 'pagos', label: 'Retirar saldo' },
   ]
 
   return (
@@ -129,17 +140,10 @@ export default function BilleteraTab({ wallet, notify }: { wallet: string; notif
         </p>
       </motion.div>
 
-      {/* Selector de día */}
+      {/* Selector de día: solo deja elegir días con movimiento */}
       <div className="flex items-center gap-3 flex-wrap">
         <label className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'rgba(0,212,255,0.7)' }}>Día</label>
-        <input
-          type="date"
-          value={fecha}
-          max={hoyART()}
-          onChange={e => setFecha(e.target.value)}
-          className="rounded-lg px-3 py-2 text-sm outline-none"
-          style={{ background: 'rgba(0,212,255,0.05)', border: '1px solid rgba(0,212,255,0.35)', color: 'rgba(226,232,240,0.9)', colorScheme: 'dark' }}
-        />
+        <SelectorDia value={fecha} dias={data?.dias ?? []} onChange={setFecha} disabled={!data?.dias?.length} />
       </div>
 
       {/* Balance del día: ingresos − comisión − retiros − reembolsos */}
@@ -225,32 +229,38 @@ export default function BilleteraTab({ wallet, notify }: { wallet: string; notif
             <table className="w-full text-sm" style={{ borderCollapse: 'collapse', minWidth: '640px' }}>
               <thead>
                 <tr style={{ borderBottom: '1px solid rgba(248,113,113,0.15)' }}>
-                  {['Fecha y hora', 'Concepto', 'Monto (ARS)', 'Tipo'].map(h => (
+                  {['Fecha y hora', 'Concepto', 'Monto original', 'Cotización', 'Monto (ARS)', 'Tipo'].map(h => (
                     <th key={h} className="text-left px-3 py-3 text-[11px] font-semibold uppercase tracking-wider whitespace-nowrap"
                       style={{ color: 'rgba(248,113,113,0.7)' }}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {data.movimientosDia!.map((m, i) => (
-                  <motion.tr key={i} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3, delay: Math.min(i * 0.03, 0.3) }}
-                    style={{ borderBottom: '1px solid rgba(148,163,184,0.05)' }}>
-                    <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: 'rgba(226,232,240,0.85)' }}>{fmtDate(m.fecha)}</td>
-                    <td className="px-3 py-2.5" style={{ color: 'rgba(226,232,240,0.85)' }}>
-                      {m.concepto}
-                      {m.detalle && (
-                        <span className="text-[11px] ml-1" style={{ color: 'rgba(148,163,184,0.6)' }}>({m.detalle})</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2.5 whitespace-nowrap font-medium" style={{ color: '#f87171' }}>−{ARS.format(m.ars)}</td>
-                    <td className="px-3 py-2.5 whitespace-nowrap">
-                      <span className="text-[11px] px-2 py-0.5 rounded-full"
-                        style={{ background: 'rgba(248,113,113,0.1)', color: '#f87171' }}>
-                        {m.clase === 'retiro' ? 'Retiro' : 'Reembolso'}
-                      </span>
-                    </td>
-                  </motion.tr>
-                ))}
+                {data.movimientosDia!.map((m, i) => {
+                  // En ARS no hay conversión: monto original y cotización no aportan nada.
+                  const convertido = m.cotizacion != null && m.moneda !== 'ARS'
+                  return (
+                    <motion.tr key={i} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3, delay: Math.min(i * 0.03, 0.3) }}
+                      style={{ borderBottom: '1px solid rgba(148,163,184,0.05)' }}>
+                      <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: 'rgba(226,232,240,0.85)' }}>{fmtDate(m.fecha)}</td>
+                      <td className="px-3 py-2.5" style={{ color: 'rgba(226,232,240,0.85)' }}>{m.concepto}</td>
+                      <td className="px-3 py-2.5 whitespace-nowrap font-medium"
+                        style={{ color: convertido ? '#00d4ff' : 'rgba(148,163,184,0.35)' }}>
+                        {convertido ? `${(m.montoOrigen ?? 0).toLocaleString('es-AR')} ${m.moneda}` : '—'}
+                      </td>
+                      <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: convertido ? 'rgba(226,232,240,0.7)' : 'rgba(148,163,184,0.35)' }}>
+                        {convertido ? ARS.format(m.cotizacion!) : '—'}
+                      </td>
+                      <td className="px-3 py-2.5 whitespace-nowrap font-medium" style={{ color: '#f87171' }}>−{ARS.format(m.ars)}</td>
+                      <td className="px-3 py-2.5 whitespace-nowrap">
+                        <span className="text-[11px] px-2 py-0.5 rounded-full"
+                          style={{ background: 'rgba(248,113,113,0.1)', color: '#f87171' }}>
+                          {m.clase === 'retiro' ? 'Retiro' : 'Reembolso'}
+                        </span>
+                      </td>
+                    </motion.tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
