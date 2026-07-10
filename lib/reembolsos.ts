@@ -188,14 +188,27 @@ export async function marcarRefundRequestProcesada(id: number, processedBy: stri
 // ─── Reembolsos por billetera (para restarlos del saldo de la billetera) ──────
 
 // Total ARS reembolsado por billetera (la billetera devolvió ese dinero → su saldo baja).
+// Paginado: es una suma de dinero sin cota temporal. Si truncara a 1000 filas
+// restaría de menos y el saldo de la billetera quedaría inflado, en silencio.
 export async function sumRefundsByWallet(): Promise<Record<string, number>> {
-  const { data, error } = await getClient().from(REFUNDS).select('wallet, monto').not('wallet', 'is', null)
-  if (error) throw new Error(`sumRefundsByWallet falló: ${error.message} [${error.code}]`)
   const out: Record<string, number> = {}
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  for (const r of (data ?? []) as any[]) {
-    const w = r.wallet as string
-    out[w] = (out[w] ?? 0) + (Number(r.monto) || 0)
+  const PAGE = 1000
+  let from = 0
+  for (;;) {
+    const { data, error } = await getClient()
+      .from(REFUNDS)
+      .select('wallet, monto')
+      .not('wallet', 'is', null)
+      .order('id', { ascending: true })
+      .range(from, from + PAGE - 1)
+    if (error) throw new Error(`sumRefundsByWallet falló: ${error.message} [${error.code}]`)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const r of (data ?? []) as any[]) {
+      const w = r.wallet as string
+      out[w] = (out[w] ?? 0) + (Number(r.monto) || 0)
+    }
+    if (!data || data.length < PAGE) break
+    from += PAGE
   }
   return out
 }

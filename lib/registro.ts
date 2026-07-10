@@ -329,22 +329,39 @@ export type ConfirmedMark = {
 
 const CONFIRMED_WINDOW_MS = 45 * 24 * 60 * 60 * 1000
 
+// PAGINADO OBLIGATORIO: PostgREST corta en 1000 filas y devuelve las primeras del
+// heap (las más viejas), sin avisar. Sin paginar, todo match posterior a la fila
+// 1000 quedaba fuera del set y su pago volvía a la cola en el siguiente ciclo del
+// cron, contándose dos veces. El `.order('id')` no es cosmético: sin un orden
+// estable, el paginado por `range` puede saltear o repetir filas.
 export async function getConfirmedMarks(sinceMs?: number): Promise<ConfirmedMark[]> {
   const supabase = getClient()
   const cutoff = new Date(sinceMs ?? Date.now() - CONFIRMED_WINDOW_MS).toISOString()
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data, error } = await (supabase.from(TABLE) as any)
-    .select('mp_payment_id, order_id, store_id, action')
-    .in('action', ['manual_paid', 'auto_paid', 'dismissed'])
-    .eq('hidden', false)
-    .gte('ts', cutoff)
-  if (error) throw new Error(`getConfirmedMarks falló: ${error.message} [${error.code}]`)
-  return (data ?? []).map((r: Row) => ({
-    mpPaymentId: r.mp_payment_id ?? undefined,
-    orderId: r.order_id ?? undefined,
-    storeId: r.store_id ?? undefined,
-    action: r.action,
-  }))
+  const out: ConfirmedMark[] = []
+  const PAGE = 1000
+  let from = 0
+  for (;;) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase.from(TABLE) as any)
+      .select('mp_payment_id, order_id, store_id, action')
+      .in('action', ['manual_paid', 'auto_paid', 'dismissed'])
+      .eq('hidden', false)
+      .gte('ts', cutoff)
+      .order('id', { ascending: true })
+      .range(from, from + PAGE - 1)
+    if (error) throw new Error(`getConfirmedMarks falló: ${error.message} [${error.code}]`)
+    for (const r of (data ?? []) as Row[]) {
+      out.push({
+        mpPaymentId: r.mp_payment_id ?? undefined,
+        orderId: r.order_id ?? undefined,
+        storeId: r.store_id ?? undefined,
+        action: r.action,
+      })
+    }
+    if (!data || data.length < PAGE) break
+    from += PAGE
+  }
+  return out
 }
 
 // Validaciones puntuales de duplicado (reemplazan los .some() sobre el blob)
@@ -418,18 +435,30 @@ export async function isPaymentAlreadyUsed(mpPaymentId: string): Promise<boolean
 
 // Búsqueda de duplicados por identidad en una ventana (para buscar-orden).
 // Devuelve entradas con order_id que matcheen la tienda y la ventana temporal.
+// Paginado: alimenta la detección de duplicados de /api/buscar-orden. Si truncara,
+// una orden ya pagada podría no encontrarse y reclamarse de nuevo.
 export async function findRegistroByStoreSince(storeId: string, sinceMs: number): Promise<LogEntry[]> {
   const supabase = getClient()
   const cutoff = new Date(sinceMs).toISOString()
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data, error } = await (supabase.from(TABLE) as any)
-    .select('*')
-    .eq('store_id', storeId)
-    .eq('hidden', false)
-    .in('action', ['manual_paid', 'auto_paid'])
-    .gte('ts', cutoff)
-  if (error) throw new Error(`findRegistroByStoreSince falló: ${error.message} [${error.code}]`)
-  return (data ?? []).map(rowToEntry)
+  const out: LogEntry[] = []
+  const PAGE = 1000
+  let from = 0
+  for (;;) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase.from(TABLE) as any)
+      .select('*')
+      .eq('store_id', storeId)
+      .eq('hidden', false)
+      .in('action', ['manual_paid', 'auto_paid'])
+      .gte('ts', cutoff)
+      .order('id', { ascending: true })
+      .range(from, from + PAGE - 1)
+    if (error) throw new Error(`findRegistroByStoreSince falló: ${error.message} [${error.code}]`)
+    out.push(...(data ?? []).map(rowToEntry))
+    if (!data || data.length < PAGE) break
+    from += PAGE
+  }
+  return out
 }
 
 // Órdenes pagadas de una tienda en un día ART ('YYYY-MM-DD'), con el id de la fila
