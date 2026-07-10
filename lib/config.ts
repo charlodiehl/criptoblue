@@ -9,9 +9,10 @@ export const HARD_CUTOFF_ORDERS = new Date('2026-03-28T00:00:00.000Z')
 
 // Fecha de corte del BALANCE por tienda: solo las órdenes registradas desde este
 // momento generan movimiento de ingreso (balance_movements). Lo anterior se
-// representa con el saldo inicial por tienda (scripts/cargar-saldo-inicial.mjs).
-// 8/7/2026 00:00 ART.
-export const BALANCE_CUTOFF = new Date('2026-07-08T00:00:00-03:00')
+// representa con el saldo inicial por tienda (scripts/cargar-saldo-inicial.mjs),
+// cargado como un 'ajuste' fechado justo en el corte.
+// 9/7/2026 00:00 ART.
+export const BALANCE_CUTOFF = new Date('2026-07-09T00:00:00-03:00')
 
 // ─── Ventanas de tiempo (centralizadas para evitar desincronización) ──────────
 
