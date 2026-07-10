@@ -5,7 +5,7 @@ import { motion } from 'framer-motion'
 import { ARS, fmtDate } from '@/lib/utils'
 import AnimatedNumber, { NumberSkeleton } from '@/components/AnimatedNumber'
 import SelectorDia from '@/components/SelectorDia'
-import BilleteraSolicitudes from './BilleteraSolicitudes'
+import BilleteraRetiros from './BilleteraRetiros'
 import type { Toast } from './FinanzasApp'
 
 interface Pago {
@@ -117,7 +117,7 @@ export default function BilleteraTab({ wallet, notify }: { wallet: string; notif
         })}
       </div>
 
-      {vista === 'pagos' && <BilleteraSolicitudes wallet={wallet} notify={notify} onPagada={fetchData} />}
+      {vista === 'pagos' && <BilleteraRetiros wallet={wallet} notify={notify} onRetiro={fetchData} />}
 
       {vista === 'balance' && <>
 

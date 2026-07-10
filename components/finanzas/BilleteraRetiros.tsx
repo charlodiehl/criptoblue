@@ -8,10 +8,12 @@ import type { Toast } from './FinanzasApp'
 // "Retirar saldo" de una billetera. Copia del formulario del portal de tiendas
 // (components/tienda/SolicitarTab.tsx): mismos tipos, mismos campos, mismo aspecto.
 //
-// Dos diferencias, por ser una billetera y no una tienda:
-//   • Se carga la fecha/hora real del retiro (sirve para asentar retiros pasados).
-//   • El saldo de billetera está en ARS, así que al marcar pagada una solicitud en
-//     USD o USDT se pide la cotización para descontarla.
+// Diferencia de fondo: una billetera gestiona sus propios retiros. No genera una
+// solicitud que el admin aprueba (eso es el flujo de las tiendas): el retiro se
+// asienta en el acto y descuenta el saldo. Por eso el formulario pide dos cosas más:
+//   • la fecha/hora real del retiro (sirve para asentar retiros pasados);
+//   • la cotización, cuando el retiro es en USD o USDT, porque el saldo está en ARS
+//     y no hay un paso de pago posterior donde pedirla.
 
 const TIPO_LABEL: Record<TransferTipo, string> = {
   ars: 'Transferencia ARS',
@@ -23,6 +25,9 @@ const TIPO_LABEL: Record<TransferTipo, string> = {
 
 const MONEDA: Record<TransferTipo, 'ARS' | 'USD' | 'USDT'> = {
   ars: 'ARS', ars_billete: 'ARS', usd: 'USD', usd_billete: 'USD', usdt: 'USDT',
+}
+const CAMPO_MONTO: Record<TransferTipo, string> = {
+  ars: 'montoArs', usd: 'montoUsd', usdt: 'montoUsdt', usd_billete: 'monto', ars_billete: 'monto',
 }
 
 const BLOCKCHAINS = ['TRC-20', 'ERC-20', 'BEP-20', 'Polygon']
@@ -39,21 +44,16 @@ const labelStyle: React.CSSProperties = {
 // Fondo oscuro para las <option> del select nativo (sino el browser las pinta gris).
 const optionStyle: React.CSSProperties = { background: '#0d1117', color: 'rgba(226,232,240,0.92)' }
 
-interface Solicitud {
+interface Retiro {
   id: number
-  tipo: TransferTipo
-  estado: 'pendiente' | 'pagada'
-  datos: Record<string, string | number>
-  created_at: string
-  paid_at: string | null
-}
-
-function montoDeSolicitud(s: Solicitud): string {
-  if (s.tipo === 'ars') return `${Number(s.datos.montoArs).toLocaleString('es-AR')} ARS`
-  if (s.tipo === 'usd') return `${Number(s.datos.montoUsd).toLocaleString('es-AR')} USD`
-  if (s.tipo === 'usdt') return `${Number(s.datos.montoUsdt).toLocaleString('es-AR')} USDT`
-  if (s.tipo === 'usd_billete') return `${Number(s.datos.monto).toLocaleString('es-AR')} USD billete`
-  return `${Number(s.datos.monto).toLocaleString('es-AR')} ARS billete`
+  tipo: TransferTipo | 'ajuste'
+  fecha: string
+  ars: number
+  moneda: 'ARS' | 'USD' | 'USDT'
+  montoOrigen: number
+  cotizacion: number | null
+  motivo: string
+  createdBy: string
 }
 
 // Ahora en horario Argentina, para el input datetime-local
@@ -61,29 +61,29 @@ function ahoraART(): string {
   return new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString().slice(0, 16)
 }
 
-export default function BilleteraSolicitudes({
-  wallet, notify, onPagada,
-}: { wallet: string; notify: (msg: string, type?: Toast['type']) => void; onPagada: () => void }) {
+export default function BilleteraRetiros({
+  wallet, notify, onRetiro,
+}: { wallet: string; notify: (msg: string, type?: Toast['type']) => void; onRetiro: () => void }) {
   const [tipo, setTipo] = useState<TransferTipo | ''>('')
   const [form, setForm] = useState<Record<string, string>>({})
   const [fecha, setFecha] = useState(ahoraART())
   const [motivo, setMotivo] = useState('')
+  const [cotizacion, setCotizacion] = useState('')
   const [enviando, setEnviando] = useState(false)
-  const [solicitudes, setSolicitudes] = useState<Solicitud[]>([])
+  const [retiros, setRetiros] = useState<Retiro[]>([])
   const [loadingList, setLoadingList] = useState(true)
-  const [pagando, setPagando] = useState<number | null>(null)
 
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
 
   const fetchList = useCallback(async () => {
     setLoadingList(true)
     try {
-      const res = await fetch(`/api/finanzas/billetera/solicitudes?wallet=${encodeURIComponent(wallet)}`)
+      const res = await fetch(`/api/finanzas/billetera/retiros?wallet=${encodeURIComponent(wallet)}`)
       if (!res.ok) throw new Error((await res.json()).error || 'Error')
       const data = await res.json()
-      setSolicitudes(data.solicitudes || [])
+      setRetiros(data.retiros || [])
     } catch (e) {
-      notify(`No se pudieron cargar las solicitudes: ${e instanceof Error ? e.message : e}`, 'error')
+      notify(`No se pudieron cargar los retiros: ${e instanceof Error ? e.message : e}`, 'error')
     } finally {
       setLoadingList(false)
     }
@@ -94,11 +94,21 @@ export default function BilleteraSolicitudes({
   function cambiarTipo(t: TransferTipo | '') {
     setTipo(t)
     setForm({})
+    setCotizacion('')
   }
+
+  // Cuánto va a salir de la billetera, con la misma cuenta que hace el server.
+  const necesitaCotizacion = !!tipo && MONEDA[tipo] !== 'ARS'
+  const montoOrigen = tipo ? Number(form[CAMPO_MONTO[tipo]] || 0) : 0
+  const arsPrevisto = necesitaCotizacion ? montoOrigen * Number(cotizacion || 0) : montoOrigen
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!tipo || enviando) return
+    if (necesitaCotizacion && !(Number(cotizacion) > 0)) {
+      notify(`Falta la cotización: ARS por 1 ${MONEDA[tipo]}`, 'error')
+      return
+    }
 
     // Armar datos según tipo (mismos nombres que valida el server)
     let datos: Record<string, string>
@@ -116,53 +126,27 @@ export default function BilleteraSolicitudes({
 
     setEnviando(true)
     try {
-      const res = await fetch('/api/finanzas/billetera/solicitudes', {
+      const res = await fetch('/api/finanzas/billetera/retiros', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           wallet, tipo, datos,
           motivo: motivo.trim() || undefined,
           fecha: new Date(`${fecha}:00-03:00`).toISOString(),
+          ...(necesitaCotizacion ? { cotizacion: Number(cotizacion) } : {}),
         }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Error')
-      notify('Solicitud creada ✓', 'success')
+      notify(`Retiro asentado · −${ARS.format(data.salida.ars)}`, 'success')
       cambiarTipo('')
       setMotivo('')
       fetchList()
+      onRetiro()   // el saldo cambió: recargar el balance
     } catch (e) {
-      notify(e instanceof Error ? e.message : 'No se pudo crear', 'error')
+      notify(e instanceof Error ? e.message : 'No se pudo asentar el retiro', 'error')
     } finally {
       setEnviando(false)
-    }
-  }
-
-  async function pagar(s: Solicitud) {
-    // El saldo de billetera es ARS: si el retiro es en USD/USDT hace falta la tasa.
-    let cotizacion: number | undefined
-    if (MONEDA[s.tipo] !== 'ARS') {
-      const txt = window.prompt(`Cotización: ARS por 1 ${MONEDA[s.tipo]}`, '')
-      if (txt === null) return
-      cotizacion = Number(txt.replace(',', '.'))
-      if (!Number.isFinite(cotizacion) || cotizacion <= 0) { notify('Cotización inválida', 'error'); return }
-    }
-    setPagando(s.id)
-    try {
-      const res = await fetch('/api/finanzas/billetera/pagar-solicitud', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ wallet, id: s.id, cotizacion }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Error')
-      notify(`Solicitud #${s.id} pagada · −${ARS.format(data.salida.ars)}`, 'success')
-      fetchList()
-      onPagada()   // el saldo cambió: recargar el balance
-    } catch (e) {
-      notify(e instanceof Error ? e.message : 'No se pudo pagar', 'error')
-    } finally {
-      setPagando(null)
     }
   }
 
@@ -224,16 +208,12 @@ export default function BilleteraSolicitudes({
 
         {(tipo === 'usd_billete' || tipo === 'ars_billete') && (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="sm:col-span-2 text-xs px-3 py-2.5 rounded-lg leading-relaxed"
-              style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.28)', color: '#fbbf24' }}>
-              ⚠️ La entrega de efectivo está <strong>sujeta a disponibilidad</strong> y se realiza únicamente en <strong>CABA y zonas seleccionadas de los alrededores</strong>. Una vez recibida la solicitud, te contactaremos por el medio indicado para coordinar los detalles de la entrega.
-            </div>
             <div><label style={labelStyle}>Monto {tipo === 'usd_billete' ? 'USD' : 'ARS'} *</label>
               <input type="number" min="0" step="0.01" style={inputStyle} value={form.monto || ''} onChange={e => set('monto', e.target.value)} placeholder="0.00" /></div>
-            <div><label style={labelStyle}>¿Cómo querés recibir? *</label>
+            <div><label style={labelStyle}>¿Cómo se entrega? *</label>
               <select style={{ ...inputStyle, colorScheme: 'dark', cursor: 'pointer' }} value={form.modalidad || ''} onChange={e => set('modalidad', e.target.value)}>
                 <option value="" style={optionStyle}>Elegí una opción…</option>
-                <option value="retira" style={optionStyle}>Paso a retirar</option>
+                <option value="retira" style={optionStyle}>Pasa a retirar</option>
                 <option value="envio" style={optionStyle}>Enviar a una ubicación</option>
               </select></div>
 
@@ -242,7 +222,7 @@ export default function BilleteraSolicitudes({
                 <input style={inputStyle} value={form.nombreCompleto || ''} onChange={e => set('nombreCompleto', e.target.value)} /></div>
               <div><label style={labelStyle}>DNI *</label>
                 <input style={inputStyle} value={form.dni || ''} onChange={e => set('dni', e.target.value)} /></div>
-              <div className="sm:col-span-2"><label style={labelStyle}>Número de contacto (para coordinar ubicación y horario) *</label>
+              <div className="sm:col-span-2"><label style={labelStyle}>Número de contacto *</label>
                 <input style={inputStyle} value={form.contacto || ''} onChange={e => set('contacto', e.target.value)} placeholder="Tel / WhatsApp" /></div>
             </>)}
 
@@ -259,67 +239,64 @@ export default function BilleteraSolicitudes({
           </div>
         )}
 
-        {/* Propio de la billetera: cuándo se hizo el retiro y con qué motivo. */}
+        {/* Propio de la billetera: el retiro se asienta ya, así que la fecha y la
+            cotización (si no es ARS) se cargan acá y no en un paso posterior. */}
         {tipo && (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div><label style={labelStyle}>Fecha y hora del retiro</label>
+            <div><label style={labelStyle}>Fecha y hora del retiro *</label>
               <input type="datetime-local" style={{ ...inputStyle, colorScheme: 'dark' }} value={fecha} onChange={e => setFecha(e.target.value)} /></div>
             <div><label style={labelStyle}>Motivo</label>
               <input style={inputStyle} value={motivo} onChange={e => setMotivo(e.target.value)} placeholder={TIPO_LABEL[tipo]} /></div>
-            {MONEDA[tipo] !== 'ARS' && (
-              <div className="sm:col-span-2 text-[11px]" style={{ color: 'rgba(148,163,184,0.6)' }}>
-                Al marcarla pagada se pide la cotización (ARS por 1 {MONEDA[tipo]}) para descontarla del saldo.
-              </div>
+            {necesitaCotizacion && (
+              <div><label style={labelStyle}>Cotización — ARS por 1 {MONEDA[tipo]} *</label>
+                <input type="number" min="0" step="0.01" style={inputStyle} value={cotizacion} onChange={e => setCotizacion(e.target.value)} placeholder="0.00" /></div>
             )}
           </div>
         )}
 
         {tipo && (
-          <button type="submit" disabled={enviando}
+          <div className="flex items-center justify-between gap-3 flex-wrap pt-1">
+            <p className="text-xs" style={{ color: 'rgba(148,163,184,0.7)' }}>
+              Sale de la billetera: <span className="font-bold" style={{ color: '#f87171' }}>−{ARS.format(arsPrevisto || 0)}</span>
+            </p>
+            <span className="text-[11px]" style={{ color: 'rgba(148,163,184,0.5)' }}>Se descuenta del saldo al confirmar.</span>
+          </div>
+        )}
+
+        {tipo && (
+          <button type="submit" disabled={enviando || !(arsPrevisto > 0)}
             className="w-full py-3 rounded-xl text-sm font-bold text-white transition-all disabled:opacity-50"
             style={{ background: 'linear-gradient(135deg, #00d4ff, #0070f3)', boxShadow: '0 0 20px rgba(0,212,255,0.25)', cursor: enviando ? 'not-allowed' : 'pointer' }}>
-            {enviando ? 'Creando…' : 'Crear solicitud'}
+            {enviando ? 'Registrando…' : 'Registrar retiro'}
           </button>
         )}
       </form>
 
-      {/* Listado de solicitudes de la billetera */}
+      {/* Retiros ya asentados */}
       <div>
-        <h3 className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: 'rgba(0,212,255,0.7)' }}>Solicitudes de {wallet}</h3>
+        <h3 className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: 'rgba(0,212,255,0.7)' }}>Retiros de {wallet}</h3>
         {loadingList ? (
           <p className="text-sm py-6 text-center" style={{ color: 'rgba(148,163,184,0.5)' }}>Cargando…</p>
-        ) : solicitudes.length === 0 ? (
-          <p className="text-sm py-6 text-center" style={{ color: 'rgba(148,163,184,0.5)' }}>Todavía no hay solicitudes.</p>
+        ) : retiros.length === 0 ? (
+          <p className="text-sm py-6 text-center" style={{ color: 'rgba(148,163,184,0.5)' }}>Todavía no hay retiros.</p>
         ) : (
           <div className="space-y-2">
-            {solicitudes.map(s => (
-              <div key={s.id} className="rounded-xl p-4"
+            {retiros.map(r => (
+              <div key={r.id} className="rounded-xl p-4"
                 style={{ background: 'linear-gradient(135deg, #0d1117, #111827)', border: '1px solid rgba(148,163,184,0.1)' }}>
                 <div className="flex items-center justify-between gap-3 flex-wrap">
-                  <div className="flex items-center gap-3">
-                    <span className="text-sm font-semibold" style={{ color: 'rgba(226,232,240,0.9)' }}>{TIPO_LABEL[s.tipo]}</span>
-                    <span className="text-sm font-bold" style={{ color: '#00d4ff' }}>{montoDeSolicitud(s)}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {s.estado === 'pendiente' && (
-                      <button onClick={() => pagar(s)} disabled={pagando === s.id}
-                        className="rounded-lg px-3 py-1.5 text-[11px] font-semibold transition-all disabled:opacity-40"
-                        style={{ background: 'rgba(0,255,136,0.1)', border: '1px solid rgba(0,255,136,0.35)', color: '#00ff88' }}>
-                        {pagando === s.id ? 'Pagando…' : 'Marcar pagada'}
-                      </button>
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <span className="text-sm font-semibold" style={{ color: 'rgba(226,232,240,0.9)' }}>{r.motivo}</span>
+                    {r.cotizacion != null && (
+                      <span className="text-sm font-bold" style={{ color: '#00d4ff' }}>
+                        {r.montoOrigen.toLocaleString('es-AR')} {r.moneda} × {ARS.format(r.cotizacion)}
+                      </span>
                     )}
-                    <span className="text-[11px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wide"
-                      style={s.estado === 'pagada'
-                        ? { background: 'rgba(0,255,136,0.12)', border: '1px solid rgba(0,255,136,0.3)', color: '#00ff88' }
-                        : { background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.3)', color: '#fbbf24' }}>
-                      {s.estado === 'pagada' ? 'Pagada' : 'Pendiente'}
-                    </span>
                   </div>
+                  <span className="text-sm font-bold" style={{ color: '#f87171' }}>−{ARS.format(r.ars)}</span>
                 </div>
                 <div className="text-[11px] mt-1.5" style={{ color: 'rgba(148,163,184,0.5)' }}>
-                  Retiro: {fmtDate(String(s.datos.fecha ?? s.created_at))}
-                  {s.datos.motivo ? ` · ${s.datos.motivo}` : ''}
-                  {s.paid_at ? ` · Pagada: ${fmtDate(s.paid_at)}` : ''}
+                  {fmtDate(r.fecha)}{r.createdBy ? ` · ${r.createdBy}` : ''}
                 </div>
               </div>
             ))}

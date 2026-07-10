@@ -167,35 +167,59 @@ export async function getSalidasDeWallet(wallet: string): Promise<SalidaBilleter
   return out
 }
 
-// ─── Solicitudes de pago de una billetera (transfer_requests con wallet) ─────
+// ─── Retiro directo ──────────────────────────────────────────────────────────
+//
+// A diferencia de las tiendas, una billetera no le pide permiso a nadie: el retiro
+// ya se hizo, acá solo se asienta. No hay ciclo pendiente → pagada, así que la
+// cotización (si el retiro no es en ARS) viaja con el formulario, no con el pago.
+//
+// Igual se deja constancia de los datos cargados (CBU, beneficiario, wallet cripto…)
+// en transfer_requests, que es donde vive ese detalle. Nace 'pagada': nunca estuvo
+// pendiente. Si el movimiento falla, se borra la constancia para no dejar el retiro
+// registrado a medias.
 
-export async function crearSolicitudBilletera(
-  wallet: string, tipo: TransferTipo, datos: Record<string, string | number>, createdBy: string,
-): Promise<number> {
-  const { data, error } = await getClient()
+export async function registrarRetiro(input: {
+  wallet: string
+  tipo: TransferTipo
+  datos: Record<string, string | number>
+  fecha: string
+  motivo: string
+  cotizacion?: number
+  createdBy: string
+}): Promise<SalidaBilletera> {
+  const calc = calcularSalidaArs(input.tipo, input.datos, input.cotizacion)
+  const c = getClient()
+
+  const { data: constancia, error: e1 } = await c
     .from(REQUESTS)
-    .insert({ store_id: null, wallet, tipo, estado: 'pendiente', datos, created_by: createdBy })
+    .insert({
+      store_id: null, wallet: input.wallet, tipo: input.tipo, estado: 'pagada',
+      datos: { ...input.datos, motivo: input.motivo, fecha: input.fecha },
+      created_by: input.createdBy, paid_at: new Date().toISOString(), paid_by: input.createdBy,
+    })
     .select('id')
     .single()
-  if (error) throw new Error(`crearSolicitudBilletera falló: ${error.message} [${error.code}]`)
-  return data.id as number
+  if (e1) throw new Error(`registrarRetiro (constancia) falló: ${e1.message} [${e1.code}]`)
+
+  try {
+    return await registrarSalida({
+      wallet: input.wallet, tipo: input.tipo, fecha: input.fecha,
+      ars: calc.ars, moneda: calc.moneda, montoOrigen: calc.montoOrigen, cotizacion: calc.cotizacion,
+      motivo: input.motivo, refTransferId: constancia.id as number, createdBy: input.createdBy,
+    })
+  } catch (err) {
+    await c.from(REQUESTS).delete().eq('id', constancia.id)
+    throw err
+  }
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export async function listarSolicitudesBilletera(wallet: string): Promise<any[]> {
+// Detalle de los datos cargados en cada retiro (CBU, beneficiario…), indexado por
+// el id del movimiento que los originó.
+export async function getDatosDeRetiros(wallet: string): Promise<Record<number, Record<string, string | number>>> {
   const { data, error } = await getClient()
-    .from(REQUESTS).select('*').eq('wallet', wallet).order('created_at', { ascending: false })
-  if (error) throw new Error(`listarSolicitudesBilletera falló: ${error.message} [${error.code}]`)
-  return data ?? []
-}
-
-// CLAIM condicional: solo la paga quien la encuentra 'pendiente'. Evita el doble
-// egreso si dos admins confirman a la vez (mismo patrón que marcarPagada de tiendas).
-export async function marcarSolicitudPagada(id: number, paidBy: string): Promise<boolean> {
-  const { data, error } = await getClient()
-    .from(REQUESTS)
-    .update({ estado: 'pagada', paid_at: new Date().toISOString(), paid_by: paidBy })
-    .eq('id', id).eq('estado', 'pendiente').select('id')
-  if (error) throw new Error(`marcarSolicitudPagada falló: ${error.message} [${error.code}]`)
-  return (data?.length ?? 0) > 0
+    .from(REQUESTS).select('id, datos').eq('wallet', wallet)
+  if (error) throw new Error(`getDatosDeRetiros falló: ${error.message} [${error.code}]`)
+  const out: Record<number, Record<string, string | number>> = {}
+  for (const r of data ?? []) out[r.id as number] = (r.datos ?? {}) as Record<string, string | number>
+  return out
 }
