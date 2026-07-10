@@ -266,8 +266,79 @@ export async function queryRegistroPaged(opts: RegistroQueryOpts = {}): Promise<
   }
 }
 
-// Trae TODAS las entradas sin copiar que cumplen los filtros (para "Copiar nuevos").
-// Pendientes = working set chico en la práctica; paginamos por las dudas, con tope de seguridad.
+// Reclama de forma ATÓMICA las entradas sin copiar que cumplen los filtros: las marca
+// copiadas y devuelve exactamente las que ESTE llamador ganó. Es la única forma de
+// copiar el registro.
+//
+// Por qué un claim y no leer-y-después-marcar: somos varios admins. Con dos pasos,
+// dos admins que apretaban "Copiar" casi a la vez leían la misma lista y ambos la
+// pegaban en la planilla general. Acá el `copied_at IS NULL` viaja DENTRO del UPDATE:
+// en READ COMMITTED el segundo admin espera el lock de la fila, re-evalúa la condición
+// sobre la versión ya marcada, no la matchea y no se la lleva. Cada entrada la gana
+// exactamente uno.
+//
+// Se reclama por `id`, no por `ts`: no hay UNIQUE sobre `ts`, y marcar de más significa
+// una orden que se da por copiada sin haber llegado nunca a la planilla.
+//
+// El UPDATE va en tandas chicas a propósito. Un `UPDATE … RETURNING` masivo marca
+// TODAS las filas pero puede devolver solo las primeras si PostgREST trunca la
+// respuesta: las marcadas-pero-no-devueltas se perderían en silencio. Con tandas de
+// 200 la respuesta nunca se acerca al límite.
+export async function claimRegistroUncopied(opts: RegistroQueryOpts = {}): Promise<{ entries: LogEntry[]; claimIds: number[] }> {
+  const supabase = getClient()
+  const BATCH = 200
+  const PAGE = 1000
+
+  // 1) Candidatas: las que hoy están sin copiar y pasan los filtros del admin.
+  const candidatas = new Map<number, Row>()
+  for (let from = 0; ; from += PAGE) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let q = (supabase.from(TABLE) as any).select('*')
+    q = applyRegistroFilters(q, opts).is('copied_at', null)
+    q = q.order('id', { ascending: true }).range(from, from + PAGE - 1)
+    const { data, error } = await q
+    if (error) throw new Error(`claimRegistroUncopied(select) falló: ${error.message} [${error.code}]`)
+    const rows = (data ?? []) as (Row & { id: number })[]
+    for (const r of rows) candidatas.set(r.id, r)
+    if (rows.length < PAGE) break
+    if (from > 50000) break // tope de seguridad
+  }
+  if (!candidatas.size) return { entries: [], claimIds: [] }
+
+  // 2) Reclamo. Solo vuelven las filas que seguían sin copiar al momento del UPDATE.
+  const now = new Date().toISOString()
+  const ids = [...candidatas.keys()]
+  const claimIds: number[] = []
+  for (let i = 0; i < ids.length; i += BATCH) {
+    const tanda = ids.slice(i, i + BATCH)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase.from(TABLE) as any)
+      .update({ copied_at: now })
+      .in('id', tanda)
+      .is('copied_at', null)
+      .select('id')
+    if (error) throw new Error(`claimRegistroUncopied(update) falló: ${error.message} [${error.code}]`)
+    for (const r of data ?? []) claimIds.push(r.id as number)
+  }
+
+  // Se devuelven en el mismo orden en que se pegan: por fecha de pago ascendente.
+  const entries = claimIds.map(id => rowToEntry(candidatas.get(id) as Row))
+  return { entries, claimIds }
+}
+
+// Devuelve a "sin copiar" las entradas reclamadas. Se usa cuando el navegador no pudo
+// escribir el portapapeles: sin esto quedarían marcadas como copiadas sin que nadie
+// las haya pegado nunca en la planilla.
+export async function unclaimRegistro(ids: number[]): Promise<void> {
+  if (!ids.length) return
+  const supabase = getClient()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error } = await (supabase.from(TABLE) as any).update({ copied_at: null }).in('id', ids)
+  if (error) throw new Error(`unclaimRegistro falló: ${error.message} [${error.code}]`)
+}
+
+// Trae TODAS las entradas sin copiar que cumplen los filtros (solo lectura, para
+// contar o previsualizar). Copiar NO usa esto: usa claimRegistroUncopied.
 export async function queryRegistroUncopied(opts: RegistroQueryOpts = {}): Promise<LogEntry[]> {
   const supabase = getClient()
   const out: LogEntry[] = []
@@ -699,7 +770,10 @@ export async function updateRegistroPorId(registroId: number, campos: RegistroCa
   return true
 }
 
-// Marca como copiadas (copied_at = ahora) las entradas con los timestamps dados.
+// OBSOLETO. Marca por `ts`, que no es único, y no reclama nada: dos admins copiando a
+// la vez se llevaban las mismas entradas. Lo reemplaza claimRegistroUncopied.
+// Solo sigue acá para no romper una pestaña vieja abierta durante el deploy; la UI
+// actual no lo llama. Borrar cuando no queden clientes viejos.
 export async function markRegistroCopied(timestamps: string[]): Promise<void> {
   if (!timestamps.length) return
   const supabase = getClient()

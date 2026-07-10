@@ -1,23 +1,54 @@
 import { NextResponse } from 'next/server'
-import { loadHotState, loadLogs, saveLogs, appendActivity } from '@/lib/storage'
-import { queryRegistro, queryRegistroPaged, queryRegistroUncopied, updateRegistroByTimestamp, markRegistroCopied } from '@/lib/registro'
+import { loadHotState, loadLogs, saveLogs, appendActivity, notifyKeyUpdate } from '@/lib/storage'
+import { queryRegistro, queryRegistroPaged, queryRegistroUncopied, updateRegistroByTimestamp, markRegistroCopied, claimRegistroUncopied, unclaimRegistro } from '@/lib/registro'
 import type { RegistroSortKey } from '@/lib/registro'
 import { audit } from '@/lib/audit'
 
-// PATCH: edita campos de una entrada, o marca múltiples entradas como copiadas
+// PATCH: edita campos de una entrada, o reclama/devuelve entradas para copiar
 export async function PATCH(request: Request) {
   try {
     const body = await request.json()
 
-    // Acción bulk: marcar entradas como copiadas
+    // Reclamo atómico para "Copiar nuevos": marca y devuelve en una sola operación,
+    // así dos admins simultáneos no se llevan las mismas entradas. El que llega
+    // segundo recibe solo lo que el primero no alcanzó a reclamar (o nada).
+    if (body.action === 'claim_copy') {
+      const { search, month, dateFrom, dateTo } = body as {
+        search?: string; month?: string; dateFrom?: string; dateTo?: string
+      }
+      const { entries, claimIds } = await claimRegistroUncopied({ search, month, dateFrom, dateTo })
+
+      if (claimIds.length) {
+        // registro_log no vive en kv_store, así que no dispara Realtime por sí solo:
+        // hay que avisar a mano para que los otros admins vean el contador bajar.
+        notifyKeyUpdate('criptoblue:logs').catch(() => {})
+        audit({ category: 'user_action', action: 'registro.claim_copy', result: 'success', actor: 'human', component: 'api/log', message: `${claimIds.length} entradas reclamadas para copiar` })
+      }
+      return NextResponse.json({ entries, claimIds })
+    }
+
+    // Devuelve a "sin copiar" lo reclamado: el navegador no pudo escribir el portapapeles.
+    if (body.action === 'unclaim_copy') {
+      const { ids } = body as { ids: number[] }
+      if (!Array.isArray(ids) || ids.length === 0)
+        return NextResponse.json({ error: 'ids requerido' }, { status: 400 })
+
+      await unclaimRegistro(ids)
+      notifyKeyUpdate('criptoblue:logs').catch(() => {})
+      audit({ category: 'user_action', action: 'registro.unclaim_copy', result: 'success', actor: 'human', component: 'api/log', message: `${ids.length} entradas devueltas a sin copiar` })
+      return NextResponse.json({ success: true })
+    }
+
+    // OBSOLETO: solo para una pestaña vieja abierta durante el deploy. Ver markRegistroCopied.
     if (body.action === 'mark_copied') {
       const { timestamps } = body as { timestamps: string[] }
       if (!Array.isArray(timestamps) || timestamps.length === 0)
         return NextResponse.json({ error: 'timestamps requerido' }, { status: 400 })
 
       await markRegistroCopied(timestamps)
+      notifyKeyUpdate('criptoblue:logs').catch(() => {})
 
-      audit({ category: 'user_action', action: 'registro.mark_copied', result: 'success', actor: 'human', component: 'api/log', message: `${timestamps.length} entradas copiadas` })
+      audit({ category: 'user_action', action: 'registro.mark_copied', result: 'success', actor: 'human', component: 'api/log', message: `${timestamps.length} entradas copiadas (camino obsoleto)` })
       return NextResponse.json({ success: true })
     }
 

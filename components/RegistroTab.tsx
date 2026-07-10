@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useEffect, useRef } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import type { LogEntry } from '@/lib/types'
 import { fmtDate, billeteraLabel } from '@/lib/utils'
 
@@ -29,22 +29,10 @@ type SortDir = 'asc' | 'desc'
 
 const PAGE_SIZE = 100
 
-// Cache local para mark_copied — persiste aunque falle la conexión
+// Resto del marcado optimista que vivía en localStorage. Era invisible para los otros
+// admins, que es justo lo que no queremos: ahora el servidor marca antes de devolver.
+// Se limpia una vez para no dejar basura en el navegador.
 const PENDING_KEY = 'criptoblue:pending_copied'
-function localPendingGet(): string[] {
-  try { return JSON.parse(localStorage.getItem(PENDING_KEY) || '[]') } catch { return [] }
-}
-function localPendingAdd(timestamps: string[]) {
-  const s = new Set(localPendingGet())
-  for (const ts of timestamps) s.add(ts)
-  localStorage.setItem(PENDING_KEY, JSON.stringify(Array.from(s)))
-}
-function localPendingRemove(timestamps: string[]) {
-  const remove = new Set(timestamps)
-  const updated = localPendingGet().filter(ts => !remove.has(ts))
-  if (updated.length === 0) localStorage.removeItem(PENDING_KEY)
-  else localStorage.setItem(PENDING_KEY, JSON.stringify(updated))
-}
 
 interface Props {
   // Señal del padre: se incrementa cuando el log cambia (realtime / edición / cron)
@@ -94,9 +82,6 @@ export default function RegistroTab({ refreshKey = 0, onEntryEdited }: Props) {
   const [copied, setCopied] = useState(false)
   const [markingCopied, setMarkingCopied] = useState(false)
   const [copyError, setCopyError] = useState<string | null>(null)
-  const [pendingCopied, setPendingCopied] = useState<Set<string>>(new Set())
-  const onEntryEditedRef = useRef(onEntryEdited)
-  useEffect(() => { onEntryEditedRef.current = onEntryEdited }, [onEntryEdited])
 
   // Filtros
   const [search, setSearch] = useState('')
@@ -159,44 +144,10 @@ export default function RegistroTab({ refreshKey = 0, onEntryEdited }: Props) {
 
   const reload = () => setReloadKey(k => k + 1)
 
-  // Flush pendientes al server
-  async function flushPending(timestamps: string[]) {
-    if (timestamps.length === 0) return
-    try {
-      const res = await fetch('/api/log', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'mark_copied', timestamps }),
-      })
-      if (!res.ok) return
-      localPendingRemove(timestamps)
-      setPendingCopied(prev => {
-        const next = new Set(prev)
-        for (const ts of timestamps) next.delete(ts)
-        return next
-      })
-      onEntryEditedRef.current?.()
-      reload()
-    } catch { /* reintentará en el próximo foco */ }
-  }
-
+  // Limpieza única del marcado optimista viejo. Las filas que ese cache decía "pendientes"
+  // ya están marcadas en el servidor (o nunca lo estuvieron): en cualquier caso, manda la base.
   useEffect(() => {
-    const pending = localPendingGet()
-    if (pending.length > 0) {
-      setPendingCopied(new Set(pending))
-      flushPending(pending)
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  useEffect(() => {
-    const onFocus = () => {
-      const pending = localPendingGet()
-      if (pending.length > 0) flushPending(pending)
-    }
-    window.addEventListener('focus', onFocus)
-    return () => window.removeEventListener('focus', onFocus)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    try { localStorage.removeItem(PENDING_KEY) } catch { /* sin localStorage: nada que limpiar */ }
   }, [])
 
   // Inline edit state
@@ -220,33 +171,53 @@ export default function RegistroTab({ refreshKey = 0, onEntryEdited }: Props) {
     }
   }
 
-  // Copiar: trae TODOS los pendientes (sin copiar) que cumplen los filtros actuales
+  // Copiar: el servidor RECLAMA los pendientes (los marca copiados) y devuelve solo los
+  // que ganó este admin. Somos varios: si otro copió los mismos hace un segundo, acá
+  // llegan de menos o no llega ninguno, pero nunca repetidos.
+  //
+  // Si el navegador no deja escribir el portapapeles, se devuelven: una entrada marcada
+  // como copiada que nadie pegó no vuelve a aparecer nunca en la planilla.
   const handleCopy = async () => {
     setMarkingCopied(true)
     setCopyError(null)
+
     let toCopy: LogEntry[] = []
+    let claimIds: number[] = []
     try {
-      const params = buildFilterParams()
-      params.set('mode', 'copy')
-      const res = await fetch(`/api/log?${params.toString()}`)
-      if (res.ok) {
-        const data = await res.json()
-        toCopy = (data.entries ?? []).filter((e: LogEntry) => !pendingCopied.has(e.timestamp))
-      }
+      const res = await fetch('/api/log', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'claim_copy',
+          search: debouncedSearch.trim() || undefined,
+          dateFrom: dateFrom || undefined,
+          dateTo: dateTo || undefined,
+        }),
+      })
+      if (!res.ok) throw new Error(`Error ${res.status}`)
+      const data = await res.json()
+      toCopy = data.entries ?? []
+      claimIds = data.claimIds ?? []
     } catch {
-      setCopyError('No se pudieron obtener los pendientes — revisá la conexión.')
+      setCopyError('No se pudieron reclamar los pendientes — revisá la conexión. No se copió nada.')
       setMarkingCopied(false)
       return
     }
 
-    if (toCopy.length === 0) { setMarkingCopied(false); return }
+    if (toCopy.length === 0) {
+      setCopyError('No quedaban registros nuevos para copiar. Puede que otro administrador los haya copiado recién.')
+      setNewCount(0)
+      reload()
+      setMarkingCopied(false)
+      return
+    }
 
     // Orden estable para el pegado: por fecha ascendente
     toCopy.sort((a, b) =>
       new Date(a.payment?.fechaPago || a.timestamp).getTime() -
       new Date(b.payment?.fechaPago || b.timestamp).getTime())
 
-    const tsvRows = toCopy.map(e => [
+    const tsv = toCopy.map(e => [
       fmtDate(e.payment?.fechaPago || e.timestamp),
       fmtMontoTSV(e.payment?.monto ?? e.amount ?? 0),
       fmtCuit(e.payment?.cuitPagador || ''),
@@ -254,44 +225,33 @@ export default function RegistroTab({ refreshKey = 0, onEntryEdited }: Props) {
       e.storeName || e.order?.storeName || '',
       (e.orderNumber || e.order?.orderNumber || '').replace(/^#/, ''),
       billetera(e),
-    ])
+    ].join('\t')).join('\n')
 
-    const tsv = tsvRows.map(r => r.join('\t')).join('\n')
-    await navigator.clipboard.writeText(tsv)
+    try {
+      await navigator.clipboard.writeText(tsv)
+    } catch {
+      // Devolver lo reclamado: si quedaran marcadas, esas órdenes no se copiarían jamás.
+      try {
+        await fetch('/api/log', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'unclaim_copy', ids: claimIds }),
+        })
+        setCopyError('No se pudo escribir en el portapapeles. Los registros siguen sin copiar: probá de nuevo.')
+      } catch {
+        setCopyError(`No se pudo escribir en el portapapeles y tampoco devolver los ${claimIds.length} registros reclamados. Avisá antes de reintentar: quedaron marcados como copiados sin haberse pegado.`)
+      }
+      setMarkingCopied(false)
+      reload()
+      return
+    }
+
     setCopied(true)
     setTimeout(() => setCopied(false), 2500)
-
-    // Marcar localmente las copiadas (optimista)
-    const timestamps = toCopy.map(e => e.timestamp)
-    localPendingAdd(timestamps)
-    setPendingCopied(prev => {
-      const next = new Set(prev)
-      for (const ts of timestamps) next.add(ts)
-      return next
-    })
     setNewCount(0)
-
-    // Sincronizar al servidor
-    try {
-      const res = await fetch('/api/log', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'mark_copied', timestamps }),
-      })
-      if (!res.ok) throw new Error(`Error ${res.status}`)
-      localPendingRemove(timestamps)
-      setPendingCopied(prev => {
-        const next = new Set(prev)
-        for (const ts of timestamps) next.delete(ts)
-        return next
-      })
-      onEntryEdited?.()
-      reload()
-    } catch {
-      setCopyError('Conexión inestable — los registros se marcaron localmente y se sincronizarán al recuperar la conexión.')
-    } finally {
-      setMarkingCopied(false)
-    }
+    onEntryEdited?.()
+    reload()
+    setMarkingCopied(false)
   }
 
   const startEdit = (e: LogEntry) => {
@@ -502,7 +462,7 @@ export default function RegistroTab({ refreshKey = 0, onEntryEdited }: Props) {
             <tbody>
               {rows.map((e, i) => {
                 const isEditing = editingTs === e.timestamp
-                const isNew = !e.copiedAt && !pendingCopied.has(e.timestamp)
+                const isNew = !e.copiedAt
                 const fecha = fmtDate(e.payment?.fechaPago || e.timestamp)
                 const monto = fmtMontoDisplay(e.payment?.monto ?? e.amount ?? 0)
                 const cuit = fmtCuit(e.payment?.cuitPagador || '')

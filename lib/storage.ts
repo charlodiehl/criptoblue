@@ -159,8 +159,10 @@ async function kvSetConRetry(key: string, value: unknown, intentos = 3): Promise
   }
 }
 
-// Upsert mínimo en kv_notifications para disparar evento Realtime sin enviar el blob completo
-async function notifyKeyUpdate(key: string): Promise<void> {
+// Upsert mínimo en kv_notifications para disparar evento Realtime sin enviar el blob completo.
+// Exportada porque hay cambios que no pasan por kv_store y aun así los otros admins tienen
+// que ver en segundos (p. ej. marcar el registro como copiado, que solo toca registro_log).
+export async function notifyKeyUpdate(key: string): Promise<void> {
   const supabase = getClient()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await (supabase.from('kv_notifications') as any)
