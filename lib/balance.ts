@@ -2,7 +2,7 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import { getUsdtRate } from './cotizacion'
 import { toUTCISO } from './utils'
 import { BALANCE_CUTOFF } from './config'
-import { getComisiones, comisionTienda } from './comisiones'
+import { getComisiones, comisionTienda, comisionTiendaSobre } from './comisiones'
 import type { LogEntry, StoreBalance, DescuentoMoneda, TransferDescuento, BalanceMovement } from './types'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -207,8 +207,8 @@ export async function getBalances(): Promise<StoreBalance[]> {
     const grossArs = Number(r.ars) || 0
     const grossUsdt = Number(r.usdt) || 0
     const pct = comisionTienda(cfg, r.store_id)
-    const comisionArs = (Number(r.ingreso_ars) || 0) * pct / 100
-    const comisionUsdt = (Number(r.ingreso_usdt) || 0) * pct / 100
+    const comisionArs = comisionTiendaSobre(Number(r.ingreso_ars) || 0, pct)
+    const comisionUsdt = comisionTiendaSobre(Number(r.ingreso_usdt) || 0, pct)
     return {
       storeId: r.store_id,
       ars: grossArs - comisionArs,     // NETO
@@ -400,8 +400,8 @@ export async function getBalanceDia(storeId: string, diaART: string): Promise<Ba
   const esIngreso = (m: BalanceMovement) => m.tipo === 'ingreso_orden'
   const ingresosArs = suma(m => m.ars, esIngreso)
   const ingresosUsdt = suma(m => m.usdt ?? 0, esIngreso)
-  const comisionArs = ingresosArs * pct / 100
-  const comisionUsdt = ingresosUsdt * pct / 100
+  const comisionArs = comisionTiendaSobre(ingresosArs, pct)
+  const comisionUsdt = comisionTiendaSobre(ingresosUsdt, pct)
 
   const transferenciasUsdt = Math.abs(suma(m => m.usdt ?? 0, m => m.tipo === 'egreso_transferencia'))
   const reembolsosArs = Math.abs(suma(m => m.ars, m => m.tipo === 'reembolso'))

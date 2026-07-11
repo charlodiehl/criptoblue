@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireUser, resolveStoreScope } from '@/lib/auth/server'
 import { queryRegistroByStoreDay, searchRegistroByStore } from '@/lib/registro'
 import { getMovimientosPorRegistroIds } from '@/lib/balance'
-import { getComisiones, comisionTienda } from '@/lib/comisiones'
+import { getComisiones, comisionTienda, comisionTiendaSobre } from '@/lib/comisiones'
 import { billeteraLabel } from '@/lib/utils'
 
 // GET /api/tienda/registro?fecha=YYYY-MM-DD[&storeId=]   → órdenes acreditadas ese día
@@ -38,7 +38,7 @@ export async function GET(req: NextRequest) {
         // Fecha y hora del PAGO (la que trajo la planilla), no la del emparejamiento.
         fecha: entry.paymentReceivedAt || entry.payment?.fechaPago || entry.timestamp,
         monto,
-        comision: monto * comisionPct / 100,   // comisión ARS de esta orden
+        comision: comisionTiendaSobre(monto, comisionPct),   // comisión ARS de esta orden (grossed-up)
         cuit: entry.payment?.cuitPagador || entry.cuitPagador || '',
         nombre: entry.payment?.nombrePagador || entry.order?.customerName || entry.customerName || '',
         orderNumber: entry.orderNumber || entry.order?.orderNumber || '',

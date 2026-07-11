@@ -31,6 +31,18 @@ export function comisionTienda(cfg: ComisionesConfig, storeId: string): number {
   return Number.isFinite(v) ? v : DEFAULT_COMISION_TIENDA
 }
 
+// Comisión en pesos/USDT que cobra una TIENDA sobre un ingreso bruto. NO es un pct%
+// simple: el monto que entró se toma como el NETO, y la comisión es lo que hay que
+// sumarle para llegar al bruto teórico.
+//   comisión = monto / (1 − pct/100) − monto
+// Ej: 1% sobre 10.000 → 10.000/0,99 − 10.000 = 101,01.
+// Es lineal en el monto, así que da igual aplicarla por orden o sobre el total del día.
+// (Las billeteras NO usan esto: cobran pct% directo — ver comisionBilletera.)
+export function comisionTiendaSobre(monto: number, pct: number): number {
+  if (!(monto > 0) || !(pct > 0) || pct >= 100) return 0
+  return monto / (1 - pct / 100) - monto
+}
+
 export function comisionBilletera(cfg: ComisionesConfig, wallet: string): number {
   const v = cfg.billeteras[wallet]
   return Number.isFinite(v) ? v : DEFAULT_COMISION_BILLETERA
