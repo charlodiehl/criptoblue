@@ -25,6 +25,12 @@ const TIPO_A_MONEDA: Record<string, DescuentoMoneda> = {
   ars: 'ARS', usd: 'USD', usdt: 'USDT', usd_billete: 'USD_BILLETE', ars_billete: 'ARS_BILLETE',
 }
 
+// Campo de `datos` donde vino el monto que pidió la tienda, según el tipo. Se usa
+// para precargar el "Monto retirado" (el admin lo puede editar después).
+const CAMPO_MONTO_TIPO: Record<string, string> = {
+  ars: 'montoArs', usd: 'montoUsd', usdt: 'montoUsdt', usd_billete: 'monto', ars_billete: 'monto',
+}
+
 // Campos de tasa obligatorios por moneda (espejo de calcularDescuento en el server).
 // El saldo vive solo en USDT → solo se piden las tasas para pasar A USDT.
 const TASAS_POR_MONEDA: Record<DescuentoMoneda, { key: string; label: string }[]> = {
@@ -75,7 +81,8 @@ function preview(moneda: DescuentoMoneda, monto: number, tasas: Record<string, n
 export default function SolicitudModal({ solicitud, notify, onClose, onPaid }: Props) {
   // La moneda del descuento queda fijada por el tipo de la solicitud, no se pregunta.
   const moneda: DescuentoMoneda | '' = TIPO_A_MONEDA[solicitud.tipo] ?? ''
-  const [monto, setMonto] = useState('')
+  // El monto arranca con lo que pidió la tienda; el admin lo edita si hace falta.
+  const [monto, setMonto] = useState(() => String(solicitud.datos[CAMPO_MONTO_TIPO[solicitud.tipo]] ?? ''))
   const [tasas, setTasas] = useState<Record<string, string>>({})
   const [comprobantePath, setComprobantePath] = useState<string | null>(null)
   const [subiendo, setSubiendo] = useState(false)
