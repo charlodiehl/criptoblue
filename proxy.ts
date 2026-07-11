@@ -16,7 +16,7 @@ import { createServerClient } from '@supabase/ssr'
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Rutas de cron que aceptan CRON_SECRET en vez de sesión
-const CRON_ROUTES = new Set(['/api/run', '/api/auto-match-run', '/api/reevaluar', '/api/cron/cotizaciones'])
+const CRON_ROUTES = new Set(['/api/run', '/api/auto-match-run', '/api/reevaluar', '/api/cron/cotizaciones', '/api/cron/limpiar-comprobantes'])
 
 // Rutas públicas (no requieren auth de sesión)
 function isPublicRoute(pathname: string): boolean {

@@ -175,3 +175,48 @@ export async function urlComprobante(path: string, segundos = 3600): Promise<str
   if (error) return null
   return data?.signedUrl ?? null
 }
+
+// Retención de comprobantes: se conservan `dias` (60 por defecto) desde que se
+// adjuntaron (paid_at, o created_at si faltara). Pasado ese plazo se borra el
+// archivo del bucket y se limpia comprobante_path, para no acumular espacio.
+// Idempotente: si el archivo ya no está, igual limpia la referencia. Lo corre el
+// cron /api/cron/limpiar-comprobantes.
+//
+// Recorre por cursor de id TODAS las solicitudes con comprobante (no solo las
+// vencidas): así cubre cualquier orden de fechas sin loops ni saltarse ninguna.
+export async function limpiarComprobantesVencidos(dias = 60): Promise<{ eliminados: number; errores: number }> {
+  const corteMs = Date.now() - dias * 24 * 60 * 60 * 1000
+  const c = getClient()
+  const PAGE = 200
+  let eliminados = 0
+  let errores = 0
+  let desdeId = 0
+
+  for (;;) {
+    const { data, error } = await c
+      .from(TABLE)
+      .select('id, comprobante_path, paid_at, created_at')
+      .not('comprobante_path', 'is', null)
+      .gt('id', desdeId)
+      .order('id', { ascending: true })
+      .limit(PAGE)
+    if (error) throw new Error(`limpiarComprobantesVencidos(select) falló: ${error.message} [${error.code}]`)
+    if (!data || data.length === 0) break
+
+    for (const r of data) {
+      const ref = new Date((r.paid_at as string) || (r.created_at as string)).getTime()
+      if (!Number.isFinite(ref) || ref >= corteMs) continue   // todavía dentro del plazo
+      const path = r.comprobante_path as string
+      const { error: rmErr } = await c.storage.from('comprobantes').remove([path])
+      // Si el archivo ya no existe, igual se limpia la referencia (no es un error real).
+      if (rmErr && !/not found|no existe|does not exist/i.test(rmErr.message)) { errores++; continue }
+      const { error: upErr } = await c.from(TABLE).update({ comprobante_path: null }).eq('id', r.id)
+      if (upErr) { errores++; continue }
+      eliminados++
+    }
+
+    desdeId = data[data.length - 1].id as number
+    if (data.length < PAGE) break
+  }
+  return { eliminados, errores }
+}
