@@ -4,8 +4,12 @@ import { useState } from 'react'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Campo de tasa ARS/USDT con checkbox "Usar cotización estándar": al tildarlo,
-// trae la cotización actual (Binance P2P +0,75%) vía /api/finanzas/cotizacion y
-// completa el campo (deshabilitando la edición manual). Reutilizable.
+// trae la cotización actual vía /api/finanzas/cotizacion y completa el campo
+// (deshabilitando la edición manual). Reutilizable.
+//
+// sinMargen distingue el sentido del movimiento:
+//   • false (default) → precio de venta Binance P2P + 0,75% (ingresos por órdenes)
+//   • true            → precio de venta puro, +0% (reembolsos y pagos: no cobramos margen)
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface Props {
@@ -15,6 +19,8 @@ interface Props {
   notify: (msg: string, type?: 'success' | 'error' | 'info') => void
   placeholder?: string
   disabled?: boolean
+  // Trae el precio de venta sin el 0,75% (reembolsos y pagos).
+  sinMargen?: boolean
 }
 
 const inputStyle: React.CSSProperties = {
@@ -25,7 +31,7 @@ const labelStyle: React.CSSProperties = {
   display: 'block', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'rgba(0,212,255,0.7)', marginBottom: '6px',
 }
 
-export default function TasaInput({ label, value, onChange, notify, placeholder, disabled }: Props) {
+export default function TasaInput({ label, value, onChange, notify, placeholder, disabled, sinMargen }: Props) {
   const [estandar, setEstandar] = useState(false)
   const [cargando, setCargando] = useState(false)
 
@@ -37,9 +43,11 @@ export default function TasaInput({ label, value, onChange, notify, placeholder,
     try {
       const res = await fetch('/api/finanzas/cotizacion')
       const data = await res.json()
-      if (!res.ok || !data.rate) throw new Error(data.error || 'No se pudo obtener la cotización')
-      onChange(String(Math.round(Number(data.rate) * 100) / 100))
-      notify(`Cotización estándar aplicada: ${Number(data.rate).toLocaleString('es-AR', { maximumFractionDigits: 2 })} ARS/USDT`, 'success')
+      // sinMargen usa el precio de venta puro (rateBase); el resto, con +0,75% (rate).
+      const rate = sinMargen ? data.rateBase : data.rate
+      if (!res.ok || !rate) throw new Error(data.error || 'No se pudo obtener la cotización')
+      onChange(String(Math.round(Number(rate) * 100) / 100))
+      notify(`Cotización estándar aplicada: ${Number(rate).toLocaleString('es-AR', { maximumFractionDigits: 2 })} ARS/USDT`, 'success')
     } catch (e) {
       notify(e instanceof Error ? e.message : 'No se pudo obtener la cotización', 'error')
       setEstandar(false)
@@ -62,7 +70,9 @@ export default function TasaInput({ label, value, onChange, notify, placeholder,
       <label className="flex items-center gap-2 mt-1.5 text-[11px]"
         style={{ color: 'rgba(0,212,255,0.75)', cursor: disabled ? 'not-allowed' : 'pointer' }}>
         <input type="checkbox" checked={estandar} disabled={disabled || cargando} onChange={e => toggle(e.target.checked)} />
-        {cargando ? 'Obteniendo cotización…' : 'Usar cotización estándar'}
+        {cargando
+          ? 'Obteniendo cotización…'
+          : `Usar cotización estándar${sinMargen ? ' (P2P venta de Binance + 0%)' : ''}`}
       </label>
     </div>
   )

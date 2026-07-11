@@ -332,7 +332,7 @@ export function GestionReembolsos() {
                         onChange={e => setMonto(e.target.value)} placeholder="0.00" />
                       <div className="text-[11px] mt-1" style={{ color: 'rgba(148,163,184,0.6)' }}>Disponible: {ARS.format(restante)}</div>
                     </div>
-                    <TasaInput key={`cot-${compKey}`} label="Cotización USDT/ARS" value={cotizacion} onChange={setCotizacion} notify={notify} />
+                    <TasaInput key={`cot-${compKey}`} label="Cotización USDT/ARS" value={cotizacion} onChange={setCotizacion} notify={notify} sinMargen />
                   </div>
 
                   <div>

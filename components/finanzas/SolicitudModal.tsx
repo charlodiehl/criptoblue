@@ -197,7 +197,7 @@ export default function SolicitudModal({ solicitud, notify, onClose, onPaid }: P
                   {TASAS_POR_MONEDA[moneda].map(t => (
                     // La cotización ARS/USDT admite "Usar cotización estándar"; la USD/USDT no.
                     t.key === 'cotizacionUsdtArs'
-                      ? <TasaInput key={t.key} label={`${t.label} *`} value={tasas[t.key] || ''} onChange={v => setTasa(t.key, v)} notify={notify} />
+                      ? <TasaInput key={t.key} label={`${t.label} *`} value={tasas[t.key] || ''} onChange={v => setTasa(t.key, v)} notify={notify} sinMargen />
                       : (
                         <div key={t.key}>
                           <label style={labelStyle}>{t.label} *</label>
