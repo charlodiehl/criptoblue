@@ -24,7 +24,6 @@ function nowARTLocal(): string {
 }
 
 export default function SaldoPersonalizado({ notify, onSaldoAgregado }: Props) {
-  const [open, setOpen] = useState(false)
   const [tiendas, setTiendas] = useState<{ storeId: string; storeName: string }[]>([])
   const [billeteras, setBilleteras] = useState<{ wallet: string }[]>([])
   const [loaded, setLoaded] = useState(false)
@@ -50,7 +49,7 @@ export default function SaldoPersonalizado({ notify, onSaldoAgregado }: Props) {
       }
     } catch { /* silencioso */ }
   }, [])
-  useEffect(() => { if (open && !loaded) fetchEntities() }, [open, loaded, fetchEntities])
+  useEffect(() => { if (!loaded) fetchEntities() }, [loaded, fetchEntities])
 
   const esTienda = selEntity.startsWith('tienda:')
 
@@ -90,20 +89,15 @@ export default function SaldoPersonalizado({ notify, onSaldoAgregado }: Props) {
   }
 
   return (
-    <section>
-      <button onClick={() => setOpen(v => !v)}
-        className="w-full flex items-center justify-between gap-2 rounded-xl px-3 sm:px-4 py-3 text-[13px] sm:text-sm font-semibold transition-all"
-        style={{ background: 'rgba(0,212,255,0.06)', border: '1px solid rgba(0,212,255,0.2)', color: '#00d4ff', cursor: 'pointer' }}>
-        <span className="flex items-center gap-2 min-w-0 text-left">
-          <span className="shrink-0">➕</span>
-          <span>Añadir Saldo Personalizado</span>
-        </span>
-        <span className="shrink-0" style={{ fontSize: '10px' }}>{open ? '▲' : '▼'}</span>
-      </button>
+    <section className="rounded-xl overflow-hidden"
+      style={{ background: 'linear-gradient(135deg, #0d1117, #111827)', border: '1px solid rgba(0,212,255,0.2)' }}>
+      <div className="flex items-center gap-2 px-3 sm:px-4 py-3 text-[13px] sm:text-sm font-semibold"
+        style={{ borderBottom: '1px solid rgba(0,212,255,0.12)', background: 'rgba(0,212,255,0.04)', color: '#00d4ff' }}>
+        <span className="shrink-0">➕</span>
+        <span>Añadir Saldo Personalizado</span>
+      </div>
 
-      {open && (
-        <div className="mt-3 rounded-xl p-3 sm:p-4 space-y-4"
-          style={{ background: 'linear-gradient(135deg, #0d1117, #111827)', border: '1px solid rgba(148,163,184,0.1)' }}>
+      <div className="p-3 sm:p-4 space-y-4">
           <div>
             <label style={labelStyle}>Tienda o billetera</label>
             <select value={selEntity} onChange={e => { setSelEntity(e.target.value); setFormKey(k => k + 1) }} disabled={!loaded}
@@ -167,8 +161,7 @@ export default function SaldoPersonalizado({ notify, onSaldoAgregado }: Props) {
               </button>
             </div>
           )}
-        </div>
-      )}
+      </div>
     </section>
   )
 }
