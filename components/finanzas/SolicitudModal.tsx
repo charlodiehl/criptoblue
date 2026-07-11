@@ -14,13 +14,16 @@ interface Props {
   onPaid: () => void
 }
 
-const MONEDAS: { value: DescuentoMoneda; label: string }[] = [
-  { value: 'USDT', label: 'USDT' },
-  { value: 'USD', label: 'USD' },
-  { value: 'ARS', label: 'ARS' },
-  { value: 'USD_BILLETE', label: 'USD billete' },
-  { value: 'ARS_BILLETE', label: 'ARS billete' },
-]
+const MONEDA_LABEL: Record<DescuentoMoneda, string> = {
+  USDT: 'USDT', USD: 'USD', ARS: 'ARS', USD_BILLETE: 'USD billete', ARS_BILLETE: 'ARS billete',
+}
+
+// La moneda del descuento NO se elige: la fija el tipo de solicitud que hizo la
+// tienda. Una transferencia ARS se descuenta en ARS, una USDT en USDT, etc.
+// (el tipo llega en minúscula: 'ars', 'usd_billete'…).
+const TIPO_A_MONEDA: Record<string, DescuentoMoneda> = {
+  ars: 'ARS', usd: 'USD', usdt: 'USDT', usd_billete: 'USD_BILLETE', ars_billete: 'ARS_BILLETE',
+}
 
 // Campos de tasa obligatorios por moneda (espejo de calcularDescuento en el server).
 // El saldo vive solo en USDT → solo se piden las tasas para pasar A USDT.
@@ -53,8 +56,6 @@ const inputStyle: React.CSSProperties = {
 const labelStyle: React.CSSProperties = {
   display: 'block', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'rgba(0,212,255,0.7)', marginBottom: '5px',
 }
-// Fondo oscuro para las <option> del select nativo (sino el browser las pinta gris).
-const optionStyle: React.CSSProperties = { background: '#0d1117', color: 'rgba(226,232,240,0.92)' }
 
 // Cálculo de descuento en vivo (solo preview; el server recalcula y es la fuente de
 // verdad). El saldo es USDT-only → solo se calcula el USDT a descontar.
@@ -72,7 +73,8 @@ function preview(moneda: DescuentoMoneda, monto: number, tasas: Record<string, n
 }
 
 export default function SolicitudModal({ solicitud, notify, onClose, onPaid }: Props) {
-  const [moneda, setMoneda] = useState<DescuentoMoneda | ''>('')
+  // La moneda del descuento queda fijada por el tipo de la solicitud, no se pregunta.
+  const moneda: DescuentoMoneda | '' = TIPO_A_MONEDA[solicitud.tipo] ?? ''
   const [monto, setMonto] = useState('')
   const [tasas, setTasas] = useState<Record<string, string>>({})
   const [comprobantePath, setComprobantePath] = useState<string | null>(null)
@@ -111,7 +113,7 @@ export default function SolicitudModal({ solicitud, notify, onClose, onPaid }: P
 
   async function handlePagar() {
     if (pagando) return
-    if (!moneda) { notify('Elegí la moneda del descuento', 'error'); return }
+    if (!moneda) { notify('No se pudo determinar la moneda de la solicitud', 'error'); return }
     if (!calc) { notify('Completá monto y tasas obligatorias', 'error'); return }
     setPagando(true)
     try {
@@ -179,17 +181,17 @@ export default function SolicitudModal({ solicitud, notify, onClose, onPaid }: P
             <div className="space-y-3">
               <div>
                 <label style={labelStyle}>Moneda retirada</label>
-                <select value={moneda} onChange={e => { setMoneda(e.target.value as DescuentoMoneda | ''); setTasas({}) }}
-                  style={{ ...inputStyle, colorScheme: 'dark', cursor: 'pointer' }}>
-                  <option value="" style={optionStyle}>Seleccioná…</option>
-                  {MONEDAS.map(m => <option key={m.value} value={m.value} style={optionStyle}>{m.label}</option>)}
-                </select>
+                {/* No se elige: la define el tipo de la solicitud. */}
+                <div style={{ ...inputStyle, display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'default' }}>
+                  <span style={{ fontWeight: 600 }}>{moneda ? MONEDA_LABEL[moneda] : '—'}</span>
+                  <span className="text-[11px]" style={{ color: 'rgba(148,163,184,0.5)' }}>según la solicitud</span>
+                </div>
               </div>
 
               {moneda && (
                 <>
                   <div>
-                    <label style={labelStyle}>Monto retirado ({MONEDAS.find(m => m.value === moneda)?.label})</label>
+                    <label style={labelStyle}>Monto retirado ({MONEDA_LABEL[moneda]})</label>
                     <input type="number" min="0" step="0.01" style={inputStyle} value={monto} onChange={e => setMonto(e.target.value)} placeholder="0.00" />
                   </div>
                   {TASAS_POR_MONEDA[moneda].map(t => (
