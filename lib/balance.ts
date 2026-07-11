@@ -338,6 +338,17 @@ export async function getDiasConMovimiento(storeId: string): Promise<string[]> {
 //
 // En balance_movements los egresos y reembolsos ya vienen en NEGATIVO, así que el
 // bruto es la suma directa; acá se devuelven en positivo, para mostrarlos como "sale".
+// Un movimiento del día enriquecido con lo que hace falta para mostrarlo:
+//   • montoOriginal / monedaOriginal → lo que ESCRIBIÓ el admin al pagar (en su
+//     moneda). El balance_movements guarda solo el USDT descontado; el monto en la
+//     moneda pedida (p. ej. los ARS de una transferencia) vive en transfer_requests.
+//   • tieneComprobante → si esa transferencia tiene un comprobante para descargar.
+export interface MovimientoDetalle extends BalanceMovement {
+  montoOriginal: number | null
+  monedaOriginal: string | null
+  tieneComprobante: boolean
+}
+
 export interface BalanceDia {
   ingresosArs: number
   ingresosUsdt: number
@@ -350,7 +361,33 @@ export interface BalanceDia {
   reembolsosUsdt: number       // positivo
   ajustesUsdt: number          // signado
   saldoUsdt: number            // neto del día
-  movimientos: BalanceMovement[]  // egresos, reembolsos y ajustes (los ingresos ya van en la tabla de órdenes)
+  movimientos: MovimientoDetalle[]  // egresos, reembolsos y ajustes (los ingresos ya van en la tabla de órdenes)
+}
+
+// Detalle de las transferencias (por ref_transfer_id): el monto/moneda que ingresó
+// el admin y si hay comprobante. Lo usa el extracto del día para completar la
+// columna en ARS y el ícono de descarga.
+async function getDetalleTransferencias(
+  ids: number[],
+): Promise<Map<number, { monto: number | null; moneda: string | null; comprobante: boolean }>> {
+  const map = new Map<number, { monto: number | null; moneda: string | null; comprobante: boolean }>()
+  if (!ids.length) return map
+  const { data, error } = await getClient()
+    .from('transfer_requests')
+    .select('id, descuento, comprobante_path')
+    .in('id', ids)
+  if (error) throw new Error(`getDetalleTransferencias falló: ${error.message} [${error.code}]`)
+  for (const r of data ?? []) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const d = (r as any).descuento ?? {}
+    map.set(r.id as number, {
+      monto: Number.isFinite(Number(d.monto)) ? Number(d.monto) : null,
+      moneda: d.moneda ?? null,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      comprobante: !!(r as any).comprobante_path,
+    })
+  }
+  return map
 }
 
 export async function getBalanceDia(storeId: string, diaART: string): Promise<BalanceDia> {
@@ -373,12 +410,25 @@ export async function getBalanceDia(storeId: string, diaART: string): Promise<Ba
 
   const brutoUsdt = movs.reduce((s, m) => s + (m.usdt ?? 0), 0)
 
+  // Egresos, reembolsos y ajustes. Se enriquecen con el detalle de la transferencia
+  // (monto que ingresó el admin + comprobante) para la tabla del día.
+  const noIngresos = movs.filter(m => !esIngreso(m))
+  const transferIds = noIngresos
+    .filter(m => m.tipo === 'egreso_transferencia' && m.refTransferId != null)
+    .map(m => m.refTransferId as number)
+  const detalles = await getDetalleTransferencias(transferIds)
+
+  const movimientos: MovimientoDetalle[] = noIngresos.map(m => {
+    const d = m.refTransferId != null ? detalles.get(m.refTransferId) : undefined
+    return { ...m, montoOriginal: d?.monto ?? null, monedaOriginal: d?.moneda ?? null, tieneComprobante: !!d?.comprobante }
+  })
+
   return {
     ingresosArs, ingresosUsdt, cantidadIngresos: movs.filter(esIngreso).length,
     comisionArs, comisionUsdt, comisionPct: pct,
     transferenciasUsdt, reembolsosArs, reembolsosUsdt, ajustesUsdt,
     saldoUsdt: brutoUsdt - comisionUsdt,
-    movimientos: movs.filter(m => !esIngreso(m)),
+    movimientos,
   }
 }
 

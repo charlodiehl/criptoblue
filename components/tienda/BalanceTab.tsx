@@ -23,6 +23,11 @@ interface Movimiento {
   ars: number
   usdt: number | null
   descripcion: string | null
+  // Detalle de la transferencia: monto que ingresó el admin (en su moneda) y comprobante.
+  montoOriginal: number | null
+  monedaOriginal: string | null
+  tieneComprobante: boolean
+  refTransferId: number | null
 }
 interface BalanceDia {
   ingresosArs: number
@@ -313,7 +318,7 @@ export default function BalanceTab({ storeId, qs, notify, admin = false }: Props
             <table className="w-full text-sm" style={{ borderCollapse: 'collapse', minWidth: '640px' }}>
               <thead>
                 <tr style={{ borderBottom: '1px solid rgba(248,113,113,0.15)' }}>
-                  {['Fecha y hora', 'Concepto', 'Monto (ARS)', 'Monto (USDT)', 'Tipo'].map(h => (
+                  {['Fecha y hora', 'Concepto', 'Monto (ARS)', 'Monto (USDT)', 'Tipo', 'Comprobante'].map(h => (
                     <th key={h} className="text-left px-3 py-3 text-[11px] font-semibold uppercase tracking-wider whitespace-nowrap"
                       style={{ color: 'rgba(248,113,113,0.7)' }}>{h}</th>
                   ))}
@@ -322,13 +327,18 @@ export default function BalanceTab({ storeId, qs, notify, admin = false }: Props
               <tbody>
                 {balance!.dia!.movimientos.map((m, i) => {
                   const positivo = (m.usdt ?? 0) > 0
+                  // Monto en ARS a mostrar: el que ingresó el admin si la transferencia
+                  // fue en pesos; si no, el ars propio del movimiento (reembolso/ajuste).
+                  const esArs = m.monedaOriginal === 'ARS' || m.monedaOriginal === 'ARS_BILLETE'
+                  const montoArs = esArs && m.montoOriginal != null ? m.montoOriginal
+                    : (m.ars !== 0 ? Math.abs(m.ars) : null)
                   return (
                     <motion.tr key={m.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3, delay: Math.min(i * 0.03, 0.3) }}
                       style={{ borderBottom: '1px solid rgba(148,163,184,0.05)' }}>
                       <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: 'rgba(226,232,240,0.85)' }}>{fmtDate(m.fecha)}</td>
                       <td className="px-3 py-2.5" style={{ color: 'rgba(226,232,240,0.85)' }}>{m.descripcion || '—'}</td>
-                      <td className="px-3 py-2.5 whitespace-nowrap font-medium" style={{ color: m.ars === 0 ? 'rgba(148,163,184,0.4)' : '#f87171' }}>
-                        {m.ars === 0 ? '—' : `−${ARS.format(Math.abs(m.ars))}`}
+                      <td className="px-3 py-2.5 whitespace-nowrap font-medium" style={{ color: montoArs == null ? 'rgba(148,163,184,0.4)' : '#f87171' }}>
+                        {montoArs == null ? '—' : `−${ARS.format(montoArs)}`}
                       </td>
                       <td className="px-3 py-2.5 whitespace-nowrap font-medium" style={{ color: positivo ? '#00ff88' : '#f87171' }}>
                         {m.usdt == null ? '—' : `${positivo ? '+' : '−'}${fmtUsdt(Math.abs(m.usdt))}`}
@@ -338,6 +348,22 @@ export default function BalanceTab({ storeId, qs, notify, admin = false }: Props
                           style={{ background: 'rgba(248,113,113,0.1)', color: '#f87171' }}>
                           {TIPO_LABEL[m.tipo] ?? m.tipo}
                         </span>
+                      </td>
+                      <td className="px-3 py-2.5 whitespace-nowrap">
+                        {m.tieneComprobante && m.refTransferId != null ? (
+                          <a href={`/api/tienda/comprobante?id=${m.refTransferId}${qs ? `&${qs.slice(1)}` : ''}`}
+                            target="_blank" rel="noopener noreferrer" title="Descargar comprobante"
+                            className="inline-flex items-center gap-1 text-[11px] font-semibold rounded-lg px-2 py-1 transition-all"
+                            style={{ background: 'rgba(0,212,255,0.08)', border: '1px solid rgba(0,212,255,0.3)', color: '#00d4ff' }}>
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
+                              <path d="M10.75 2.75a.75.75 0 0 0-1.5 0v8.614L6.295 8.235a.75.75 0 1 0-1.09 1.03l4.25 4.5a.75.75 0 0 0 1.09 0l4.25-4.5a.75.75 0 0 0-1.09-1.03l-2.955 3.129V2.75Z" />
+                              <path d="M3.5 12.75a.75.75 0 0 0-1.5 0v2.5A2.75 2.75 0 0 0 4.75 18h10.5A2.75 2.75 0 0 0 18 15.25v-2.5a.75.75 0 0 0-1.5 0v2.5c0 .69-.56 1.25-1.25 1.25H4.75c-.69 0-1.25-.56-1.25-1.25v-2.5Z" />
+                            </svg>
+                            Descargar
+                          </a>
+                        ) : (
+                          <span style={{ color: 'rgba(148,163,184,0.4)' }}>—</span>
+                        )}
                       </td>
                     </motion.tr>
                   )
