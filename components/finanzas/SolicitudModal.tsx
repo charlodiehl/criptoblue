@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { motion } from 'framer-motion'
 import TasaInput from '@/components/TasaInput'
 import type { DescuentoMoneda } from '@/lib/types'
@@ -91,9 +91,15 @@ export default function SolicitudModal({ solicitud, notify, onClose, onPaid }: P
 
   const calc = moneda ? preview(moneda, Number(monto), tasasNum) : null
 
-  async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
+  // Candado sincrónico: evita dos subidas en paralelo aunque el evento llegue dos
+  // veces en el mismo tick (el estado `subiendo` recién se actualiza en el próximo
+  // render, así que no alcanza para bloquear un doble disparo inmediato).
+  const subiendoRef = useRef(false)
+
+  // Única vía de subida: la usan el input de archivo y el pegado (Ctrl+V).
+  const subirArchivo = useCallback(async (file: File) => {
+    if (subiendoRef.current) return
+    subiendoRef.current = true
     setSubiendo(true)
     try {
       const fd = new FormData()
@@ -107,9 +113,38 @@ export default function SolicitudModal({ solicitud, notify, onClose, onPaid }: P
     } catch (err) {
       notify(err instanceof Error ? err.message : 'No se pudo subir', 'error')
     } finally {
+      subiendoRef.current = false
       setSubiendo(false)
     }
+  }, [solicitud.id, notify])
+
+  function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (file) subirArchivo(file)
   }
+
+  // Pegar el comprobante desde el portapapeles (captura de pantalla o archivo copiado).
+  // Solo actúa si el portapapeles trae un archivo/imagen: un pegado de texto en un
+  // campo sigue funcionando normal. Mientras el modal esté abierto, escucha en toda
+  // la ventana para no obligar a enfocar un lugar puntual.
+  useEffect(() => {
+    function onPaste(e: ClipboardEvent) {
+      if (subiendoRef.current) return
+      const dt = e.clipboardData
+      if (!dt) return
+      let file: File | null = dt.files?.[0] ?? null
+      if (!file) {
+        for (const item of Array.from(dt.items ?? [])) {
+          if (item.kind === 'file') { file = item.getAsFile(); break }
+        }
+      }
+      if (!file) return
+      e.preventDefault()
+      subirArchivo(file)
+    }
+    window.addEventListener('paste', onPaste)
+    return () => window.removeEventListener('paste', onPaste)
+  }, [subirArchivo])
 
   async function handlePagar() {
     if (pagando) return
@@ -173,6 +208,9 @@ export default function SolicitudModal({ solicitud, notify, onClose, onPaid }: P
               <input type="file" className="hidden" onChange={handleUpload} disabled={subiendo} accept="image/*,application/pdf" />
               {subiendo ? 'Subiendo…' : comprobantePath ? '✓ Comprobante adjuntado (cambiar)' : '📎 Adjuntar comprobante'}
             </label>
+            <p className="mt-1.5 text-[11px]" style={{ color: 'rgba(148,163,184,0.5)' }}>
+              También podés pegar una captura desde el portapapeles con <kbd style={{ fontFamily: 'monospace', color: 'rgba(0,212,255,0.75)' }}>Ctrl</kbd>+<kbd style={{ fontFamily: 'monospace', color: 'rgba(0,212,255,0.75)' }}>V</kbd>.
+            </p>
           </div>
 
           {/* Descuento */}
