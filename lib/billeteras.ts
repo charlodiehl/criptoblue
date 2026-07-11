@@ -165,10 +165,11 @@ async function idsEmparejados(): Promise<Set<string>> {
   return out
 }
 
-// Pagos EMPAREJADOS. Se agrupan por el DÍA DEL EMPAREJAMIENTO (`ts`), pero se
-// muestran con la fecha en que ingresó la plata (`payment.fechaPago`, con
-// `payment_received_at` de respaldo). Al emparejarse (manual o auto) el pago sale
-// de la cola y salta al día del match, conservando su fecha y hora original.
+// Pagos EMPAREJADOS. En una billetera lo que importa es CUÁNDO ENTRÓ la plata, no
+// cuándo se emparejó: por eso se agrupan y se muestran por `payment.fechaPago` (con
+// `payment_received_at` y `ts` de respaldo). Un pago emparejado tres días después
+// sigue perteneciendo al día en que ingresó. (Las tiendas hacen lo contrario: la
+// orden figura el día del emparejamiento — ese camino vive en lib/balance.ts.)
 // Sin corte: se trae todo el histórico de la billetera.
 async function ingresosEmparejados(): Promise<Ingreso[]> {
   const c = getClient()
@@ -187,11 +188,12 @@ async function ingresosEmparejados(): Promise<Ingreso[]> {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     for (const r of (data ?? []) as any[]) {
       if (!r.source || !r.ts) continue
+      const ingreso = r.fechaPago || r.payment_received_at || r.ts
       out.push({
         source: r.source,
         monto: Number(r.monto ?? r.amount) || 0,
-        fechaDia: r.ts,                                             // agrupa: día del match
-        fechaPago: r.fechaPago || r.payment_received_at || r.ts,    // muestra: ingreso del pago
+        fechaDia: ingreso,     // agrupa por el día en que ENTRÓ el pago (no el del match)
+        fechaPago: ingreso,    // y se muestra con esa misma fecha
         titular: r.titular || '',
         estado: 'emparejado',
       })
@@ -333,9 +335,9 @@ export async function getIngresosBilletera(wallet: string, diaART?: string): Pro
   const reembolsosArs = refunds.reduce((s, r) => s + r.monto, 0)
   const salidasArs = salidas.reduce((s, r) => s + r.ars, 0)
 
-  // Filtro por día (ART) para el extracto: se acota por fechaDia (el día del match
-  // si está emparejado, el de ingreso si sigue en cola). Los retiros y reembolsos
-  // se acotan por su propia fecha: figuran en el día en que se hicieron.
+  // Filtro por día (ART) para el extracto: se acota por fechaDia, que en billeteras es
+  // siempre el día en que ENTRÓ el pago (emparejado o en cola, da igual). Los retiros y
+  // reembolsos se acotan por su propia fecha: figuran en el día en que se hicieron.
   let visibles = ingresos
   let totalDia: number | undefined
   let cantidadDia: number | undefined

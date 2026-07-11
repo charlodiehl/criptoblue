@@ -141,9 +141,14 @@ export default function BilleteraTab({ wallet, notify }: { wallet: string; notif
       </motion.div>
 
       {/* Selector de día: solo deja elegir días con movimiento */}
-      <div className="flex items-center gap-3 flex-wrap">
-        <label className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'rgba(0,212,255,0.7)' }}>Día</label>
-        <SelectorDia value={fecha} dias={data?.dias ?? []} onChange={setFecha} disabled={!data?.dias?.length} />
+      <div className="flex flex-col gap-1.5">
+        <div className="flex items-center gap-3 flex-wrap">
+          <label className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'rgba(0,212,255,0.7)' }}>Día</label>
+          <SelectorDia value={fecha} dias={data?.dias ?? []} onChange={setFecha} disabled={!data?.dias?.length} />
+        </div>
+        <p className="text-[11px] leading-relaxed max-w-md" style={{ color: 'rgba(148,163,184,0.5)' }}>
+          Cada pago figura en el día en que <span style={{ color: 'rgba(148,163,184,0.75)' }}>ingresó a la billetera</span>, sin importar cuándo se emparejó con una orden.
+        </p>
       </div>
 
       {/* Balance del día: ingresos − comisión − retiros − reembolsos */}

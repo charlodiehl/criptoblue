@@ -169,10 +169,17 @@ export default function BalanceTab({ storeId, qs, notify, admin = false }: Props
       </div>
 
       {/* Selector de día: solo deja elegir días con movimiento. Se desactiva al buscar. */}
-      <div className="flex items-center gap-3 flex-wrap">
-        <label className="text-xs font-semibold uppercase tracking-widest" style={{ color: searching ? 'rgba(148,163,184,0.4)' : 'rgba(0,212,255,0.7)' }}>Día</label>
-        <SelectorDia value={fecha} dias={balance?.dias ?? []} onChange={setFecha} disabled={searching || !balance?.dias?.length} />
-        {searching && <span className="text-xs" style={{ color: 'rgba(0,212,255,0.7)' }}>Mostrando resultados de búsqueda en todo el registro</span>}
+      <div className="flex flex-col gap-1.5">
+        <div className="flex items-center gap-3 flex-wrap">
+          <label className="text-xs font-semibold uppercase tracking-widest" style={{ color: searching ? 'rgba(148,163,184,0.4)' : 'rgba(0,212,255,0.7)' }}>Día</label>
+          <SelectorDia value={fecha} dias={balance?.dias ?? []} onChange={setFecha} disabled={searching || !balance?.dias?.length} />
+          {searching && <span className="text-xs" style={{ color: 'rgba(0,212,255,0.7)' }}>Mostrando resultados de búsqueda en todo el registro</span>}
+        </div>
+        {!searching && (
+          <p className="text-[11px] leading-relaxed max-w-lg" style={{ color: 'rgba(148,163,184,0.5)' }}>
+            El día reúne las <span style={{ color: 'rgba(148,163,184,0.75)' }}>órdenes que se emparejaron</span> en esa fecha —aunque el pago haya entrado otro día— junto con los <span style={{ color: 'rgba(148,163,184,0.75)' }}>retiros, reembolsos y ajustes</span> registrados ese día.
+          </p>
+        )}
       </div>
 
       {/* Balance del día: ingresos − comisión − transferencias − reembolsos.
