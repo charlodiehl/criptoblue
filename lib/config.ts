@@ -55,14 +55,14 @@ export const PAYMENT_SOURCE_NAMES: Record<string, string> = {
   montemar: 'Montemar',
 }
 
-// Billeteras disponibles para asignarle a una tienda (desplegable al conectar).
+// Billeteras del sistema (para saldos, retiros, reembolsos y comisiones).
 // Para agregar una billetera nueva: sumarla acá y mapear sus fuentes de pago en
 // PAYMENT_SOURCE_TO_WALLET.
 export const WALLETS = ['MF', 'Lacar', 'MS', 'Montemar'] as const
 
-// Mapeo de fuente de pago (payment.source) → billetera a la que pertenece.
-// Usado para acotar el emparejamiento: un pago solo busca candidatas entre
-// tiendas de su misma billetera (ver lib/auto-match.ts).
+// Mapeo de fuente de pago (payment.source) → billetera a la que pertenece el DINERO
+// (para el saldo de cada billetera). NO acota el emparejamiento: cualquier pago puede
+// emparejar con cualquier tienda.
 export const PAYMENT_SOURCE_TO_WALLET: Record<string, string> = {
   mercadopago: 'MF',
   fiwind: 'MF',

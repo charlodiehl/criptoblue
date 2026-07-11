@@ -40,12 +40,14 @@ export async function POST(req: NextRequest) {
     const { reembolsado, count, refunds } = await resumenReembolsos(storeId, order.orderNumber)
     const restante = Math.max(0, (order.total ?? 0) - reembolsado)
 
-    // Billetera de la que vino el pago (se le restará el reembolso). Informativo.
+    // Billetera de la que vino el pago (informativo: ayuda a elegir quién paga el
+    // reembolso). Sale del source del pago emparejado; las tiendas ya no tienen
+    // billetera asignada, así que no hay fallback.
     let wallet: string | null = null
     try {
-      wallet = resolveWallet(await getWalletSourceByOrder(storeId, order.orderNumber)) ?? store.walletId ?? null
+      wallet = resolveWallet(await getWalletSourceByOrder(storeId, order.orderNumber))
     } catch {
-      wallet = store.walletId ?? null
+      wallet = null
     }
 
     return NextResponse.json({

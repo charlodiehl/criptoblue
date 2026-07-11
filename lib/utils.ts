@@ -8,9 +8,9 @@ export function billeteraLabel(source?: string): string {
   return PAYMENT_SOURCE_NAMES[source] ?? source
 }
 
-// A qué billetera (walletId de Store) pertenece un pago según su source.
-// null = billetera desconocida (source no mapeado) → no debe restringir el
-// emparejamiento, se trata como comodín.
+// A qué billetera pertenece el DINERO de un pago, según su source (para el saldo
+// de cada billetera). No tiene que ver con las tiendas: el emparejamiento no se
+// restringe por billetera. null = source no mapeado.
 export function paymentWalletId(source?: string): string | null {
   if (!source) return null
   return PAYMENT_SOURCE_TO_WALLET[source] ?? null

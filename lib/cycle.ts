@@ -253,9 +253,9 @@ export async function processMPPayments(): Promise<CycleResult> {
   allOrdersPerStore.forEach((r, i) => {
     const store = storeEntries[i]
     if (r.status === 'fulfilled') {
-      // Propagar la billetera de la tienda a cada orden — usada para acotar
-      // el emparejamiento a tiendas de la misma billetera que el pago.
-      successfulOrders.push(...r.value.map(o => ({ ...o, walletId: store.walletId })))
+      // Las tiendas ya no están vinculadas a una billetera: cualquier pago puede
+      // emparejar con cualquier tienda, así que no se propaga ninguna billetera.
+      successfulOrders.push(...r.value)
     } else {
       failedStoreIds.add(store.storeId)
     }

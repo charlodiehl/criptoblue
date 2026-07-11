@@ -6,9 +6,6 @@ export async function GET(req: NextRequest) {
   if (!shop) {
     return NextResponse.json({ error: 'shop parameter required' }, { status: 400 })
   }
-  // Billetera elegida por el usuario — viaja en "state" hasta el callback
-  const wallet = req.nextUrl.searchParams.get('wallet') || ''
-
   // Normalize: accept "mitienda" or "mitienda.myshopify.com"
   const shopDomain = shop.includes('.myshopify.com') ? shop : `${shop}.myshopify.com`
 
@@ -18,7 +15,8 @@ export async function GET(req: NextRequest) {
   url.searchParams.set('client_id', CONFIG.shopify.clientId)
   url.searchParams.set('scope', CONFIG.shopify.scopes)
   url.searchParams.set('redirect_uri', redirectUri)
-  url.searchParams.set('state', JSON.stringify({ walletId: wallet || undefined }))
+  // Las tiendas ya no se vinculan a una billetera: state mínimo (anti-CSRF).
+  url.searchParams.set('state', 'shopify')
 
   return NextResponse.redirect(url.toString())
 }

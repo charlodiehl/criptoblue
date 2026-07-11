@@ -7,15 +7,13 @@ export async function GET(req: NextRequest) {
   const code = searchParams.get('code')
   const stateParam = searchParams.get('state') || ''
 
-  // "state" empaqueta { name, walletId } elegidos antes del OAuth (JSON). Si no
-  // es JSON válido, es un state legacy: el texto plano ES el nombre.
+  // "state" empaqueta { name } elegido antes del OAuth (JSON). Si no es JSON
+  // válido, es un state legacy: el texto plano ES el nombre.
   let stateName = ''
-  let stateWalletId: string | undefined
   if (stateParam) {
     try {
       const parsed = JSON.parse(stateParam)
       stateName = typeof parsed.name === 'string' ? parsed.name : ''
-      stateWalletId = typeof parsed.walletId === 'string' ? parsed.walletId : undefined
     } catch {
       stateName = stateParam
     }
@@ -91,7 +89,6 @@ export async function GET(req: NextRequest) {
     storeName,
     accessToken,
     connectedAt: new Date().toISOString(),
-    walletId: stateWalletId,
   })
 
   return NextResponse.redirect(new URL(`/tn-success?storeId=${storeId}`, req.nextUrl.origin))

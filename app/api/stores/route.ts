@@ -14,17 +14,17 @@ export async function GET() {
 
 export async function PATCH(req: NextRequest) {
   try {
-    const { storeId, storeName, walletId } = await req.json()
+    // Las tiendas ya no se vinculan a una billetera: solo se puede editar el nombre.
+    const { storeId, storeName } = await req.json()
     if (!storeId) return NextResponse.json({ error: 'storeId required' }, { status: 400 })
-    if (storeName === undefined && walletId === undefined) {
-      return NextResponse.json({ error: 'storeName or walletId required' }, { status: 400 })
+    if (storeName === undefined) {
+      return NextResponse.json({ error: 'storeName required' }, { status: 400 })
     }
 
     const stores = await getStores()
     if (!stores[storeId]) return NextResponse.json({ error: 'Store not found' }, { status: 404 })
 
-    if (storeName !== undefined) stores[storeId].storeName = storeName
-    if (walletId !== undefined) stores[storeId].walletId = walletId || undefined
+    stores[storeId].storeName = storeName
     await saveStores(stores)
     return NextResponse.json({ success: true })
   } catch (err) {
