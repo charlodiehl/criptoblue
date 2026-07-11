@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import type { LogEntry } from '@/lib/types'
 import { fmtDate, billeteraLabel } from '@/lib/utils'
 
@@ -82,6 +82,9 @@ export default function RegistroTab({ refreshKey = 0, onEntryEdited }: Props) {
   const [copied, setCopied] = useState(false)
   const [markingCopied, setMarkingCopied] = useState(false)
   const [copyError, setCopyError] = useState<string | null>(null)
+  // Candado sincrónico: un doble-click no puede lanzar dos copiados a la vez (el
+  // estado markingCopied recién se actualiza en el próximo render).
+  const copiandoRef = useRef(false)
 
   // Filtros
   const [search, setSearch] = useState('')
@@ -178,6 +181,9 @@ export default function RegistroTab({ refreshKey = 0, onEntryEdited }: Props) {
   // Si el navegador no deja escribir el portapapeles, se devuelven: una entrada marcada
   // como copiada que nadie pegó no vuelve a aparecer nunca en la planilla.
   const handleCopy = async () => {
+    // Un solo copiado a la vez (evita que un doble-click dispare dos reclamos).
+    if (copiandoRef.current) return
+    copiandoRef.current = true
     setMarkingCopied(true)
     setCopyError(null)
 
@@ -201,14 +207,19 @@ export default function RegistroTab({ refreshKey = 0, onEntryEdited }: Props) {
     } catch {
       setCopyError('No se pudieron reclamar los pendientes — revisá la conexión. No se copió nada.')
       setMarkingCopied(false)
+      copiandoRef.current = false
       return
     }
 
     if (toCopy.length === 0) {
-      setCopyError('No quedaban registros nuevos para copiar. Puede que otro administrador los haya copiado recién.')
+      // No hay nada nuevo. VACIAR el portapapeles: si todavía tenía el lote anterior,
+      // un pegado accidental lo volvía a inyectar en la planilla → duplicado.
+      try { await navigator.clipboard.writeText('') } catch { /* sin permiso: nada que vaciar */ }
+      setCopyError('No quedaban registros nuevos para copiar. Se vació el portapapeles para que no se pegue de nuevo el lote anterior.')
       setNewCount(0)
       reload()
       setMarkingCopied(false)
+      copiandoRef.current = false
       return
     }
 
@@ -242,6 +253,7 @@ export default function RegistroTab({ refreshKey = 0, onEntryEdited }: Props) {
         setCopyError(`No se pudo escribir en el portapapeles y tampoco devolver los ${claimIds.length} registros reclamados. Avisá antes de reintentar: quedaron marcados como copiados sin haberse pegado.`)
       }
       setMarkingCopied(false)
+      copiandoRef.current = false
       reload()
       return
     }
@@ -252,6 +264,7 @@ export default function RegistroTab({ refreshKey = 0, onEntryEdited }: Props) {
     onEntryEdited?.()
     reload()
     setMarkingCopied(false)
+    copiandoRef.current = false
   }
 
   const startEdit = (e: LogEntry) => {
