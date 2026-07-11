@@ -75,8 +75,14 @@ export default function BalanceTab({ storeId, qs, notify, admin = false }: Props
   const [rows, setRows] = useState<Row[]>([])
   const [loadingBalance, setLoadingBalance] = useState(true)
   const [loadingRows, setLoadingRows] = useState(true)
+  // Cotización para mostrar el saldo también en pesos: precio de venta Binance P2P
+  // +0%. Se refresca cada hora (no en cada refresco de saldo).
+  const [cotizacion, setCotizacion] = useState<number | null>(null)
 
   const searching = debouncedSearch.length > 0
+  // ARS = USDT × cotización actual. null mientras no haya cotización (API caída).
+  const aArs = (usdt: number | null | undefined): number | null =>
+    cotizacion == null || usdt == null ? null : usdt * cotizacion
 
   // Trae el saldo total y, en la misma llamada, el balance del día seleccionado.
   const fetchBalance = useCallback(async () => {
@@ -127,6 +133,23 @@ export default function BalanceTab({ storeId, qs, notify, admin = false }: Props
   }, [fetchBalance])
   useEffect(() => { fetchRows() }, [fetchRows])
 
+  // Cotización para el saldo en pesos: carga inicial + refresco cada 1 hora. Si la
+  // API falla se conserva la última (no se pisa con null) para no perder el peso mostrado.
+  useEffect(() => {
+    let vivo = true
+    const traer = async () => {
+      try {
+        const res = await fetch(`/api/tienda/cotizacion${qs}`)
+        if (!res.ok) return
+        const data = await res.json()
+        if (vivo && Number(data.rate) > 0) setCotizacion(Number(data.rate))
+      } catch { /* se reintenta en la próxima hora */ }
+    }
+    traer()
+    const iv = setInterval(traer, 60 * 60 * 1000)
+    return () => { vivo = false; clearInterval(iv) }
+  }, [qs])
+
   // Si el día abierto no tuvo movimientos (hoy todavía no entró nada), saltar al
   // último que sí los tuvo: el calendario ya no deja elegirlo a mano.
   const dias = balance?.dias
@@ -139,7 +162,8 @@ export default function BalanceTab({ storeId, qs, notify, admin = false }: Props
       {/* Tarjeta de balance global — SOLO USDT (NETO, con la comisión ya descontada).
           El desglose no va acá: vive en la tarjeta del día, más abajo. */}
       <div className="grid grid-cols-1 gap-3 max-w-sm">
-        <BalanceCard label="Saldo en USDT" value={balance?.usdt ?? 0} format={fmtUsdt} suffix="USDT" color="#00d4ff" delay={0} loading={loadingBalance} />
+        <BalanceCard label="Saldo en USDT" value={balance?.usdt ?? 0} format={fmtUsdt} suffix="USDT" color="#00d4ff" delay={0} loading={loadingBalance}
+          arsValue={aArs(balance?.usdt ?? 0)} cotizacion={cotizacion} />
       </div>
 
       {balance && balance.pendientes > 0 && (
@@ -199,6 +223,11 @@ export default function BalanceTab({ storeId, qs, notify, admin = false }: Props
               ? <NumberSkeleton width={140} height={28} />
               : <><AnimatedNumber value={balance?.dia?.saldoUsdt ?? 0} format={fmtUsdt} /><span className="text-sm font-bold ml-2" style={{ opacity: 0.7 }}>USDT</span></>}
           </p>
+          {!(loadingBalance && !balance) && aArs(balance?.dia?.saldoUsdt ?? 0) != null && (
+            <p className="text-sm font-bold mt-0.5" style={{ color: 'rgba(226,232,240,0.85)' }}>
+              ≈ {ARS.format(aArs(balance?.dia?.saldoUsdt ?? 0)!)}
+            </p>
+          )}
           <div className="mt-3 space-y-1 text-xs">
             <Linea
               label={`Ingresos (${balance?.dia?.cantidadIngresos ?? 0} orden${(balance?.dia?.cantidadIngresos ?? 0) === 1 ? '' : 'es'})`}
@@ -354,8 +383,9 @@ function Linea({ label, valor, color, signo }: {
   )
 }
 
-function BalanceCard({ label, value, format, suffix, color, delay, loading }: {
+function BalanceCard({ label, value, format, suffix, color, delay, loading, arsValue, cotizacion }: {
   label: string; value: number; format: (n: number) => string; suffix?: string; color: string; delay: number; loading: boolean
+  arsValue?: number | null; cotizacion?: number | null
 }) {
   return (
     <motion.div
@@ -374,6 +404,16 @@ function BalanceCard({ label, value, format, suffix, color, delay, loading }: {
           : <AnimatedNumber value={value} format={format} />}
         {!loading && suffix && <span className="text-lg font-bold ml-2" style={{ opacity: 0.7 }}>{suffix}</span>}
       </p>
+      {!loading && arsValue != null && (
+        <p className="mt-1 text-lg font-bold" style={{ color: 'rgba(226,232,240,0.9)' }}>
+          ≈ {ARS.format(arsValue)}
+          {cotizacion != null && (
+            <span className="block text-[11px] font-medium mt-1" style={{ color: 'rgba(148,163,184,0.5)' }}>
+              a {ARS.format(cotizacion)}/USDT · se actualiza cada hora
+            </span>
+          )}
+        </p>
+      )}
     </motion.div>
   )
 }
