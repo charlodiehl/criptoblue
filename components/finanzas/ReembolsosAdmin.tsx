@@ -5,8 +5,12 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { ARS, fmtDate } from '@/lib/utils'
 import ComprobanteInput from '@/components/ComprobanteInput'
 import TasaInput from '@/components/TasaInput'
+import { WALLETS } from '@/lib/config'
 import type { RefundRequest } from '@/lib/types'
 import type { Toast } from './FinanzasApp'
+
+// Valor del selector "¿Quién paga el reembolso?" para el pago por fuera del sistema.
+const PAGO_EXTERNO = 'externo'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Reembolsos: la lista de solicitudes y la herramienta de gestión comparten estado
@@ -46,6 +50,7 @@ interface CtxValue {
   monto: string; setMonto: (v: string) => void
   cotizacion: string; setCotizacion: (v: string) => void
   comprobantePath: string | null; setComprobantePath: (v: string | null) => void
+  pagador: string; setPagador: (v: string) => void   // billetera que paga, o 'externo'
   compKey: number
   ejecutando: boolean
   requestId: number | null
@@ -80,6 +85,7 @@ export function ReembolsosProvider({ notify, onReembolsado, children }: Provider
   const [monto, setMonto] = useState('')
   const [cotizacion, setCotizacion] = useState('')
   const [comprobantePath, setComprobantePath] = useState<string | null>(null)
+  const [pagador, setPagador] = useState('')   // se elige a mano; vacío = sin elegir
   const [compKey, setCompKey] = useState(0)
   const [ejecutando, setEjecutando] = useState(false)
   const [requestId, setRequestId] = useState<number | null>(null)
@@ -109,12 +115,12 @@ export function ReembolsosProvider({ notify, onReembolsado, children }: Provider
   }, [fetchTiendas, fetchSolicitudes])
 
   function resetForm() {
-    setResultado(null); setMonto(''); setCotizacion(''); setComprobantePath(null); setRequestId(null)
+    setResultado(null); setMonto(''); setCotizacion(''); setComprobantePath(null); setRequestId(null); setPagador('')
   }
 
   const buscar = useCallback(async (sid: string, ord: string) => {
     if (!sid || !ord.trim()) { notify('Elegí la tienda e ingresá el número de orden', 'error'); return }
-    setBuscando(true); setResultado(null); setComprobantePath(null); setCompKey(k => k + 1)
+    setBuscando(true); setResultado(null); setComprobantePath(null); setPagador(''); setCompKey(k => k + 1)
     try {
       const res = await fetch('/api/finanzas/reembolso/buscar', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -138,19 +144,20 @@ export function ReembolsosProvider({ notify, onReembolsado, children }: Provider
     if (m > resultado.reembolsos.restante + 0.01) { notify(`El monto supera lo disponible (${fmtNum(resultado.reembolsos.restante)})`, 'error'); return }
     if (!Number.isFinite(cot) || cot <= 0) { notify('Ingresá la cotización USDT/ARS', 'error'); return }
     if (!comprobantePath) { notify('El comprobante es obligatorio', 'error'); return }
+    if (!pagador) { notify('Elegí quién paga el reembolso', 'error'); return }
 
     setEjecutando(true)
     try {
       const res = await fetch('/api/finanzas/reembolso', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ storeId, orderNumber: resultado.order.orderNumber, monto: m, cotizacion: cot, comprobantePath, requestId }),
+        body: JSON.stringify({ storeId, orderNumber: resultado.order.orderNumber, monto: m, cotizacion: cot, comprobantePath, wallet: pagador, requestId }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Error')
       notify(`${data.descripcion} · se restó ${ARS.format(m)} del saldo ✓`, 'success')
       onReembolsado()
       fetchSolicitudes()
-      setMonto(''); setComprobantePath(null); setRequestId(null)
+      setMonto(''); setComprobantePath(null); setRequestId(null); setPagador('')
       buscar(storeId, resultado.order.orderNumber)
     } catch (e) {
       notify(e instanceof Error ? e.message : 'No se pudo ejecutar el reembolso', 'error')
@@ -174,7 +181,7 @@ export function ReembolsosProvider({ notify, onReembolsado, children }: Provider
   const value: CtxValue = {
     notify, tiendas, solicitudes, procesarSolicitud,
     open, setOpen, storeId, setStoreId, orden, setOrden, buscando, resultado,
-    monto, setMonto, cotizacion, setCotizacion, comprobantePath, setComprobantePath, compKey,
+    monto, setMonto, cotizacion, setCotizacion, comprobantePath, setComprobantePath, pagador, setPagador, compKey,
     ejecutando, requestId, toolRef, buscar, ejecutar, resetForm,
   }
 
@@ -226,7 +233,7 @@ export function ReembolsosSolicitados() {
 export function GestionReembolsos() {
   const {
     notify, tiendas, open, setOpen, storeId, setStoreId, orden, setOrden, buscando, resultado,
-    monto, setMonto, cotizacion, setCotizacion, comprobantePath, setComprobantePath, compKey, ejecutando, requestId,
+    monto, setMonto, cotizacion, setCotizacion, comprobantePath, setComprobantePath, pagador, setPagador, compKey, ejecutando, requestId,
     toolRef, buscar, ejecutar, resetForm,
   } = useReembolsos()
 
@@ -235,7 +242,7 @@ export function GestionReembolsos() {
   const cotNum = Number(cotizacion.replace(',', '.'))
   const usdtPreview = Number.isFinite(montoNum) && Number.isFinite(cotNum) && cotNum > 0 ? montoNum / cotNum : null
   const puedeEjecutar = !!resultado && Number.isFinite(montoNum) && montoNum > 0 && montoNum <= restante + 0.01
-    && Number.isFinite(cotNum) && cotNum > 0 && !!comprobantePath && !ejecutando
+    && Number.isFinite(cotNum) && cotNum > 0 && !!comprobantePath && !!pagador && !ejecutando
 
   return (
     <section ref={toolRef}>
@@ -286,8 +293,8 @@ export function GestionReembolsos() {
                   {resultado.order.customerName || 'Sin nombre'} · {fmtDate(resultado.order.createdAt)}
                 </div>
                 <div className="text-[11px] mt-1" style={{ color: 'rgba(148,163,184,0.6)' }}>
-                  Billetera de origen: <span className="font-semibold" style={{ color: '#00d4ff' }}>{resultado.order.wallet || '—'}</span>
-                  {resultado.order.wallet && <span> · se le restará el reembolso</span>}
+                  Billetera de origen del pago: <span className="font-semibold" style={{ color: '#00d4ff' }}>{resultado.order.wallet || '—'}</span>
+                  <span> · elegí abajo quién paga el reembolso</span>
                 </div>
               </div>
 
@@ -340,11 +347,25 @@ export function GestionReembolsos() {
                     <ComprobanteInput key={compKey} uploadUrl="/api/finanzas/reembolso/comprobante" onChange={setComprobantePath} notify={notify} disabled={ejecutando} />
                   </div>
 
+                  {/* Quién paga el reembolso: una billetera (se le resta y se anota ahí) o
+                      "Pago por afuera" (solo baja el saldo de la tienda). */}
+                  <div>
+                    <label style={labelStyle}>¿Quién paga el reembolso?</label>
+                    <select value={pagador} onChange={e => setPagador(e.target.value)} disabled={ejecutando}
+                      style={{ ...inputStyle, colorScheme: 'dark', cursor: 'pointer' }}>
+                      <option value="" style={optionStyle}>Elegí quién paga…</option>
+                      {WALLETS.map(w => <option key={w} value={w} style={optionStyle}>{w}</option>)}
+                      <option value={PAGO_EXTERNO} style={optionStyle}>Pago por afuera (ninguna billetera)</option>
+                    </select>
+                  </div>
+
                   <div className="rounded-xl px-4 py-3 text-sm" style={{ background: 'rgba(248,113,113,0.06)', border: '1px solid rgba(248,113,113,0.2)' }}>
                     {usdtPreview != null && montoNum > 0 ? (
                       <span style={{ color: 'rgba(226,232,240,0.85)' }}>
                         Se restará <span className="font-bold" style={{ color: '#f87171' }}>{fmtNum(usdtPreview)} USDT</span> del saldo de la tienda
-                        {resultado.order.wallet && <> y <span className="font-bold" style={{ color: '#f87171' }}>{ARS.format(montoNum)}</span> de la billetera {resultado.order.wallet}</>}.
+                        {pagador && pagador !== PAGO_EXTERNO && <> y <span className="font-bold" style={{ color: '#f87171' }}>{ARS.format(montoNum)}</span> de la billetera {pagador}</>}
+                        {pagador === PAGO_EXTERNO && <> · <span className="font-semibold">no se descuenta de ninguna billetera (pago por afuera)</span></>}
+                        {!pagador && <> · <span style={{ color: 'rgba(148,163,184,0.7)' }}>elegí quién paga para completar</span></>}.
                       </span>
                     ) : (
                       <span style={{ color: 'rgba(148,163,184,0.5)' }}>Completá monto y cotización para ver el descuento.</span>

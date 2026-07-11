@@ -4,17 +4,21 @@ import { getStores, loadLogs, saveLogs, appendError, appendActivity } from '@/li
 import { buscarOrdenEnTienda } from '@/lib/buscar-orden'
 import { registrarReembolso } from '@/lib/balance'
 import { resumenReembolsos, crearRefund, setRefundMovement, getRefundRequestById, marcarRefundRequestProcesada } from '@/lib/reembolsos'
-import { getWalletSourceByOrder } from '@/lib/registro'
-import { resolveWallet } from '@/lib/billeteras'
+import { WALLETS } from '@/lib/config'
 import { audit } from '@/lib/audit'
 
 // POST /api/finanzas/reembolso
-//   { storeId, orderNumber, monto, cotizacion, comprobantePath, requestId? }
+//   { storeId, orderNumber, monto, cotizacion, comprobantePath, wallet, requestId? }
 //
 // Ejecuta un reembolso: exige comprobante, valida que la orden exista y que el
 // ACUMULADO reembolsado no supere el total de la orden, registra el reembolso y
 // RESTA el saldo de la tienda (ars + usdt con cotización manual). Si viene de una
 // solicitud de tienda (requestId), la marca procesada. Admin-only.
+//
+// Quién paga el reembolso lo elige el admin (no se deduce solo):
+//   • wallet = una billetera  → se le resta a esa billetera y se anota ahí.
+//   • wallet = 'externo'      → solo se descuenta el saldo de la tienda; ninguna
+//                               billetera se toca (pago por afuera).
 const EPS = 0.01  // tolerancia de centavos para el tope
 
 export async function POST(req: NextRequest) {
@@ -29,11 +33,19 @@ export async function POST(req: NextRequest) {
     const cotizacion = Number(body?.cotizacion)
     const comprobantePath = typeof body?.comprobantePath === 'string' ? body.comprobantePath.trim() : ''
     const requestId = body?.requestId != null ? Number(body.requestId) : null
+    const walletSel = String(body?.wallet || '').trim()   // billetera elegida o 'externo'
 
     if (!storeId || !orderNumber) return NextResponse.json({ error: 'Faltan la tienda o el número de orden' }, { status: 400 })
     if (!Number.isFinite(monto) || monto <= 0) return NextResponse.json({ error: 'Monto a reembolsar inválido' }, { status: 400 })
     if (!Number.isFinite(cotizacion) || cotizacion <= 0) return NextResponse.json({ error: 'Cotización USDT/ARS inválida' }, { status: 400 })
     if (!comprobantePath) return NextResponse.json({ error: 'El comprobante es obligatorio' }, { status: 400 })
+
+    // Quién paga: 'externo' (ninguna billetera) o una billetera válida. Obligatorio.
+    const esExterno = walletSel === 'externo'
+    if (!esExterno && !WALLETS.includes(walletSel as typeof WALLETS[number])) {
+      return NextResponse.json({ error: 'Elegí quién paga el reembolso (una billetera o "Pago por afuera")' }, { status: 400 })
+    }
+    const wallet: string | null = esExterno ? null : walletSel
 
     const stores = await getStores()
     const store = stores[storeId]
@@ -64,14 +76,8 @@ export async function POST(req: NextRequest) {
     const usdt = monto / cotizacion
     const descripcion = `Reembolso orden #${order.orderNumber}${seq > 1 ? ` (${seq})` : ''}`
 
-    // Billetera de la que vino el pago (se le resta el reembolso). Fuente: el source
-    // del pago emparejado con esta orden; fallback a la billetera de la tienda.
-    let wallet: string | null = null
-    try {
-      wallet = resolveWallet(await getWalletSourceByOrder(storeId, order.orderNumber)) ?? store.walletId ?? null
-    } catch {
-      wallet = store.walletId ?? null
-    }
+    // La billetera que paga la eligió el admin (arriba). 'externo' → wallet=null:
+    // el reembolso no se le anota a ninguna billetera, solo baja el saldo de la tienda.
 
     // 1) Registrar el reembolso (fuente de verdad del tope acumulado)
     const refund = await crearRefund({
