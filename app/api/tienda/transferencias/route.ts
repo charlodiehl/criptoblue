@@ -32,7 +32,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'JSON inválido' }, { status: 400 })
     }
 
-    const storeId = resolveStoreScope(auth.user, body.storeId)
+    // La vista espejo del admin manda el storeId en el query (?storeId=), igual que el
+    // GET; se acepta también en el body por compatibilidad. Antes solo se leía el body,
+    // así que al admin le fallaba el envío con "No hay tienda asignada".
+    const storeId = resolveStoreScope(auth.user, req.nextUrl.searchParams.get('storeId') || body.storeId)
     if (!storeId) return NextResponse.json({ error: 'No hay tienda asignada' }, { status: 400 })
 
     const tipo = body.tipo as TransferTipo
