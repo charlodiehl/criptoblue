@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ARS, fmtDate } from '@/lib/utils'
+import MontoInput from '@/components/MontoInput'
 import type { RefundRequest } from '@/lib/types'
 import type { Toast } from './TiendaPortal'
 
@@ -146,8 +147,7 @@ export default function SolicitarReembolsoTab({ qs, notify }: Props) {
               <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-3 sm:items-end">
                 <div>
                   <label style={labelStyle}>Monto a reembolsar (ARS)</label>
-                  <input type="number" inputMode="decimal" min="0" step="0.01" style={inputStyle} value={monto}
-                    onChange={e => setMonto(e.target.value)} placeholder="0.00" />
+                  <MontoInput style={inputStyle} value={monto} onChange={setMonto} placeholder="0,00" />
                   <div className="text-[11px] mt-1" style={{ color: 'rgba(148,163,184,0.6)' }}>Disponible: {ARS.format(restante)} · el administrador decide el monto final</div>
                 </div>
                 <button onClick={enviar} disabled={enviando}

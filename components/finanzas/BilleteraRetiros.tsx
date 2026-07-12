@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { ARS, fmtDate } from '@/lib/utils'
+import MontoInput from '@/components/MontoInput'
 import type { TransferTipo } from '@/lib/types'
 import type { Toast } from './FinanzasApp'
 
@@ -173,7 +174,7 @@ export default function BilleteraRetiros({
             <div className="sm:col-span-2"><label style={labelStyle}>CBU / CVU / Alias *</label>
               <input style={inputStyle} value={form.cbu || ''} onChange={e => set('cbu', e.target.value)} placeholder="Ej: micuenta.mp o 0000..." /></div>
             <div><label style={labelStyle}>Monto ARS *</label>
-              <input type="number" min="0" step="0.01" style={inputStyle} value={form.montoArs || ''} onChange={e => set('montoArs', e.target.value)} placeholder="0.00" /></div>
+              <MontoInput style={inputStyle} value={form.montoArs || ''} onChange={v => set('montoArs', v)} placeholder="0,00" /></div>
             <div><label style={labelStyle}>Nombre del beneficiario</label>
               <input style={inputStyle} value={form.nombreBeneficiario || ''} onChange={e => set('nombreBeneficiario', e.target.value)} placeholder="Opcional" /></div>
             <div className="sm:col-span-2"><label style={labelStyle}>CUIT / CUIL / DNI del beneficiario</label>
@@ -186,7 +187,7 @@ export default function BilleteraRetiros({
             <div><label style={labelStyle}>Número de cuenta *</label>
               <input style={inputStyle} value={form.numeroCuenta || ''} onChange={e => set('numeroCuenta', e.target.value)} /></div>
             <div><label style={labelStyle}>Monto USD *</label>
-              <input type="number" min="0" step="0.01" style={inputStyle} value={form.montoUsd || ''} onChange={e => set('montoUsd', e.target.value)} placeholder="0.00" /></div>
+              <MontoInput style={inputStyle} value={form.montoUsd || ''} onChange={v => set('montoUsd', v)} placeholder="0,00" /></div>
             <div><label style={labelStyle}>Nombre completo del beneficiario *</label>
               <input style={inputStyle} value={form.nombreCompleto || ''} onChange={e => set('nombreCompleto', e.target.value)} /></div>
             <div><label style={labelStyle}>Domicilio completo *</label>
@@ -202,14 +203,14 @@ export default function BilleteraRetiros({
               <input style={inputStyle} list="blockchains-billetera" value={form.blockchain || ''} onChange={e => set('blockchain', e.target.value)} placeholder="TRC-20, ERC-20…" />
               <datalist id="blockchains-billetera">{BLOCKCHAINS.map(b => <option key={b} value={b} />)}</datalist></div>
             <div><label style={labelStyle}>Monto USDT *</label>
-              <input type="number" min="0" step="0.01" style={inputStyle} value={form.montoUsdt || ''} onChange={e => set('montoUsdt', e.target.value)} placeholder="0.00" /></div>
+              <MontoInput style={inputStyle} value={form.montoUsdt || ''} onChange={v => set('montoUsdt', v)} placeholder="0,00" /></div>
           </div>
         )}
 
         {(tipo === 'usd_billete' || tipo === 'ars_billete') && (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div><label style={labelStyle}>Monto {tipo === 'usd_billete' ? 'USD' : 'ARS'} *</label>
-              <input type="number" min="0" step="0.01" style={inputStyle} value={form.monto || ''} onChange={e => set('monto', e.target.value)} placeholder="0.00" /></div>
+              <MontoInput style={inputStyle} value={form.monto || ''} onChange={v => set('monto', v)} placeholder="0,00" /></div>
             <div><label style={labelStyle}>¿Cómo se entrega? *</label>
               <select style={{ ...inputStyle, colorScheme: 'dark', cursor: 'pointer' }} value={form.modalidad || ''} onChange={e => set('modalidad', e.target.value)}>
                 <option value="" style={optionStyle}>Elegí una opción…</option>
@@ -249,7 +250,7 @@ export default function BilleteraRetiros({
               <input style={inputStyle} value={motivo} onChange={e => setMotivo(e.target.value)} placeholder={TIPO_LABEL[tipo]} /></div>
             {necesitaCotizacion && (
               <div><label style={labelStyle}>Cotización — ARS por 1 {MONEDA[tipo]} *</label>
-                <input type="number" min="0" step="0.01" style={inputStyle} value={cotizacion} onChange={e => setCotizacion(e.target.value)} placeholder="0.00" /></div>
+                <MontoInput style={inputStyle} value={cotizacion} onChange={setCotizacion} placeholder="0,00" /></div>
             )}
           </div>
         )}

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { ARS } from '@/lib/utils'
+import MontoInput from '@/components/MontoInput'
 
 // Edición de una entrada del registro (solo admin). Los cambios se guardan en
 // registro_log, que es la fuente de verdad: se ven acá y en el registro general.
@@ -151,8 +152,8 @@ export default function EditarRegistroModal({
 
         <div>
           <label style={labelStyle}>Cotización USDT</label>
-          <input type="number" min="0" step="0.01" style={inputStyle} value={cotizacion}
-            onChange={e => setCotizacion(e.target.value)} placeholder={fila.usdtRate == null ? 'Pendiente' : ''} />
+          <MontoInput style={inputStyle} value={cotizacion} onChange={setCotizacion}
+            placeholder={fila.usdtRate == null ? 'Pendiente' : ''} />
           {usdtPrevisto != null && (
             <p className="text-[11px] mt-1.5" style={{ color: cotizacionCambio ? '#fbbf24' : 'rgba(148,163,184,0.6)' }}>
               Equivale a <span className="font-bold">{fmtUsdt(usdtPrevisto)} USDT</span>

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import MontoInput from '@/components/MontoInput'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Campo de tasa ARS/USDT con checkbox "Usar cotización estándar": al tildarlo,
@@ -59,10 +60,9 @@ export default function TasaInput({ label, value, onChange, notify, placeholder,
   return (
     <div>
       <label style={labelStyle}>{label}</label>
-      <input
-        type="number" inputMode="decimal" min="0" step="0.0001"
+      <MontoInput
         value={value}
-        onChange={e => onChange(e.target.value)}
+        onChange={onChange}
         placeholder={placeholder || 'Cuántos ARS = 1 USDT'}
         disabled={disabled || estandar || cargando}
         style={{ ...inputStyle, opacity: disabled || estandar ? 0.65 : 1, cursor: estandar ? 'not-allowed' : 'text' }}

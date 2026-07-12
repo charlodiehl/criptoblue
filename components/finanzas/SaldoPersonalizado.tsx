@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import TasaInput from '@/components/TasaInput'
+import MontoInput from '@/components/MontoInput'
 import type { Toast } from './FinanzasApp'
 
 interface Props {
@@ -128,8 +129,7 @@ export default function SaldoPersonalizado({ notify, onSaldoAgregado }: Props) {
                 </div>
                 <div>
                   <label style={labelStyle}>Monto a agregar (ARS) *</label>
-                  <input type="number" inputMode="decimal" min="0" step="0.01" value={monto}
-                    onChange={e => setMonto(e.target.value)} placeholder="0.00" style={inputStyle} />
+                  <MontoInput value={monto} onChange={setMonto} placeholder="0,00" style={inputStyle} />
                 </div>
                 {esTienda && (
                   <TasaInput key={formKey} label="Tasa ARS/USDT *" value={tasa} onChange={setTasa} notify={notify} />

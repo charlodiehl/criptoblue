@@ -3,6 +3,7 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { motion } from 'framer-motion'
 import TasaInput from '@/components/TasaInput'
+import MontoInput from '@/components/MontoInput'
 import type { DescuentoMoneda } from '@/lib/types'
 import type { SolicitudConTienda } from './AdminGeneralTab'
 import type { Toast } from './FinanzasApp'
@@ -237,7 +238,7 @@ export default function SolicitudModal({ solicitud, notify, onClose, onPaid }: P
                 <>
                   <div>
                     <label style={labelStyle}>Monto retirado ({MONEDA_LABEL[moneda]})</label>
-                    <input type="number" min="0" step="0.01" style={inputStyle} value={monto} onChange={e => setMonto(e.target.value)} placeholder="0.00" />
+                    <MontoInput style={inputStyle} value={monto} onChange={setMonto} placeholder="0,00" />
                   </div>
                   {TASAS_POR_MONEDA[moneda].map(t => (
                     // La cotización ARS/USDT admite "Usar cotización estándar"; la USD/USDT no.

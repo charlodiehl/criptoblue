@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { ARS, fmtDate } from '@/lib/utils'
+import MontoInput from '@/components/MontoInput'
 import type { Toast } from './TiendaPortal'
 
 interface Props {
@@ -108,7 +109,7 @@ export default function BuscarPagosTab({ qs, notify }: Props) {
           <div><label style={labelStyle}>Nombre y apellido *</label>
             <input style={inputStyle} value={nombre} onChange={e => setNombre(e.target.value)} placeholder="Nombre del que pagó" /></div>
           <div><label style={labelStyle}>Monto exacto *</label>
-            <input type="number" min="0" step="0.01" style={inputStyle} value={monto} onChange={e => setMonto(e.target.value)} placeholder="0.00" /></div>
+            <MontoInput style={inputStyle} value={monto} onChange={setMonto} placeholder="0,00" /></div>
           <div><label style={labelStyle}>Fecha y hora del pago *</label>
             <input type="datetime-local" style={{ ...inputStyle, colorScheme: 'dark' }} value={fechaHora} onChange={e => setFechaHora(e.target.value)} /></div>
         </div>
