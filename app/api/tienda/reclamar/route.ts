@@ -79,6 +79,21 @@ export async function POST(req: NextRequest) {
     }
     const order = encontrada.order
 
+    // Estado en la PLATAFORMA: no reclamar una orden cancelada ni una ya pagada.
+    // isOrderAlreadyPaid solo mira registro_log, así que no detecta órdenes que se
+    // marcaron pagadas fuera de la app (directo en TiendaNube/Shopify) — ese fue el
+    // agujero por el que un reclamo re-emparejó una orden ya resuelta.
+    const pagoStatus = (encontrada.paymentStatus || '').toLowerCase()
+    const ordenStatus = (encontrada.orderStatus || '').toLowerCase()
+    if (ordenStatus === 'cancelled') {
+      auditMatch({ action: 'tienda_reclamo.order_cancelled_blocked', actor: 'human', component: 'api/tienda/reclamar', mpPaymentId, orderId: order.orderId, orderNumber: String(orderNumber), storeId, storeName: store.storeName, amount: payment.monto, result: 'skipped', message: `Orden cancelada: #${order.orderNumber} (reclamo de ${user.email})` })
+      return NextResponse.json({ error: `La orden #${order.orderNumber} está cancelada, no se puede reclamar.` }, { status: 409 })
+    }
+    if (pagoStatus === 'paid') {
+      auditMatch({ action: 'tienda_reclamo.order_paid_in_platform_blocked', actor: 'human', component: 'api/tienda/reclamar', mpPaymentId, orderId: order.orderId, orderNumber: String(orderNumber), storeId, storeName: store.storeName, amount: payment.monto, result: 'skipped', message: `Orden ya pagada en la plataforma: #${order.orderNumber} (reclamo de ${user.email})` })
+      return NextResponse.json({ error: `La orden #${order.orderNumber} ya figura pagada en ${store.storeName}, no se puede reclamar.` }, { status: 409 })
+    }
+
     // Guards de idempotencia (mismos que manual-match)
     if (await isOrderAlreadyPaid(order.orderId)) {
       auditMatch({ action: 'tienda_reclamo.order_already_paid_blocked', actor: 'human', component: 'api/tienda/reclamar', mpPaymentId, orderId: order.orderId, orderNumber: String(orderNumber), storeId, storeName: store.storeName, amount: payment.monto, result: 'skipped', message: `Orden ya registrada: ${order.orderId} (reclamo de ${user.email})` })
