@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { motion, AnimatePresence } from 'framer-motion'
 import TiendaPortal from '@/components/tienda/TiendaPortal'
 import AdminGeneralTab from './AdminGeneralTab'
+import MetricasTab from './MetricasTab'
 import BilleteraTab from './BilleteraTab'
 import NotificacionesToggle from '@/components/pwa/NotificacionesToggle'
 import AnimatedNumber, { NumberSkeleton } from '@/components/AnimatedNumber'
@@ -199,6 +200,7 @@ export default function FinanzasApp({ userEmail }: { userEmail?: string }) {
         <div className="flex flex-col md:flex-row gap-4 md:gap-5 items-stretch md:items-start">
           <aside className="w-full md:w-56 md:shrink-0 flex md:block gap-1.5 md:space-y-1.5 overflow-x-auto md:overflow-visible pb-1 md:pb-0">
             <SideItem label="Administración general" active={active === 'general'} onClick={() => setActive('general')} />
+            <SideItem label="Métricas" active={active === 'metricas'} onClick={() => setActive('metricas')} />
             <div className="text-[10px] uppercase tracking-widest px-3 pt-3 pb-1 shrink-0 self-center md:self-auto whitespace-nowrap" style={{ color: 'rgba(148,163,184,0.4)' }}>Tiendas</div>
             {cards.map(c => (
               <SideItem key={c.storeId} label={c.storeName} active={active === c.storeId} onClick={() => setActive(c.storeId)} />
@@ -232,6 +234,8 @@ export default function FinanzasApp({ userEmail }: { userEmail?: string }) {
               <motion.div key={active} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.18 }}>
                 {active === 'general' ? (
                   <AdminGeneralTab notify={notify} onSolicitudPagada={() => { fetchBalances(); fetchBilleteras() }} refreshKey={refreshKey} />
+                ) : active === 'metricas' ? (
+                  <MetricasTab notify={notify} />
                 ) : active.startsWith('bill:') ? (
                   <BilleteraTab wallet={active.slice(5)} notify={notify} refreshKey={refreshKey} />
                 ) : activeStore ? (

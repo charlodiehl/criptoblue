@@ -40,8 +40,8 @@ const CORTES_KEY = 'criptoblue:billetera-cortes'
 // que se suma al total. Espejo del BALANCE_CUTOFF de tiendas pero por billetera y
 // configurable en kv (criptoblue:billetera-cortes): { "MF": { desde, saldoInicial } }.
 // Sin corte configurado, la billetera cuenta todo su histórico (comportamiento default).
-interface CorteBilletera { desde: number; saldoInicial: number } // desde = epoch ms
-async function getCortesBilletera(): Promise<Record<string, CorteBilletera>> {
+export interface CorteBilletera { desde: number; saldoInicial: number } // desde = epoch ms
+export async function getCortesBilletera(): Promise<Record<string, CorteBilletera>> {
   const raw = await kvGet<Record<string, { desde: string; saldoInicial: number }>>(CORTES_KEY)
   const out: Record<string, CorteBilletera> = {}
   for (const [w, c] of Object.entries(raw ?? {})) {
