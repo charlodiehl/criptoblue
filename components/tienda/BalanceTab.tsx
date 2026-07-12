@@ -500,7 +500,7 @@ function BalanceCard({ label, value, format, suffix, color, delay, loading, arsV
           ≈ {ARS.format(arsValue)}
           {cotizacion != null && (
             <span className="block text-[11px] font-medium mt-1" style={{ color: 'rgba(148,163,184,0.5)' }}>
-              a {ARS.format(cotizacion)}/USDT · se actualiza cada hora
+              a {ARS.format(cotizacion)}/USDT · valor estimado en pesos, se actualiza cada 1 hora
             </span>
           )}
         </p>
