@@ -3,6 +3,7 @@ import { getUsdtRate } from './cotizacion'
 import { toUTCISO } from './utils'
 import { BALANCE_CUTOFF } from './config'
 import { getComisiones, comisionTienda, comisionTiendaSobre } from './comisiones'
+import { getRefundsByMovementIds } from './reembolsos'
 import type { LogEntry, StoreBalance, DescuentoMoneda, TransferDescuento, BalanceMovement } from './types'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -347,6 +348,7 @@ export interface MovimientoDetalle extends BalanceMovement {
   montoOriginal: number | null
   monedaOriginal: string | null
   tieneComprobante: boolean
+  refundId: number | null   // si es un reembolso con comprobante, su id (para descargarlo)
 }
 
 export interface BalanceDia {
@@ -416,11 +418,25 @@ export async function getBalanceDia(storeId: string, diaART: string): Promise<Ba
   const transferIds = noIngresos
     .filter(m => m.tipo === 'egreso_transferencia' && m.refTransferId != null)
     .map(m => m.refTransferId as number)
-  const detalles = await getDetalleTransferencias(transferIds)
+  // Los reembolsos guardan su comprobante en la tabla refunds (no en transfer_requests):
+  // se cruzan por ref_movement_id = id del movimiento de balance.
+  const reembolsoIds = noIngresos.filter(m => m.tipo === 'reembolso').map(m => m.id)
+  const [detalles, refundsPorMov] = await Promise.all([
+    getDetalleTransferencias(transferIds),
+    getRefundsByMovementIds(reembolsoIds),
+  ])
 
   const movimientos: MovimientoDetalle[] = noIngresos.map(m => {
     const d = m.refTransferId != null ? detalles.get(m.refTransferId) : undefined
-    return { ...m, montoOriginal: d?.monto ?? null, monedaOriginal: d?.moneda ?? null, tieneComprobante: !!d?.comprobante }
+    const refund = m.tipo === 'reembolso' ? refundsPorMov.get(m.id) : undefined
+    const refundConComp = refund?.comprobantePath ? refund : undefined
+    return {
+      ...m,
+      montoOriginal: d?.monto ?? null,
+      monedaOriginal: d?.moneda ?? null,
+      tieneComprobante: !!d?.comprobante || !!refundConComp,
+      refundId: refundConComp ? refundConComp.id : null,
+    }
   })
 
   return {

@@ -213,6 +213,46 @@ export async function sumRefundsByWallet(): Promise<Record<string, number>> {
   return out
 }
 
+// Un reembolso por id (para descargar su comprobante, con chequeo de scope en la ruta).
+export async function getRefundById(id: number): Promise<Refund | null> {
+  const { data, error } = await getClient().from(REFUNDS).select('*').eq('id', id).maybeSingle()
+  if (error) throw new Error(`getRefundById falló: ${error.message} [${error.code}]`)
+  return data ? rowToRefund(data) : null
+}
+
+// Reembolsos indexados por el id del movimiento de balance que crearon (ref_movement_id).
+// Sirve para cruzar un movimiento 'reembolso' de una tienda con su fila de refunds
+// (y así con su comprobante), sin depender de la descripción.
+export async function getRefundsByMovementIds(movementIds: number[]): Promise<Map<number, Refund>> {
+  const map = new Map<number, Refund>()
+  if (!movementIds.length) return map
+  const { data, error } = await getClient().from(REFUNDS).select('*').in('ref_movement_id', movementIds)
+  if (error) throw new Error(`getRefundsByMovementIds falló: ${error.message} [${error.code}]`)
+  for (const r of data ?? []) {
+    const ref = rowToRefund(r)
+    if (r.ref_movement_id != null) map.set(Number(r.ref_movement_id), ref)
+  }
+  return map
+}
+
+// Set de "storeId|orderNumber" de todas las órdenes con al menos un reembolso
+// (total o parcial). Sirve para marcar visualmente un pago como "Reembolsado" en el
+// extracto de la billetera — es solo estado visual, no afecta saldos. Paginado.
+export async function getOrdenesReembolsadas(): Promise<Set<string>> {
+  const out = new Set<string>()
+  const PAGE = 1000
+  let from = 0
+  for (;;) {
+    const { data, error } = await getClient()
+      .from(REFUNDS).select('store_id, order_number').order('id', { ascending: true }).range(from, from + PAGE - 1)
+    if (error) throw new Error(`getOrdenesReembolsadas falló: ${error.message} [${error.code}]`)
+    for (const r of data ?? []) out.add(`${r.store_id}|${String(r.order_number)}`)
+    if (!data || data.length < PAGE) break
+    from += PAGE
+  }
+  return out
+}
+
 // Reembolsos atribuidos a una billetera (para mostrar el detalle con su info).
 export async function getRefundsDeWallet(wallet: string): Promise<Refund[]> {
   const { data, error } = await getClient()

@@ -30,6 +30,7 @@ interface Movimiento {
   monedaOriginal: string | null
   tieneComprobante: boolean
   refTransferId: number | null
+  refundId: number | null   // reembolso con comprobante → id para descargarlo
 }
 interface BalanceDia {
   ingresosArs: number
@@ -397,6 +398,12 @@ export default function BalanceTab({ storeId, qs, notify, admin = false, refresh
                   const esArs = m.monedaOriginal === 'ARS' || m.monedaOriginal === 'ARS_BILLETE'
                   const montoArs = esArs && m.montoOriginal != null ? m.montoOriginal
                     : (m.ars !== 0 ? Math.abs(m.ars) : null)
+                  // Transferencia → comprobante en transfer_requests; reembolso → en refunds.
+                  const comprobanteHref = m.tieneComprobante && m.refTransferId != null
+                    ? `/api/tienda/comprobante?id=${m.refTransferId}${qs ? `&${qs.slice(1)}` : ''}`
+                    : m.refundId != null
+                      ? `/api/tienda/comprobante-reembolso?id=${m.refundId}${qs ? `&${qs.slice(1)}` : ''}`
+                      : null
                   return (
                     <motion.tr key={m.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3, delay: Math.min(i * 0.03, 0.3) }}
                       style={{ borderBottom: '1px solid rgba(148,163,184,0.05)' }}>
@@ -415,8 +422,8 @@ export default function BalanceTab({ storeId, qs, notify, admin = false, refresh
                         </span>
                       </td>
                       <td className="px-3 py-2.5 whitespace-nowrap">
-                        {m.tieneComprobante && m.refTransferId != null ? (
-                          <a href={`/api/tienda/comprobante?id=${m.refTransferId}${qs ? `&${qs.slice(1)}` : ''}`}
+                        {comprobanteHref ? (
+                          <a href={comprobanteHref}
                             target="_blank" rel="noopener noreferrer" title="Descargar comprobante"
                             className="inline-flex items-center gap-1 text-[11px] font-semibold rounded-lg px-2 py-1 transition-all"
                             style={{ background: 'rgba(0,212,255,0.08)', border: '1px solid rgba(0,212,255,0.3)', color: '#00d4ff' }}>

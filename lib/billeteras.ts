@@ -26,7 +26,7 @@
 import { getClient, kvGet, loadHotState } from './storage'
 import { PAYMENT_SOURCE_TO_WALLET, PAYMENT_SOURCE_NAMES, WALLETS } from './config'
 import { getComisiones, comisionBilletera } from './comisiones'
-import { sumRefundsByWallet, getRefundsDeWallet } from './reembolsos'
+import { sumRefundsByWallet, getRefundsDeWallet, getOrdenesReembolsadas } from './reembolsos'
 import { sumSalidasByWallet, getSalidasDeWallet, type SalidaBilletera } from './billetera-salidas'
 
 export type { SalidaBilletera }
@@ -66,7 +66,9 @@ export interface PagoBilletera {
   titular: string
   monto: number
   comision: number          // comisión ARS de este pago (monto × pct/100)
-  estado: 'emparejado' | 'en_cola'
+  // 'reembolsado' es un estado SOLO visual: el pago sigue emparejado y su saldo no
+  // cambia; marca que la orden asociada tuvo un reembolso (total o parcial).
+  estado: 'emparejado' | 'en_cola' | 'reembolsado'
 }
 
 export interface ReembolsoBilletera {
@@ -88,6 +90,7 @@ export interface MovimientoDia {
   montoOrigen: number                     // monto en la moneda del retiro
   cotizacion: number | null               // ARS por unidad; null si ya era ARS
   ars: number                             // retiro/reembolso: sale (resta). ajuste: suma.
+  refundId?: number                       // reembolso con comprobante → id para descargarlo
 }
 
 export interface DetalleBilletera {
@@ -122,6 +125,8 @@ interface Ingreso {
   fechaPago: string
   titular: string
   estado: 'emparejado' | 'en_cola'
+  storeId?: string          // solo emparejados: para cruzar con los reembolsos de la orden
+  orderNumber?: string
 }
 
 // Resuelve el payment.source de un pago a su billetera. Tolerante con datos
@@ -196,7 +201,7 @@ async function ingresosEmparejados(): Promise<Ingreso[]> {
   for (;;) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data, error } = await (c.from('registro_log') as any)
-      .select('amount, ts, payment_received_at, source:payment->>source, monto:payment->>monto, titular:payment->>nombrePagador, fechaPago:payment->>fechaPago')
+      .select('amount, ts, payment_received_at, store_id, order_number, source:payment->>source, monto:payment->>monto, titular:payment->>nombrePagador, fechaPago:payment->>fechaPago')
       .eq('hidden', false)
       .in('action', MATCHED_ACTIONS)
       .order('id', { ascending: true })
@@ -213,6 +218,8 @@ async function ingresosEmparejados(): Promise<Ingreso[]> {
         fechaPago: ingreso,    // y se muestra con esa misma fecha
         titular: r.titular || '',
         estado: 'emparejado',
+        storeId: r.store_id ?? undefined,
+        orderNumber: r.order_number != null ? String(r.order_number) : undefined,
       })
     }
     if (!data || data.length < PAGE) break
@@ -351,8 +358,8 @@ export async function getIngresosBilletera(wallet: string, diaART?: string): Pro
   }
   const labelSet = new Set(labels)
 
-  const [emparejados, hot, refundsAll, salidasAll, yaEmparejados, cortes] = await Promise.all([
-    ingresosEmparejados(), loadHotState(), getRefundsDeWallet(wallet), getSalidasDeWallet(wallet), idsEmparejados(), getCortesBilletera(),
+  const [emparejados, hot, refundsAll, salidasAll, yaEmparejados, cortes, reembolsadas] = await Promise.all([
+    ingresosEmparejados(), loadHotState(), getRefundsDeWallet(wallet), getSalidasDeWallet(wallet), idsEmparejados(), getCortesBilletera(), getOrdenesReembolsadas(),
   ])
   // Corte: se cuenta desde `desde`; lo previo ya está en el saldo inicial (neto).
   const corte = cortes[wallet]
@@ -426,6 +433,7 @@ export async function getIngresosBilletera(wallet: string, diaART?: string): Pro
         clase: 'reembolso', fecha: r.createdAt, ars: r.monto,
         concepto: `Reembolso orden #${r.orderNumber}${r.seq > 1 ? ` (${r.seq})` : ''}`,
         moneda: 'ARS' as const, montoOrigen: r.monto, cotizacion: null,
+        refundId: r.comprobantePath ? r.id : undefined,
       })),
     ].sort((a, b) => (new Date(a.fecha).getTime() || 0) - (new Date(b.fecha).getTime() || 0))
   }
@@ -456,7 +464,11 @@ export async function getIngresosBilletera(wallet: string, diaART?: string): Pro
       titular: m.titular,
       monto: m.monto,
       comision: m.monto * pct / 100,
-      estado: m.estado,
+      // Estado visual: si la orden del pago emparejado tuvo un reembolso (total o
+      // parcial), se muestra "reembolsado". No cambia el saldo ni el emparejamiento.
+      estado: m.estado === 'emparejado' && m.storeId && reembolsadas.has(`${m.storeId}|${m.orderNumber}`)
+        ? 'reembolsado' as const
+        : m.estado,
     })),
   }
 }

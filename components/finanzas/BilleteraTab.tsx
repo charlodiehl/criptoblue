@@ -13,7 +13,13 @@ interface Pago {
   titular: string
   monto: number
   comision: number
-  estado: 'emparejado' | 'en_cola'
+  estado: 'emparejado' | 'en_cola' | 'reembolsado'
+}
+const ESTADO_LABEL: Record<Pago['estado'], string> = { emparejado: 'Emparejado', en_cola: 'En cola', reembolsado: 'Reembolsado' }
+const ESTADO_STYLE: Record<Pago['estado'], React.CSSProperties> = {
+  emparejado: { background: 'rgba(0,255,136,0.1)', color: '#00ff88' },
+  en_cola: { background: 'rgba(245,158,11,0.1)', color: '#fbbf24' },
+  reembolsado: { background: 'rgba(167,139,250,0.12)', color: '#a78bfa' },
 }
 interface MovimientoDia {
   clase: 'retiro' | 'reembolso' | 'ajuste'
@@ -23,6 +29,7 @@ interface MovimientoDia {
   montoOrigen?: number
   cotizacion?: number | null
   ars: number
+  refundId?: number   // reembolso con comprobante → id para descargarlo
 }
 interface Detalle {
   wallet: string
@@ -264,11 +271,8 @@ export default function BilleteraTab({ wallet, notify, refreshKey = 0 }: { walle
                     <td className="px-3 py-2.5 whitespace-nowrap font-medium" style={{ color: '#00ff88' }}>{ARS.format(p.monto)}</td>
                     <td className="px-3 py-2.5 whitespace-nowrap font-medium" style={{ color: '#f87171' }}>−{ARS.format(p.comision)}</td>
                     <td className="px-3 py-2.5 whitespace-nowrap">
-                      <span className="text-[11px] px-2 py-0.5 rounded-full"
-                        style={p.estado === 'emparejado'
-                          ? { background: 'rgba(0,255,136,0.1)', color: '#00ff88' }
-                          : { background: 'rgba(245,158,11,0.1)', color: '#fbbf24' }}>
-                        {p.estado === 'emparejado' ? 'Emparejado' : 'En cola'}
+                      <span className="text-[11px] px-2 py-0.5 rounded-full" style={ESTADO_STYLE[p.estado]}>
+                        {ESTADO_LABEL[p.estado]}
                       </span>
                     </td>
                   </motion.tr>
@@ -293,7 +297,7 @@ export default function BilleteraTab({ wallet, notify, refreshKey = 0 }: { walle
             <table className="w-full text-sm" style={{ borderCollapse: 'collapse', minWidth: '640px' }}>
               <thead>
                 <tr style={{ borderBottom: '1px solid rgba(248,113,113,0.15)' }}>
-                  {['Fecha y hora', 'Concepto', 'Monto original', 'Cotización', 'Monto (ARS)', 'Tipo'].map(h => (
+                  {['Fecha y hora', 'Concepto', 'Monto original', 'Cotización', 'Monto (ARS)', 'Tipo', 'Comprobante'].map(h => (
                     <th key={h} className="text-left px-3 py-3 text-[11px] font-semibold uppercase tracking-wider whitespace-nowrap"
                       style={{ color: 'rgba(248,113,113,0.7)' }}>{h}</th>
                   ))}
@@ -325,6 +329,22 @@ export default function BilleteraTab({ wallet, notify, refreshKey = 0 }: { walle
                             : { background: 'rgba(248,113,113,0.1)', color: '#f87171' }}>
                           {m.clase === 'ajuste' ? 'Ajuste' : m.clase === 'retiro' ? 'Retiro' : 'Reembolso'}
                         </span>
+                      </td>
+                      <td className="px-3 py-2.5 whitespace-nowrap">
+                        {m.refundId != null ? (
+                          <a href={`/api/tienda/comprobante-reembolso?id=${m.refundId}`}
+                            target="_blank" rel="noopener noreferrer" title="Descargar comprobante"
+                            className="inline-flex items-center gap-1 text-[11px] font-semibold rounded-lg px-2 py-1 transition-all"
+                            style={{ background: 'rgba(0,212,255,0.08)', border: '1px solid rgba(0,212,255,0.3)', color: '#00d4ff' }}>
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
+                              <path d="M10.75 2.75a.75.75 0 0 0-1.5 0v8.614L6.295 8.235a.75.75 0 1 0-1.09 1.03l4.25 4.5a.75.75 0 0 0 1.09 0l4.25-4.5a.75.75 0 0 0-1.09-1.03l-2.955 3.129V2.75Z" />
+                              <path d="M3.5 12.75a.75.75 0 0 0-1.5 0v2.5A2.75 2.75 0 0 0 4.75 18h10.5A2.75 2.75 0 0 0 18 15.25v-2.5a.75.75 0 0 0-1.5 0v2.5c0 .69-.56 1.25-1.25 1.25H4.75c-.69 0-1.25-.56-1.25-1.25v-2.5Z" />
+                            </svg>
+                            Descargar
+                          </a>
+                        ) : (
+                          <span style={{ color: 'rgba(148,163,184,0.4)' }}>—</span>
+                        )}
                       </td>
                     </motion.tr>
                   )
