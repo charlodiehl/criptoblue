@@ -34,6 +34,22 @@ export type { SalidaBilletera }
 const OCULTAS_KEY = 'criptoblue:billeteras-ocultas'
 const EXTRACTO_LIMIT = 200
 const MATCHED_ACTIONS = ['auto_paid', 'manual_paid']
+const CORTES_KEY = 'criptoblue:billetera-cortes'
+
+// Corte por billetera: fecha desde la que se cuenta y saldo inicial (NETO) previo,
+// que se suma al total. Espejo del BALANCE_CUTOFF de tiendas pero por billetera y
+// configurable en kv (criptoblue:billetera-cortes): { "MF": { desde, saldoInicial } }.
+// Sin corte configurado, la billetera cuenta todo su histórico (comportamiento default).
+interface CorteBilletera { desde: number; saldoInicial: number } // desde = epoch ms
+async function getCortesBilletera(): Promise<Record<string, CorteBilletera>> {
+  const raw = await kvGet<Record<string, { desde: string; saldoInicial: number }>>(CORTES_KEY)
+  const out: Record<string, CorteBilletera> = {}
+  for (const [w, c] of Object.entries(raw ?? {})) {
+    const t = new Date(c?.desde).getTime()
+    if (Number.isFinite(t) && Number.isFinite(c?.saldoInicial)) out[w] = { desde: t, saldoInicial: Number(c.saldoInicial) }
+  }
+  return out
+}
 
 export interface IngresoBilletera {
   wallet: string
@@ -234,7 +250,7 @@ function ingresosEnCola(hot: any, emparejadosIds: Set<string>, labelSet?: Set<st
 // Total por billetera (para los ítems del menú). Muestra TODAS las billeteras
 // (aunque el saldo sea 0), salvo las ocultas.
 export async function getIngresosBilleteras(): Promise<IngresoBilletera[]> {
-  const [emparejados, hot, ocultas, cfg, reembolsosPorWallet, salidasPorWallet, yaEmparejados] = await Promise.all([
+  const [emparejados, hot, ocultas, cfg, reembolsosPorWallet, salidasPorWallet, yaEmparejados, cortes] = await Promise.all([
     ingresosEmparejados(),
     loadHotState(),
     getBilleterasOcultas(),
@@ -242,21 +258,25 @@ export async function getIngresosBilleteras(): Promise<IngresoBilletera[]> {
     sumRefundsByWallet(),
     sumSalidasByWallet(),
     idsEmparejados(),
+    getCortesBilletera(),
   ])
   const cola = ingresosEnCola(hot, yaEmparejados)
 
   // Arranca todas las billeteras en 0 → siempre aparecen, con su saldo de hoy.
   const acc = new Map<string, { totalArs: number; cantidad: number }>()
   for (const w of WALLETS) acc.set(w, { totalArs: 0, cantidad: 0 })
-  const sumar = (wallet: string | null, monto: number) => {
+  const sumar = (wallet: string | null, monto: number, fechaDia: string) => {
     if (!wallet) return
+    // Con corte, los ingresos previos ya están en el saldo inicial: no se recuentan.
+    const corte = cortes[wallet]
+    if (corte && (new Date(fechaDia).getTime() || 0) < corte.desde) return
     const cur = acc.get(wallet) ?? { totalArs: 0, cantidad: 0 }
     cur.totalArs += monto
     cur.cantidad += 1
     acc.set(wallet, cur)
   }
-  for (const m of emparejados) sumar(resolveWallet(m.source), m.monto)
-  for (const m of cola) sumar(resolveWallet(m.source), m.monto)
+  for (const m of emparejados) sumar(resolveWallet(m.source), m.monto, m.fechaDia)
+  for (const m of cola) sumar(resolveWallet(m.source), m.monto, m.fechaDia)
 
   const ocultasSet = new Set(ocultas)
   return [...acc.entries()]
@@ -268,9 +288,11 @@ export async function getIngresosBilleteras(): Promise<IngresoBilletera[]> {
       const salidasArs = salidasPorWallet[wallet] ?? 0
       // El saldo baja por la comisión (nuestra), los reembolsos (dinero devuelto al
       // cliente) y las salidas (retiros y transferencias hechas desde la billetera).
+      // Con corte se le suma el saldo inicial (neto) previo al corte.
+      const saldoInicial = cortes[wallet]?.saldoInicial ?? 0
       return {
         wallet,
-        totalArs: v.totalArs - comisionArs - reembolsosArs - salidasArs,
+        totalArs: saldoInicial + v.totalArs - comisionArs - reembolsosArs - salidasArs,
         cantidad: v.cantidad,
         comisionArs, comisionPct: pct, reembolsosArs, salidasArs,
       }
@@ -286,9 +308,10 @@ export async function getDiasConMovimiento(wallet: string): Promise<string[]> {
   if (labels.length === 0) return []
   const labelSet = new Set(labels)
 
-  const [emparejados, hot, refunds, salidas, yaEmparejados] = await Promise.all([
-    ingresosEmparejados(), loadHotState(), getRefundsDeWallet(wallet), getSalidasDeWallet(wallet), idsEmparejados(),
+  const [emparejados, hot, refunds, salidas, yaEmparejados, cortes] = await Promise.all([
+    ingresosEmparejados(), loadHotState(), getRefundsDeWallet(wallet), getSalidasDeWallet(wallet), idsEmparejados(), getCortesBilletera(),
   ])
+  const desdeCorte = cortes[wallet]?.desde ?? -Infinity
 
   // Argentina es UTC-3 fijo: restar 3h y quedarse con la fecha.
   const diaART = (f: string) => {
@@ -298,7 +321,11 @@ export async function getDiasConMovimiento(wallet: string): Promise<string[]> {
   }
 
   const dias = new Set<string>()
-  const agregar = (f: string) => { const d = diaART(f); if (d) dias.add(d) }
+  // Días previos al corte no se listan: su saldo ya está en el saldo inicial.
+  const agregar = (f: string) => {
+    if ((new Date(f).getTime() || 0) < desdeCorte) return
+    const d = diaART(f); if (d) dias.add(d)
+  }
 
   for (const m of emparejados) if (labelSet.has(m.source)) agregar(m.fechaDia)
   for (const m of ingresosEnCola(hot, yaEmparejados, labelSet)) agregar(m.fechaDia)
@@ -320,15 +347,23 @@ export async function getIngresosBilletera(wallet: string, diaART?: string): Pro
   }
   const labelSet = new Set(labels)
 
-  const [emparejados, hot, refunds, salidas, yaEmparejados] = await Promise.all([
-    ingresosEmparejados(), loadHotState(), getRefundsDeWallet(wallet), getSalidasDeWallet(wallet), idsEmparejados(),
+  const [emparejados, hot, refundsAll, salidasAll, yaEmparejados, cortes] = await Promise.all([
+    ingresosEmparejados(), loadHotState(), getRefundsDeWallet(wallet), getSalidasDeWallet(wallet), idsEmparejados(), getCortesBilletera(),
   ])
+  // Corte: se cuenta desde `desde`; lo previo ya está en el saldo inicial (neto).
+  const corte = cortes[wallet]
+  const desdeCorte = corte?.desde ?? -Infinity
+  const saldoInicial = corte?.saldoInicial ?? 0
+  const enPeriodo = (f: string) => (new Date(f).getTime() || 0) >= desdeCorte
+
   const ingresos = [
     ...emparejados.filter(m => labelSet.has(m.source)),
     ...ingresosEnCola(hot, yaEmparejados, labelSet),
-  ]
+  ].filter(m => enPeriodo(m.fechaDia))
+  const refunds = refundsAll.filter(r => enPeriodo(r.createdAt))
+  const salidas = salidasAll.filter(s => enPeriodo(s.fecha))
 
-  // Total acumulado (bruto) → comisión → reembolsos → salidas → neto.
+  // Total acumulado: saldo inicial + bruto → comisión → reembolsos → salidas → neto.
   let totalArsBruto = 0
   for (const m of ingresos) totalArsBruto += m.monto
   const comisionArs = totalArsBruto * pct / 100
@@ -385,7 +420,7 @@ export async function getIngresosBilletera(wallet: string, diaART?: string): Pro
 
   return {
     wallet,
-    totalArs: totalArsBruto - comisionArs - reembolsosArs - salidasArs,  // NETO
+    totalArs: saldoInicial + totalArsBruto - comisionArs - reembolsosArs - salidasArs,  // NETO (incluye saldo inicial del corte)
     cantidad: ingresos.length,
     comisionArs, comisionPct: pct,
     reembolsosArs,
