@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { motion } from 'framer-motion'
 import { ARS, fmtDate } from '@/lib/utils'
 import AnimatedNumber, { NumberSkeleton } from '@/components/AnimatedNumber'
@@ -43,6 +43,9 @@ interface Detalle {
 const fmtPct = (n: number) => n.toLocaleString('es-AR', { maximumFractionDigits: 2 })
 const fmtArs = (n: number) => ARS.format(n)
 
+// Columnas ordenables del extracto del día.
+type SortKey = 'fecha' | 'titular' | 'monto' | 'comision' | 'estado'
+
 // Hoy en horario Argentina (UTC-3) como 'YYYY-MM-DD'
 function hoyART(): string {
   return new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString().slice(0, 10)
@@ -55,6 +58,10 @@ export default function BilleteraTab({ wallet, notify, refreshKey = 0 }: { walle
   const [fecha, setFecha] = useState(hoyART())
   const [loading, setLoading] = useState(true)
   const [vista, setVista] = useState<'balance' | 'pagos'>('balance')
+  // Ordenamiento del extracto: se clickea la cabecera para elegir columna y alternar
+  // asc/desc. Default: por fecha ascendente (igual que devuelve el backend).
+  const [sortKey, setSortKey] = useState<SortKey>('fecha')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -91,6 +98,39 @@ export default function BilleteraTab({ wallet, notify, refreshKey = 0 }: { walle
     { key: 'balance', label: 'Balance de Saldo' },
     { key: 'pagos', label: 'Retirar saldo' },
   ]
+
+  // Cabeceras del extracto: clickear una columna la ordena; volver a clickearla
+  // invierte el sentido. Las de texto arrancan ascendente; las numéricas, descendente.
+  const columnas: { key: SortKey; label: string }[] = [
+    { key: 'fecha', label: 'Fecha y hora del pago' },
+    { key: 'titular', label: 'Titular' },
+    { key: 'monto', label: 'Monto (ARS)' },
+    { key: 'comision', label: `Comisión (${fmtPct(data?.comisionPct ?? 0)}%)` },
+    { key: 'estado', label: 'Estado' },
+  ]
+  function ordenarPor(key: SortKey) {
+    if (key === sortKey) { setSortDir(d => (d === 'asc' ? 'desc' : 'asc')); return }
+    setSortKey(key)
+    setSortDir(key === 'monto' || key === 'comision' ? 'desc' : 'asc')
+  }
+
+  // Extracto ordenado según la columna elegida (ordena solo los pagos ya cargados).
+  const pagosOrdenados = useMemo(() => {
+    const arr = [...(data?.pagos ?? [])]
+    const dir = sortDir === 'asc' ? 1 : -1
+    arr.sort((a, b) => {
+      let cmp = 0
+      switch (sortKey) {
+        case 'fecha':   cmp = (new Date(a.fecha).getTime() || 0) - (new Date(b.fecha).getTime() || 0); break
+        case 'titular': cmp = (a.titular || '').localeCompare(b.titular || '', 'es'); break
+        case 'monto':   cmp = a.monto - b.monto; break
+        case 'comision': cmp = a.comision - b.comision; break
+        case 'estado':  cmp = a.estado.localeCompare(b.estado, 'es'); break
+      }
+      return cmp !== 0 ? cmp * dir : 0
+    })
+    return arr
+  }, [data?.pagos, sortKey, sortDir])
 
   return (
     <div className="space-y-5">
@@ -189,10 +229,21 @@ export default function BilleteraTab({ wallet, notify, refreshKey = 0 }: { walle
           <table className="w-full text-sm" style={{ borderCollapse: 'collapse', minWidth: '640px' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid rgba(0,212,255,0.12)' }}>
-                {['Fecha y hora del pago', 'Titular', 'Monto (ARS)', `Comisión (${fmtPct(data?.comisionPct ?? 0)}%)`, 'Estado'].map(h => (
-                  <th key={h} className="text-left px-3 py-3 text-[11px] font-semibold uppercase tracking-wider whitespace-nowrap"
-                    style={{ color: 'rgba(148,163,184,0.7)' }}>{h}</th>
-                ))}
+                {columnas.map(col => {
+                  const activa = sortKey === col.key
+                  return (
+                    <th key={col.key} onClick={() => ordenarPor(col.key)} title="Ordenar por esta columna"
+                      className="text-left px-3 py-3 text-[11px] font-semibold uppercase tracking-wider whitespace-nowrap select-none transition-colors"
+                      style={{ color: activa ? 'rgba(0,212,255,0.9)' : 'rgba(148,163,184,0.7)', cursor: 'pointer' }}>
+                      <span className="inline-flex items-center gap-1">
+                        {col.label}
+                        <span style={{ fontSize: '8px', opacity: activa ? 1 : 0.3 }}>
+                          {activa ? (sortDir === 'asc' ? '▲' : '▼') : '⇅'}
+                        </span>
+                      </span>
+                    </th>
+                  )
+                })}
               </tr>
             </thead>
             <tbody>
@@ -201,7 +252,7 @@ export default function BilleteraTab({ wallet, notify, refreshKey = 0 }: { walle
               ) : !data || data.pagos.length === 0 ? (
                 <tr><td colSpan={5} className="px-3 py-8 text-center text-sm" style={{ color: 'rgba(148,163,184,0.5)' }}>Sin pagos este día</td></tr>
               ) : (
-                data.pagos.map((p, i) => (
+                pagosOrdenados.map((p, i) => (
                   <motion.tr key={i} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3, delay: Math.min(i * 0.025, 0.4) }}
                     style={{ borderBottom: '1px solid rgba(148,163,184,0.05)' }}>
                     <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: 'rgba(226,232,240,0.85)' }}>{fmtDate(p.fecha)}</td>

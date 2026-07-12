@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { motion } from 'framer-motion'
 import { ARS, fmtDate } from '@/lib/utils'
 import AnimatedNumber, { NumberSkeleton } from '@/components/AnimatedNumber'
@@ -73,6 +73,9 @@ function hoyART(): string {
 const fmtUsdt = (n: number) => n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const fmtPct = (n: number) => n.toLocaleString('es-AR', { maximumFractionDigits: 2 })
 
+// Columnas ordenables del registro de la tienda.
+type SortKey = 'fecha' | 'monto' | 'comision' | 'usdtRate' | 'usdt' | 'cuit' | 'nombre' | 'orderNumber'
+
 export default function BalanceTab({ storeId, qs, notify, admin = false, refreshKey = 0 }: Props) {
   const [editando, setEditando] = useState<FilaEditable | null>(null)
   const [balance, setBalance] = useState<Balance | null>(null)
@@ -85,8 +88,53 @@ export default function BalanceTab({ storeId, qs, notify, admin = false, refresh
   // Cotización para mostrar el saldo también en pesos: precio de venta Binance P2P
   // +0%. Se refresca cada hora (no en cada refresco de saldo).
   const [cotizacion, setCotizacion] = useState<number | null>(null)
+  // Ordenamiento del registro: se clickea la cabecera para elegir columna y alternar
+  // asc/desc. Default: por fecha descendente (más nuevos arriba, igual que el backend).
+  const [sortKey, setSortKey] = useState<SortKey>('fecha')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
 
   const searching = debouncedSearch.length > 0
+
+  // Cabeceras clickeables del registro. Volver a clickear la columna activa invierte
+  // el sentido. Texto (CUIT, nombre, orden) arranca ascendente; el resto descendente.
+  const columnas: { key: SortKey; label: string }[] = [
+    { key: 'fecha', label: 'Fecha y hora' },
+    { key: 'monto', label: 'Monto (ARS)' },
+    { key: 'comision', label: `Comisión (${fmtPct(balance?.comisionPct ?? 0)}%)` },
+    { key: 'usdtRate', label: 'Cotización USDT' },
+    { key: 'usdt', label: 'Equivalente USDT' },
+    { key: 'cuit', label: 'CUIT/CUIL/DNI' },
+    { key: 'nombre', label: 'Nombre y apellido' },
+    { key: 'orderNumber', label: 'N° orden' },
+  ]
+  function ordenarPor(key: SortKey) {
+    if (key === sortKey) { setSortDir(d => (d === 'asc' ? 'desc' : 'asc')); return }
+    setSortKey(key)
+    setSortDir(key === 'cuit' || key === 'nombre' || key === 'orderNumber' ? 'asc' : 'desc')
+  }
+
+  // Registro ordenado según la columna elegida (ordena las filas ya cargadas del día
+  // o de la búsqueda). Los valores nulos (cotización/USDT pendientes) van al final.
+  const rowsOrdenados = useMemo(() => {
+    const num = (v: number | null | undefined) => (v == null ? -Infinity : v)
+    const arr = [...rows]
+    const dir = sortDir === 'asc' ? 1 : -1
+    arr.sort((a, b) => {
+      let cmp = 0
+      switch (sortKey) {
+        case 'fecha':       cmp = (new Date(a.fecha).getTime() || 0) - (new Date(b.fecha).getTime() || 0); break
+        case 'monto':       cmp = a.monto - b.monto; break
+        case 'comision':    cmp = a.comision - b.comision; break
+        case 'usdtRate':    cmp = num(a.usdtRate) - num(b.usdtRate); break
+        case 'usdt':        cmp = num(a.usdt) - num(b.usdt); break
+        case 'cuit':        cmp = (a.cuit || '').localeCompare(b.cuit || '', 'es', { numeric: true }); break
+        case 'nombre':      cmp = (a.nombre || '').localeCompare(b.nombre || '', 'es'); break
+        case 'orderNumber': cmp = (a.orderNumber || '').localeCompare(b.orderNumber || '', 'es', { numeric: true }); break
+      }
+      return cmp !== 0 ? cmp * dir : 0
+    })
+    return arr
+  }, [rows, sortKey, sortDir])
   // ARS = USDT × cotización actual. null mientras no haya cotización (API caída).
   const aArs = (usdt: number | null | undefined): number | null =>
     cotizacion == null || usdt == null ? null : usdt * cotizacion
@@ -268,10 +316,22 @@ export default function BalanceTab({ storeId, qs, notify, admin = false, refresh
           <table className="w-full text-sm" style={{ borderCollapse: 'collapse', minWidth: '900px' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid rgba(0,212,255,0.12)' }}>
-                {[...['Fecha y hora', 'Monto (ARS)', `Comisión (${fmtPct(balance?.comisionPct ?? 0)}%)`, 'Cotización USDT', 'Equivalente USDT', 'CUIT/CUIL/DNI', 'Nombre y apellido', 'N° orden'], ...(admin ? [''] : [])].map(h => (
-                  <th key={h} className="text-left px-3 py-3 text-[11px] font-semibold uppercase tracking-wider whitespace-nowrap"
-                    style={{ color: 'rgba(148,163,184,0.7)' }}>{h}</th>
-                ))}
+                {columnas.map(col => {
+                  const activa = sortKey === col.key
+                  return (
+                    <th key={col.key} onClick={() => ordenarPor(col.key)} title="Ordenar por esta columna"
+                      className="text-left px-3 py-3 text-[11px] font-semibold uppercase tracking-wider whitespace-nowrap select-none transition-colors"
+                      style={{ color: activa ? 'rgba(0,212,255,0.9)' : 'rgba(148,163,184,0.7)', cursor: 'pointer' }}>
+                      <span className="inline-flex items-center gap-1">
+                        {col.label}
+                        <span style={{ fontSize: '8px', opacity: activa ? 1 : 0.3 }}>
+                          {activa ? (sortDir === 'asc' ? '▲' : '▼') : '⇅'}
+                        </span>
+                      </span>
+                    </th>
+                  )
+                })}
+                {admin && <th className="px-3 py-3" style={{ color: 'rgba(148,163,184,0.7)' }} />}
               </tr>
             </thead>
             <tbody>
@@ -282,7 +342,7 @@ export default function BalanceTab({ storeId, qs, notify, admin = false, refresh
                   {searching ? `Sin resultados para "${debouncedSearch}"` : 'Sin órdenes acreditadas este día'}
                 </td></tr>
               ) : (
-                rows.map((r, i) => (
+                rowsOrdenados.map((r, i) => (
                   <motion.tr key={i} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3, delay: Math.min(i * 0.025, 0.4) }}
                     style={{ borderBottom: '1px solid rgba(148,163,184,0.05)' }}>
                     <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: 'rgba(226,232,240,0.85)' }}>{fmtDate(r.fecha)}</td>
