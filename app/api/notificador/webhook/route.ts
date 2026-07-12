@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { loadHotState, saveHotState, loadLogs, saveLogs, appendActivity, appendError, acquireLock, releaseLock } from '@/lib/storage'
+import { loadHotState, saveHotState, loadLogs, saveLogs, appendActivity, appendError, waitForLock, releaseLock } from '@/lib/storage'
 import { isPaymentAlreadyUsed } from '@/lib/registro'
 import type { Payment, UnmatchedPayment } from '@/lib/types'
 import { nowART } from '@/lib/utils'
@@ -10,12 +10,20 @@ const LOCK_HOLDER = 'notificador-webhook'
 // Se muestra en el centro de errores (campana del header). Solo se llama para
 // requests con el secret válido — así los escaneos anónimos a la URL pública no
 // generan ruido. No bloquea la respuesta si el logging falla.
-async function registrarErrorPago(message: string, context?: Record<string, unknown>) {
+async function registrarErrorPago(message: string, context?: Record<string, unknown>, level: 'error' | 'warning' = 'error') {
   try {
     const logs = await loadLogs()
-    appendError(logs, 'notificador', 'error', message, context)
+    appendError(logs, 'notificador', level, message, context)
     await saveLogs(logs)
   } catch { /* el error ya se devuelve por HTTP; no bloquear la respuesta por el log */ }
+}
+
+// ¿El cuerpo PARECE un ingreso real de Notificador? Sirve para distinguir un pago
+// legítimo (secret roto → habría que registrarlo) de un escaneo anónimo a la URL.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function pareceIngresoReal(body: any): boolean {
+  return !!body && body.evento === 'nuevo_ingreso'
+    && !!body.datos && typeof body.datos === 'object' && !!body.datos.id_transaccion
 }
 
 // El secret puede venir por header (lo estándar para webhooks) o dentro del body.
@@ -66,17 +74,26 @@ export async function POST(req: NextRequest) {
     const secret = extraerSecret(req, body)
 
     if (!secret || secret !== expected) {
-      // Sin secret válido → no se registra (evita ruido de escaneos a la URL pública).
+      // Un escaneo anónimo no trae un ingreso válido → no se registra (evita ruido).
+      // Pero si el cuerpo PARECE un pago real, el secret está roto/rotado y ese pago
+      // se estaría perdiendo: se registra en el centro de errores.
+      if (pareceIngresoReal(body)) {
+        await registrarErrorPago(
+          'Llegó un ingreso de Notificador con SECRET inválido — NO se procesó. Revisar NOTIFICADOR_WEBHOOK_SECRET.',
+          { id_transaccion: datos?.id_transaccion, monto: datos?.monto, titular: datos?.titular },
+        )
+      }
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
     }
 
     // ── A partir de acá el request está autenticado: cualquier fallo es un pago
     //    real de Notificador que no se pudo cargar → se registra en el centro de errores.
 
-    // Solo transferencias entrantes. Cualquier otro evento (retiro, egreso,
-    // etc.) se descarta — mismo criterio que el filtro de depósitos de Fiwind.
-    // No es un error: es un evento que a propósito no procesamos.
+    // Solo transferencias entrantes. Cualquier otro evento (retiro, egreso, etc.) se
+    // descarta a propósito. Se deja como AVISO (warning, no error) por si alguna vez
+    // llega un pago con el evento mal puesto y se estaría perdiendo sin darnos cuenta.
     if (evento !== 'nuevo_ingreso') {
+      await registrarErrorPago(`Webhook de Notificador con evento no procesado: "${evento}"`, { evento, datos }, 'warning')
       return NextResponse.json({ success: true, skipped: true, reason: `Evento ignorado (no es nuevo_ingreso): ${evento}` })
     }
     if (!datos || typeof datos !== 'object') {
@@ -110,9 +127,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: true, duplicate: true, reason: 'ya emparejado en el registro' })
     }
 
-    const locked = await acquireLock(LOCK_HOLDER)
+    // Se REINTENTA tomar el lock unos segundos: casi siempre se libera enseguida
+    // (una orden del cron, otro webhook). Antes se descartaba el pago al primer
+    // intento fallido, sin dejar rastro — así se perdió el pago 20950 el 10/07.
+    // 6s deja margen bajo el timeout de la función (10s). Si tras el reintento SIGUE
+    // ocupado, se registra el pago en el centro de errores con todos sus datos, para
+    // poder recuperarlo y no perderlo en silencio.
+    const locked = await waitForLock(LOCK_HOLDER, `pago ${paymentId}`, 6000, 400)
     if (!locked) {
-      // Transitorio: Notificador puede reintentar. No se registra como error.
+      await registrarErrorPago(
+        `No se pudo procesar el pago de Notificador ${paymentId} ($${montoNum} · ${titular || 'sin titular'}): el sistema quedó ocupado. Recuperarlo a mano si Notificador no reintenta.`,
+        { id_transaccion, monto: montoNum, titular, cbu_cvu, fecha: fechaISO, paymentId },
+      )
       return NextResponse.json({ error: 'El sistema está procesando otra operación. Reintentá en unos segundos.' }, { status: 409 })
     }
     try {
