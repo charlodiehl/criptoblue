@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import MontoInput from '@/components/MontoInput'
 import type { Toast } from './FinanzasApp'
 
 // Configuración de comisiones por tienda/billetera (solapa desplegable).
@@ -113,8 +114,8 @@ export default function ConfiguracionTiendas({ notify, onComisionGuardada }: Pro
             <div className="flex flex-col sm:flex-row sm:items-end gap-3">
               <div className="flex-1" style={{ minWidth: '120px' }}>
                 <label style={labelStyle}>Comisión (%)</label>
-                <input type="number" inputMode="decimal" min="0" max="100" step="0.1" value={pctInput}
-                  onChange={e => setPctInput(e.target.value)}
+                <MontoInput value={pctInput}
+                  onChange={setPctInput}
                   onKeyDown={e => { if (e.key === 'Enter') guardarComision() }}
                   style={inputStyle} />
               </div>

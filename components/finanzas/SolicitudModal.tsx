@@ -247,7 +247,7 @@ export default function SolicitudModal({ solicitud, notify, onClose, onPaid }: P
                       : (
                         <div key={t.key}>
                           <label style={labelStyle}>{t.label} *</label>
-                          <input type="number" min="0" step="0.0001" style={inputStyle} value={tasas[t.key] || ''} onChange={e => setTasa(t.key, e.target.value)} placeholder="0.00" />
+                          <MontoInput style={inputStyle} value={tasas[t.key] || ''} onChange={v => setTasa(t.key, v)} placeholder="0,00" />
                         </div>
                       )
                   ))}

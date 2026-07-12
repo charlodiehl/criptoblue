@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
+import MontoInput from '@/components/MontoInput'
 import type { Order, Payment, Store } from '@/lib/types'
 import { ARS, fmtDate } from '@/lib/utils'
 import { parseComprobante } from '@/lib/ocr-comprobante'
@@ -238,7 +239,7 @@ export default function BuscarPagoModal({
           <div style={{ display: 'flex', gap: '10px' }}>
             <div style={{ flex: 1 }}>
               <label style={labelStyle}>Monto pagado *</label>
-              <input type="number" value={monto} onChange={e => { setMonto(e.target.value); setResultadosPago(null); setPagoSel(null) }} placeholder="0" style={inputStyle} />
+              <MontoInput value={monto} onChange={v => { setMonto(v); setResultadosPago(null); setPagoSel(null) }} placeholder="0" style={inputStyle} />
             </div>
             <div style={{ flex: 1.3 }}>
               <label style={labelStyle}>Fecha y hora del pago *</label>

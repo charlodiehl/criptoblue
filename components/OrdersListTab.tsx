@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useMemo } from 'react'
+import MontoInput from '@/components/MontoInput'
 import type { Order, Store } from '@/lib/types'
 import { ARS, fmtDate, matchesSearch } from '@/lib/utils'
 import { MONTO_DIFF_WARNING_THRESHOLD } from '@/lib/config'
@@ -344,9 +345,9 @@ export default function OrdersListTab({ orders, stores, matchedIds, duplicateMap
                       </div>
                       <div>
                         <label style={{ fontSize: '10px', color: 'rgba(148,163,184,0.5)', letterSpacing: '0.08em', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>Monto recibido *</label>
-                        <input type="number" placeholder="0"
+                        <MontoInput placeholder="0"
                           value={validarManualForm.monto}
-                          onChange={e => setValidarManualForm(f => ({ ...f, monto: e.target.value, confirmedDiff: false }))}
+                          onChange={v => setValidarManualForm(f => ({ ...f, monto: v, confirmedDiff: false }))}
                           style={{ width: '100%', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(148,163,184,0.2)', borderRadius: '6px', padding: '6px 10px', fontSize: '12px', color: 'white', outline: 'none', boxSizing: 'border-box' }}
                         />
                       </div>
@@ -599,11 +600,10 @@ export default function OrdersListTab({ orders, stores, matchedIds, duplicateMap
                     </div>
                     <div>
                       <label style={{ fontSize: '10px', color: 'rgba(148,163,184,0.5)', letterSpacing: '0.08em', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>Monto recibido *</label>
-                      <input
-                        type="number"
+                      <MontoInput
                         placeholder="0"
                         value={manualForm.monto}
-                        onChange={e => setManualForm(f => ({ ...f, monto: e.target.value, confirmedDiff: false }))}
+                        onChange={v => setManualForm(f => ({ ...f, monto: v, confirmedDiff: false }))}
                         style={{ width: '100%', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(148,163,184,0.2)', borderRadius: '6px', padding: '6px 10px', fontSize: '12px', color: 'white', outline: 'none', boxSizing: 'border-box' }}
                       />
                     </div>

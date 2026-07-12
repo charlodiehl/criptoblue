@@ -12,31 +12,49 @@ import { useState } from 'react'
 // siguen andando sin tocarlos.
 // ─────────────────────────────────────────────────────────────────────────────
 
-// raw (lo tipeado, con mis puntos de miles incluidos) → { display formateado, clean }
+// raw (lo tipeado/pegado, con mis puntos de miles incluidos) → { display, clean }.
+//
+// Separador decimal: se acepta COMA o PUNTO indistintamente, y siempre se muestra
+// como coma. La única sutileza es no confundir el punto DECIMAL con los puntos de
+// MILES que la vista agrega sola en grupos de 3:
+//   • Una coma es siempre decimal (la vista nunca la usa para miles).
+//   • Un punto es decimal solo si es el último separador y tiene < 3 dígitos detrás
+//     (0, 1 o 2). Con 3 o más, son puntos de miles. Así:
+//       "1.234"        → miles → 1234        (como se ve 1234 en Argentina)
+//       "1.5" / "1.50" → decimal
+//       "1234.56"      → decimal → 1.234,56  (pegado con punto decimal)
+//       "1.234,56"     → decimal (manda la coma) → 1.234,56
+// Emite por `clean` un string con punto decimal (parseable directo con Number()).
 export function parseMontoInput(raw: string): { display: string; clean: string } {
-  // Solo dígitos y coma: los "." son separadores de miles y se ignoran al parsear.
-  const soloValidos = raw.replace(/[^\d,]/g, '')
-  const iComma = soloValidos.indexOf(',')
-  let intRaw: string
-  let decRaw: string | undefined
-  if (iComma === -1) {
-    intRaw = soloValidos
-    decRaw = undefined
+  const s = raw.replace(/[^\d.,]/g, '')
+
+  let intPart: string
+  let decPart: string | undefined
+  const iComma = s.lastIndexOf(',')
+  const iDot = s.lastIndexOf('.')
+  if (iComma !== -1) {
+    intPart = s.slice(0, iComma)         // la coma manda como decimal
+    decPart = s.slice(iComma + 1)
+  } else if (iDot !== -1 && s.slice(iDot + 1).replace(/\D/g, '').length < 3) {
+    intPart = s.slice(0, iDot)           // punto con < 3 dígitos detrás = decimal
+    decPart = s.slice(iDot + 1)
   } else {
-    intRaw = soloValidos.slice(0, iComma)
-    decRaw = soloValidos.slice(iComma + 1).replace(/,/g, '').slice(0, 2)
+    intPart = s                          // sin separador decimal (o puntos de miles)
+    decPart = undefined
   }
-  const intClean = intRaw.replace(/^0+(?=\d)/, '') // sin ceros a la izquierda
+
+  const intClean = intPart.replace(/\D/g, '').replace(/^0+(?=\d)/, '') // solo dígitos, sin ceros a la izquierda
+  const decClean = decPart === undefined ? undefined : decPart.replace(/\D/g, '').slice(0, 2) // máx 2 decimales
   const intFmt = intClean === '' ? '' : Number(intClean).toLocaleString('es-AR')
 
-  const display = decRaw !== undefined ? `${intFmt === '' ? '0' : intFmt},${decRaw}` : intFmt
+  const display = decClean !== undefined ? `${intFmt === '' ? '0' : intFmt},${decClean}` : intFmt
 
   let clean = ''
   if (intClean !== '') {
     clean = intClean
-    if (decRaw !== undefined && decRaw !== '') clean += '.' + decRaw
-  } else if (decRaw !== undefined && decRaw !== '') {
-    clean = '0.' + decRaw
+    if (decClean) clean += '.' + decClean
+  } else if (decClean) {
+    clean = '0.' + decClean
   }
 
   return { display, clean }
