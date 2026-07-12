@@ -1042,7 +1042,10 @@ export default function Dashboard() {
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2.5 min-w-0">
                               <span className="h-2 w-2 rounded-full flex-shrink-0" style={{ background: '#00ff88', boxShadow: '0 0 6px rgba(0,255,136,0.6)' }} />
-                              <span className="text-sm text-white truncate">{store.storeName}</span>
+                              <div className="flex flex-col min-w-0">
+                                <span className="text-sm text-white truncate">{store.storeName}</span>
+                                <span className="text-[11px] leading-tight" style={{ color: 'rgba(148,163,184,0.6)' }}>app Tiendanube {store.appId ?? '27051'}</span>
+                              </div>
                             </div>
                             <button
                               onClick={() => handleDeleteStore(store.storeId, store.storeName)}

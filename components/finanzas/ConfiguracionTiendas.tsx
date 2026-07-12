@@ -96,7 +96,7 @@ export default function ConfiguracionTiendas({ notify, onComisionGuardada }: Pro
                   <option value="" style={optionStyle}>Seleccioná una entidad…</option>
                   <optgroup label="Tiendas" style={optionStyle}>
                     {comisiones.tiendas.map(t => (
-                      <option key={t.storeId} value={`tienda:${t.storeId}`} style={optionStyle}>{t.storeName} · ID {t.storeId}</option>
+                      <option key={t.storeId} value={`tienda:${t.storeId}`} style={optionStyle}>{t.storeName}</option>
                     ))}
                   </optgroup>
                   <optgroup label="Billeteras" style={optionStyle}>

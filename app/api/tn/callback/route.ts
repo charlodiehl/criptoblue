@@ -89,6 +89,7 @@ export async function GET(req: NextRequest) {
     storeName,
     accessToken,
     connectedAt: new Date().toISOString(),
+    appId: CONFIG.tiendanube.clientId,   // app por la que quedó conectada (para identificar la migración)
   })
 
   return NextResponse.redirect(new URL(`/tn-success?storeId=${storeId}`, req.nextUrl.origin))

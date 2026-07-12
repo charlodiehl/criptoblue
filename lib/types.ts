@@ -34,6 +34,9 @@ export interface Store {
   accessToken: string
   connectedAt: string
   platform?: 'tiendanube' | 'shopify'
+  // App de Tiendanube por la que se conectó (client_id). Se guarda al conectar; las
+  // tiendas conectadas antes de este campo se asumen en la app vieja 27051.
+  appId?: string
   // Las tiendas ya no se vinculan a una billetera: cualquier pago puede emparejar
   // con cualquier tienda. (El campo walletId fue eliminado.)
 }

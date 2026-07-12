@@ -154,7 +154,7 @@ export default function StoresTab({ onToast }: Props) {
                   </div>
                   <div>
                     <p className="font-semibold text-slate-800 text-sm">{store.storeName}</p>
-                    <p className="text-xs text-slate-400">ID: {store.storeId}</p>
+                    <p className="text-xs text-slate-400">app Tiendanube {store.appId ?? '27051'}</p>
                   </div>
                 </div>
                 <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">
