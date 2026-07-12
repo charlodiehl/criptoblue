@@ -10,7 +10,7 @@ import ConfiguracionTiendas from './ConfiguracionTiendas'
 import type { Toast } from './FinanzasApp'
 
 export type SolicitudConTienda = TransferRequest & { storeName: string }
-interface Reclamo { timestamp: string; storeId: string; storeName: string; amount: number; orderNumber: string }
+interface Reclamo { id: number; timestamp: string; storeId: string; storeName: string; amount: number; orderNumber: string }
 
 const TIPO_LABEL: Record<TransferTipo, string> = {
   ars: 'una transferencia ARS',
@@ -33,6 +33,7 @@ export default function AdminGeneralTab({ notify, onSolicitudPagada, refreshKey 
   const [reclamos, setReclamos] = useState<Reclamo[]>([])
   const [loading, setLoading] = useState(true)
   const [modal, setModal] = useState<SolicitudConTienda | null>(null)
+  const [okId, setOkId] = useState<number | null>(null)  // reclamo al que se le está dando OK
 
   const fetchAll = useCallback(async () => {
     try {
@@ -63,6 +64,25 @@ export default function AdminGeneralTab({ notify, onSolicitudPagada, refreshKey 
     setModal(null)
     fetchAll()
     onSolicitudPagada()  // refresca los balances de la franja superior
+  }
+
+  // El admin da OK a un reclamo: lo saca del feed (no afecta el pago ni el saldo).
+  async function darOk(id: number) {
+    if (okId != null) return
+    setOkId(id)
+    try {
+      const res = await fetch('/api/finanzas/reclamos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error || 'Error')
+      setReclamos(rs => rs.filter(r => r.id !== id))  // sacarlo de la lista
+    } catch (e) {
+      notify(`No se pudo dar OK: ${e instanceof Error ? e.message : e}`, 'error')
+    } finally {
+      setOkId(null)
+    }
   }
 
   return (
@@ -122,14 +142,20 @@ export default function AdminGeneralTab({ notify, onSolicitudPagada, refreshKey 
           </p>
         ) : (
           <div className="space-y-1.5">
-            {reclamos.map((r, i) => (
-              <div key={i} className="rounded-lg px-4 py-2.5 text-sm flex items-center gap-2 flex-wrap"
+            {reclamos.map(r => (
+              <div key={r.id} className="rounded-lg px-4 py-2.5 text-sm flex items-center gap-2 flex-wrap"
                 style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(148,163,184,0.08)', color: 'rgba(226,232,240,0.75)' }}>
                 <span className="font-semibold" style={{ color: '#00d4ff' }}>{r.storeName}</span>
                 <span>se adjudicó un pago de</span>
                 <span className="font-bold" style={{ color: '#00ff88' }}>{ARS.format(r.amount)}</span>
                 {r.orderNumber && <span>(orden #{r.orderNumber})</span>}
                 <span className="text-[11px] ml-auto" style={{ color: 'rgba(148,163,184,0.45)' }}>{fmtDate(r.timestamp)}</span>
+                <button onClick={() => darOk(r.id)} disabled={okId === r.id}
+                  title="Dar OK: la tienda reclamó un pago correcto. Lo saca de la lista."
+                  className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-bold transition-all disabled:opacity-50"
+                  style={{ background: 'rgba(0,255,136,0.1)', border: '1px solid rgba(0,255,136,0.35)', color: '#00ff88', cursor: okId === r.id ? 'not-allowed' : 'pointer' }}>
+                  {okId === r.id ? '…' : '✓ OK'}
+                </button>
               </div>
             ))}
           </div>

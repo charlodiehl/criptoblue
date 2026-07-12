@@ -4,11 +4,16 @@
 // `criptoblue:match-log` (retirado). Fuente única de verdad del registro.
 // ─────────────────────────────────────────────────────────────
 import type { LogEntry, Payment, Order } from './types'
-import { getClient } from './storage'
+import { getClient, kvGet, kvSet } from './storage'
 import { registrarIngresoOrden, actualizarDescripcionIngreso } from './balance'
 import { BALANCE_CUTOFF } from './config'
 
 const TABLE = 'registro_log'
+
+// IDs de reclamos (pagos que una tienda se adjudicó) que el admin ya marcó como OK.
+// Se guardan aparte del registro a propósito: el "OK" es estado del FEED del admin,
+// no del pago — no debe tocar el registro, el hidden ni el balance.
+const RECLAMOS_OK_KEY = 'criptoblue:reclamos-ok'
 
 // Acciones que representan una orden efectivamente pagada.
 const MATCHED_ACTIONS = ['manual_paid', 'auto_paid']
@@ -593,26 +598,49 @@ export async function searchRegistroByStore(
 
 // Reclamos de pagos hechos por tiendas (source='tienda_buscar') en una ventana.
 // Alimenta el feed informativo de Administración General (solo lectura).
+async function getReclamosOkIds(): Promise<Set<number>> {
+  const v = await kvGet<{ ids: number[] }>(RECLAMOS_OK_KEY)
+  return new Set(v?.ids ?? [])
+}
+
+// Marca un reclamo como OK: lo saca del feed del admin. Read-merge-write con tope
+// (los ids son monótonos, así que conservar los más altos = los más recientes).
+// Idempotente y sin efecto sobre el pago/registro/balance.
+export async function marcarReclamoOk(id: number): Promise<void> {
+  if (!Number.isInteger(id) || id <= 0) throw new Error('id de reclamo inválido')
+  const actuales = await getReclamosOkIds()
+  actuales.add(id)
+  const ids = Array.from(actuales).sort((a, b) => b - a).slice(0, 2000)
+  await kvSet(RECLAMOS_OK_KEY, { ids })
+}
+
 export async function getReclamosRecientes(
   sinceMs: number,
-): Promise<Array<{ timestamp: string; storeId: string; storeName: string; amount: number; orderNumber: string }>> {
+): Promise<Array<{ id: number; timestamp: string; storeId: string; storeName: string; amount: number; orderNumber: string }>> {
   const supabase = getClient()
   const cutoff = new Date(sinceMs).toISOString()
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data, error } = await (supabase.from(TABLE) as any)
-    .select('ts, store_id, store_name, amount, order_number')
-    .eq('source', 'tienda_buscar')
-    .eq('hidden', false)
-    .gte('ts', cutoff)
-    .order('ts', { ascending: false })
+  const [res, okIds] = await Promise.all([
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase.from(TABLE) as any)
+      .select('id, ts, store_id, store_name, amount, order_number')
+      .eq('source', 'tienda_buscar')
+      .eq('hidden', false)
+      .gte('ts', cutoff)
+      .order('ts', { ascending: false }),
+    getReclamosOkIds(),
+  ])
+  const { data, error } = res
   if (error) throw new Error(`getReclamosRecientes falló: ${error.message} [${error.code}]`)
-  return (data ?? []).map((r: Row) => ({
-    timestamp: r.ts,
-    storeId: r.store_id ?? '',
-    storeName: r.store_name ?? '',
-    amount: Number(r.amount) || 0,
-    orderNumber: r.order_number ?? '',
-  }))
+  return (data ?? [])
+    .filter((r: Row) => !okIds.has(Number(r.id)))
+    .map((r: Row) => ({
+      id: Number(r.id),
+      timestamp: r.ts,
+      storeId: r.store_id ?? '',
+      storeName: r.store_name ?? '',
+      amount: Number(r.amount) || 0,
+      orderNumber: r.order_number ?? '',
+    }))
 }
 
 // ─────────────────────────────────────────────
