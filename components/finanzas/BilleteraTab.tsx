@@ -16,7 +16,7 @@ interface Pago {
   estado: 'emparejado' | 'en_cola'
 }
 interface MovimientoDia {
-  clase: 'retiro' | 'reembolso'
+  clase: 'retiro' | 'reembolso' | 'ajuste'
   fecha: string
   concepto: string
   moneda?: 'ARS' | 'USD' | 'USDT'
@@ -35,6 +35,7 @@ interface Detalle {
   comisionDia?: number
   salidasDiaArs?: number
   reembolsosDiaArs?: number
+  ajustesDiaArs?: number
   saldoDia?: number
   movimientosDia?: MovimientoDia[]
   pagos: Pago[]
@@ -209,6 +210,9 @@ export default function BilleteraTab({ wallet, notify, refreshKey = 0 }: { walle
           {loading && !data ? <NumberSkeleton width={140} height={28} /> : <AnimatedNumber value={data?.saldoDia ?? 0} format={fmtArs} />}
         </p>
         <div className="mt-3 space-y-1 text-xs">
+          {(data?.ajustesDiaArs ?? 0) > 0 && (
+            <Linea label="Saldo inicial" valor={data?.ajustesDiaArs ?? 0} color="#00ff88" signo="+" />
+          )}
           <Linea label={`Ingresos (${data?.cantidadDia ?? 0} pago${(data?.cantidadDia ?? 0) === 1 ? '' : 's'})`}
             valor={data?.totalDia ?? 0} color="#00ff88" signo="+" />
           {(data?.comisionDia ?? 0) > 0 && (
@@ -311,11 +315,15 @@ export default function BilleteraTab({ wallet, notify, refreshKey = 0 }: { walle
                       <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: convertido ? 'rgba(226,232,240,0.7)' : 'rgba(148,163,184,0.35)' }}>
                         {convertido ? ARS.format(m.cotizacion!) : '—'}
                       </td>
-                      <td className="px-3 py-2.5 whitespace-nowrap font-medium" style={{ color: '#f87171' }}>−{ARS.format(m.ars)}</td>
+                      <td className="px-3 py-2.5 whitespace-nowrap font-medium" style={{ color: m.clase === 'ajuste' ? '#00ff88' : '#f87171' }}>
+                        {m.clase === 'ajuste' ? '+' : '−'}{ARS.format(m.ars)}
+                      </td>
                       <td className="px-3 py-2.5 whitespace-nowrap">
                         <span className="text-[11px] px-2 py-0.5 rounded-full"
-                          style={{ background: 'rgba(248,113,113,0.1)', color: '#f87171' }}>
-                          {m.clase === 'retiro' ? 'Retiro' : 'Reembolso'}
+                          style={m.clase === 'ajuste'
+                            ? { background: 'rgba(0,255,136,0.1)', color: '#00ff88' }
+                            : { background: 'rgba(248,113,113,0.1)', color: '#f87171' }}>
+                          {m.clase === 'ajuste' ? 'Ajuste' : m.clase === 'retiro' ? 'Retiro' : 'Reembolso'}
                         </span>
                       </td>
                     </motion.tr>

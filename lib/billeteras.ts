@@ -81,13 +81,13 @@ export interface ReembolsoBilletera {
 // moneda/montoOrigen/cotizacion vienen del formulario de "Retirar saldo": si el
 // retiro fue en USD o USDT, la tabla muestra el monto original y la tasa aplicada.
 export interface MovimientoDia {
-  clase: 'retiro' | 'reembolso'
+  clase: 'retiro' | 'reembolso' | 'ajuste'
   fecha: string
   concepto: string                        // motivo del retiro, u "Orden #123" del reembolso
   moneda: 'ARS' | 'USD' | 'USDT'
   montoOrigen: number                     // monto en la moneda del retiro
   cotizacion: number | null               // ARS por unidad; null si ya era ARS
-  ars: number                             // POSITIVO: lo que sale
+  ars: number                             // retiro/reembolso: sale (resta). ajuste: suma.
 }
 
 export interface DetalleBilletera {
@@ -106,8 +106,9 @@ export interface DetalleBilletera {
   comisionDia?: number
   salidasDiaArs?: number
   reembolsosDiaArs?: number
+  ajustesDiaArs?: number            // saldo inicial del corte, si cae en el día
   saldoDia?: number
-  movimientosDia?: MovimientoDia[]  // retiros y reembolsos de ese día
+  movimientosDia?: MovimientoDia[]  // retiros, reembolsos y ajuste (saldo inicial) del día
   pagos: PagoBilletera[]    // del día seleccionado, o todos si no se pidió día
 }
 
@@ -332,6 +333,9 @@ export async function getDiasConMovimiento(wallet: string): Promise<string[]> {
   for (const s of salidas) agregar(s.fecha)
   for (const r of refunds) agregar(r.createdAt)
 
+  // El día del corte siempre se lista (aunque no haya pagos): ahí figura el saldo inicial.
+  if (cortes[wallet]) { const d = diaART(new Date(cortes[wallet].desde).toISOString()); if (d) dias.add(d) }
+
   return [...dias].sort()
 }
 
@@ -379,6 +383,7 @@ export async function getIngresosBilletera(wallet: string, diaART?: string): Pro
   let comisionDia: number | undefined
   let salidasDiaArs: number | undefined
   let reembolsosDiaArs: number | undefined
+  let ajustesDiaArs: number | undefined
   let saldoDia: number | undefined
   let movimientosDia: MovimientoDia[] | undefined
 
@@ -399,9 +404,19 @@ export async function getIngresosBilletera(wallet: string, diaART?: string): Pro
     salidasDiaArs = salidasDelDia.reduce((s, r) => s + r.ars, 0)
     reembolsosDiaArs = refundsDelDia.reduce((s, r) => s + r.monto, 0)
     comisionDia = totalDia * pct / 100
-    saldoDia = totalDia - comisionDia - salidasDiaArs - reembolsosDiaArs
+    // Si el corte cae en este día, el saldo inicial figura como un ajuste (suma).
+    const corteEnDia = corte != null && corte.desde >= desde && corte.desde < hasta
+    ajustesDiaArs = corteEnDia ? saldoInicial : 0
+    saldoDia = totalDia - comisionDia - salidasDiaArs - reembolsosDiaArs + ajustesDiaArs
 
+    const [aa, mm, dd] = diaART.split('-')
     movimientosDia = [
+      // El saldo inicial del corte se muestra como un ajuste (positivo) al inicio del día.
+      ...(corteEnDia ? [{
+        clase: 'ajuste' as const, fecha: new Date(corte!.desde).toISOString(),
+        concepto: `Saldo inicial al ${dd}/${mm}/${aa}`,
+        ars: saldoInicial, moneda: 'ARS' as const, montoOrigen: saldoInicial, cotizacion: null,
+      }] : []),
       ...salidasDelDia.map((s): MovimientoDia => ({
         clase: 'retiro', fecha: s.fecha, concepto: s.motivo, ars: s.ars,
         moneda: s.moneda, montoOrigen: s.montoOrigen, cotizacion: s.cotizacion,
@@ -432,6 +447,7 @@ export async function getIngresosBilletera(wallet: string, diaART?: string): Pro
     comisionDia,
     salidasDiaArs,
     reembolsosDiaArs,
+    ajustesDiaArs,
     saldoDia,
     movimientosDia,
     // Al estar ordenado ascendente, el tope deja los EXTRACTO_LIMIT más antiguos.
