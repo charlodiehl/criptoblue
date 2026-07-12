@@ -14,6 +14,8 @@ interface Props {
   notify: (msg: string, type?: Toast['type']) => void
   // Solo el admin puede corregir el registro (vista espejo desde /finanzas).
   admin?: boolean
+  // Señal de refresco en tiempo real: al marcar una orden, re-consulta el saldo.
+  refreshKey?: number
 }
 
 interface Movimiento {
@@ -71,7 +73,7 @@ function hoyART(): string {
 const fmtUsdt = (n: number) => n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const fmtPct = (n: number) => n.toLocaleString('es-AR', { maximumFractionDigits: 2 })
 
-export default function BalanceTab({ storeId, qs, notify, admin = false }: Props) {
+export default function BalanceTab({ storeId, qs, notify, admin = false, refreshKey = 0 }: Props) {
   const [editando, setEditando] = useState<FilaEditable | null>(null)
   const [balance, setBalance] = useState<Balance | null>(null)
   const [fecha, setFecha] = useState(hoyART())
@@ -130,13 +132,16 @@ export default function BalanceTab({ storeId, qs, notify, admin = false }: Props
     return () => clearTimeout(t)
   }, [search])
 
-  // Carga inicial + refresco cada 60s (el balance cambia al emparejarse pagos o pagar transferencias)
+  // Carga inicial + refresco cada 60s (respaldo por si Realtime se desconecta)
   useEffect(() => {
     fetchBalance()
     const iv = setInterval(fetchBalance, 60_000)
     return () => clearInterval(iv)
   }, [fetchBalance])
   useEffect(() => { fetchRows() }, [fetchRows])
+
+  // Tiempo real: al marcar una orden desde el app de órdenes, re-consultar saldo + tabla.
+  useEffect(() => { if (refreshKey > 0) { fetchBalance(); fetchRows() } }, [refreshKey, fetchBalance, fetchRows])
 
   // Cotización para el saldo en pesos: carga inicial + refresco cada 1 hora. Si la
   // API falla se conserva la última (no se pisa con null) para no perder el peso mostrado.

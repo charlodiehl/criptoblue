@@ -8,6 +8,7 @@ import AdminGeneralTab from './AdminGeneralTab'
 import BilleteraTab from './BilleteraTab'
 import NotificacionesToggle from '@/components/pwa/NotificacionesToggle'
 import AnimatedNumber, { NumberSkeleton } from '@/components/AnimatedNumber'
+import { useRealtimeSync } from '@/hooks/useRealtimeSync'
 import { ARS } from '@/lib/utils'
 
 export type Toast = { id: number; msg: string; type: 'success' | 'error' | 'info' }
@@ -22,6 +23,9 @@ export default function FinanzasApp({ userEmail }: { userEmail?: string }) {
   const [billeteras, setBilleteras] = useState<BilleteraItem[]>([])
   const [loadingCards, setLoadingCards] = useState(true)
   const [active, setActive] = useState<'general' | string>('general')  // 'general' | storeId | 'bill:<wallet>'
+  // Se incrementa ante cualquier cambio que afecte saldos (emparejar/marcar una
+  // orden, carga de Excel, etc.). La pestaña activa lo escucha y re-consulta.
+  const [refreshKey, setRefreshKey] = useState(0)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [toasts, setToasts] = useState<Toast[]>([])
   const toastId = useRef(0)
@@ -56,13 +60,30 @@ export default function FinanzasApp({ userEmail }: { userEmail?: string }) {
     } catch { /* silencioso: el menú de billeteras es secundario */ }
   }, [])
 
-  // Carga inicial + refresco cada 60s (los balances cambian al pagar solicitudes / emparejar)
+  // Carga inicial + refresco cada 60s (respaldo por si Realtime se desconecta)
   useEffect(() => {
     fetchBalances()
     fetchBilleteras()
     const iv = setInterval(() => { fetchBalances(); fetchBilleteras() }, 60_000)
     return () => clearInterval(iv)
   }, [fetchBalances, fetchBilleteras])
+
+  // Tiempo real: cuando el app de órdenes marca/empareja un pago (o entra uno por
+  // Excel/webhook), cambia criptoblue:state y/o criptoblue:logs. Acá se re-consultan
+  // los balances y las billeteras al instante, y se avisa a la pestaña activa (refreshKey)
+  // para que refleje el nuevo saldo y el estado del pago sin esperar los 60s.
+  const refrescarTodo = useCallback(() => {
+    fetchBalances()
+    fetchBilleteras()
+    setRefreshKey(k => k + 1)
+  }, [fetchBalances, fetchBilleteras])
+
+  useRealtimeSync({
+    onHotChange: refrescarTodo,     // criptoblue:state → cola de pagos / emparejamientos
+    onLogsChange: refrescarTodo,    // criptoblue:logs  → registro / ingresos
+    onOrdersChange: () => {},       // cache de órdenes: no afecta saldos
+    onStoresChange: () => { fetchBalances() },  // alta/baja de tienda
+  })
 
   useEffect(() => {
     if (!userMenuOpen) return
@@ -210,14 +231,14 @@ export default function FinanzasApp({ userEmail }: { userEmail?: string }) {
             <AnimatePresence mode="wait">
               <motion.div key={active} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.18 }}>
                 {active === 'general' ? (
-                  <AdminGeneralTab notify={notify} onSolicitudPagada={() => { fetchBalances(); fetchBilleteras() }} />
+                  <AdminGeneralTab notify={notify} onSolicitudPagada={() => { fetchBalances(); fetchBilleteras() }} refreshKey={refreshKey} />
                 ) : active.startsWith('bill:') ? (
-                  <BilleteraTab wallet={active.slice(5)} notify={notify} />
+                  <BilleteraTab wallet={active.slice(5)} notify={notify} refreshKey={refreshKey} />
                 ) : activeStore ? (
                   <div className="space-y-4">
                     <h2 className="text-lg font-bold" style={{ color: '#00d4ff' }}>{activeStore.storeName}</h2>
                     <p className="text-xs" style={{ color: 'rgba(148,163,184,0.5)' }}>Vista espejo — mismas funciones que la tienda (control y operación).</p>
-                    <TiendaPortal storeId={activeStore.storeId} storeName={activeStore.storeName} admin />
+                    <TiendaPortal storeId={activeStore.storeId} storeName={activeStore.storeName} admin refreshKey={refreshKey} />
                   </div>
                 ) : null}
               </motion.div>

@@ -17,6 +17,9 @@ interface Props {
   // Vista espejo del admin (O2): sin header propio, y las llamadas a /api/tienda/**
   // van con ?storeId= explícito.
   admin?: boolean
+  // Señal de refresco en tiempo real (desde FinanzasApp): al marcar una orden, el
+  // BalanceTab re-consulta el saldo. Solo se usa en la vista espejo del admin.
+  refreshKey?: number
 }
 
 type Tab = 'balance' | 'solicitar' | 'buscar' | 'reembolso'
@@ -28,7 +31,7 @@ const TABS: { key: Tab; label: string }[] = [
   { key: 'reembolso', label: 'Solicitar reembolsos' },
 ]
 
-export default function TiendaPortal({ storeId, storeName, userEmail, admin = false }: Props) {
+export default function TiendaPortal({ storeId, storeName, userEmail, admin = false, refreshKey = 0 }: Props) {
   const [tab, setTab] = useState<Tab>('balance')
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [toasts, setToasts] = useState<Toast[]>([])
@@ -67,7 +70,7 @@ export default function TiendaPortal({ storeId, storeName, userEmail, admin = fa
         exit={{ opacity: 0, y: -8 }}
         transition={{ duration: 0.18 }}
       >
-        {tab === 'balance' && <BalanceTab storeId={storeId} qs={qs} notify={notify} admin={admin} />}
+        {tab === 'balance' && <BalanceTab storeId={storeId} qs={qs} notify={notify} admin={admin} refreshKey={refreshKey} />}
         {tab === 'solicitar' && <SolicitarTab storeId={storeId} qs={qs} notify={notify} />}
         {tab === 'buscar' && <BuscarPagosTab storeId={storeId} qs={qs} admin={admin} notify={notify} />}
         {tab === 'reembolso' && <SolicitarReembolsoTab storeId={storeId} qs={qs} notify={notify} />}

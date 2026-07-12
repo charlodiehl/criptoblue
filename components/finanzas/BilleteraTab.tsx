@@ -50,7 +50,7 @@ function hoyART(): string {
 
 // Vista de una billetera: saldo histórico (sin corte, a diferencia de las tiendas)
 // + extracto dividido por día, y la pestaña "Retirar saldo".
-export default function BilleteraTab({ wallet, notify }: { wallet: string; notify: (msg: string, type?: Toast['type']) => void }) {
+export default function BilleteraTab({ wallet, notify, refreshKey = 0 }: { wallet: string; notify: (msg: string, type?: Toast['type']) => void; refreshKey?: number }) {
   const [data, setData] = useState<Detalle | null>(null)
   const [fecha, setFecha] = useState(hoyART())
   const [loading, setLoading] = useState(true)
@@ -69,12 +69,16 @@ export default function BilleteraTab({ wallet, notify }: { wallet: string; notif
     }
   }, [wallet, fecha, notify])
 
-  // Carga inicial + al cambiar de día + refresco cada 60s (entran pagos nuevos)
+  // Carga inicial + al cambiar de día + refresco cada 60s (respaldo)
   useEffect(() => {
     fetchData()
     const iv = setInterval(fetchData, 60_000)
     return () => clearInterval(iv)
   }, [fetchData])
+
+  // Tiempo real: al marcar/emparejar un pago desde el app de órdenes, refrescar para
+  // que el pago cambie de estado (en cola → emparejado) y el saldo se actualice.
+  useEffect(() => { if (refreshKey > 0) fetchData() }, [refreshKey, fetchData])
 
   // Si el día abierto no tuvo movimientos (p. ej. hoy todavía no entró nada), saltar
   // al último que sí los tuvo: el calendario ya no deja elegirlo a mano.

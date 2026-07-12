@@ -23,9 +23,12 @@ const TIPO_LABEL: Record<TransferTipo, string> = {
 interface Props {
   notify: (msg: string, type?: Toast['type']) => void
   onSolicitudPagada: () => void
+  // Señal de refresco en tiempo real (desde FinanzasApp): al marcar una orden se
+  // re-consultan las solicitudes y los reclamos.
+  refreshKey?: number
 }
 
-export default function AdminGeneralTab({ notify, onSolicitudPagada }: Props) {
+export default function AdminGeneralTab({ notify, onSolicitudPagada, refreshKey = 0 }: Props) {
   const [solicitudes, setSolicitudes] = useState<SolicitudConTienda[]>([])
   const [reclamos, setReclamos] = useState<Reclamo[]>([])
   const [loading, setLoading] = useState(true)
@@ -46,12 +49,15 @@ export default function AdminGeneralTab({ notify, onSolicitudPagada }: Props) {
     }
   }, [notify])
 
-  // Carga inicial + refresco cada 60s
+  // Carga inicial + refresco cada 60s (respaldo)
   useEffect(() => {
     fetchAll()
     const iv = setInterval(fetchAll, 60_000)
     return () => clearInterval(iv)
   }, [fetchAll])
+
+  // Tiempo real: al marcar una orden se refrescan solicitudes y reclamos.
+  useEffect(() => { if (refreshKey > 0) fetchAll() }, [refreshKey, fetchAll])
 
   function handlePagada() {
     setModal(null)
