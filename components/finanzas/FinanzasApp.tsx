@@ -185,7 +185,8 @@ export default function FinanzasApp({ userEmail }: { userEmail?: string }) {
                   border: `1px solid ${active === c.storeId ? 'rgba(0,212,255,0.5)' : 'rgba(0,212,255,0.14)'}`,
                   boxShadow: active === c.storeId ? '0 0 18px rgba(0,212,255,0.12)' : 'none', cursor: 'pointer',
                 }}>
-                <div className="text-xs font-semibold truncate mb-2" style={{ color: 'rgba(226,232,240,0.85)' }}>{c.storeName}</div>
+                <div className="text-xs font-semibold truncate" style={{ color: 'rgba(226,232,240,0.85)' }}>{c.storeName}</div>
+                <div className="text-[10px] mb-2 truncate" style={{ color: 'rgba(148,163,184,0.45)' }}>ID Tiendanube: {c.storeId}</div>
                 <div className="flex items-baseline gap-1">
                   <AnimatedNumber value={c.usdt} format={fmtUsdt} className="text-xl font-black" style={{ color: '#00d4ff' }} />
                   <span className="text-[10px] font-bold" style={{ color: 'rgba(0,212,255,0.6)' }}>USDT</span>
@@ -240,7 +241,10 @@ export default function FinanzasApp({ userEmail }: { userEmail?: string }) {
                   <BilleteraTab wallet={active.slice(5)} notify={notify} refreshKey={refreshKey} />
                 ) : activeStore ? (
                   <div className="space-y-4">
-                    <h2 className="text-lg font-bold" style={{ color: '#00d4ff' }}>{activeStore.storeName}</h2>
+                    <h2 className="text-lg font-bold flex flex-wrap items-baseline gap-x-2" style={{ color: '#00d4ff' }}>
+                      {activeStore.storeName}
+                      <span className="text-[11px] font-medium" style={{ color: 'rgba(148,163,184,0.55)' }}>ID Tiendanube: {activeStore.storeId}</span>
+                    </h2>
                     <p className="text-xs" style={{ color: 'rgba(148,163,184,0.5)' }}>Vista espejo — mismas funciones que la tienda (control y operación).</p>
                     <TiendaPortal storeId={activeStore.storeId} storeName={activeStore.storeName} admin refreshKey={refreshKey} />
                   </div>

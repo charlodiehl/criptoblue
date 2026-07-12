@@ -29,6 +29,7 @@ function isPublicRoute(pathname: string): boolean {
     || pathname.startsWith('/auth/redirect')
     || pathname.startsWith('/api/auth')
     || pathname.startsWith('/api/tn/callback')
+    || pathname.startsWith('/api/tn/webhooks/') // webhooks de privacidad de Tiendanube (validan por HMAC)
     || pathname.startsWith('/api/shopify/callback')
     || pathname.startsWith('/api/tn/connect')
     || pathname.startsWith('/api/shopify/connect')

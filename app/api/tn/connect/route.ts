@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { CONFIG } from '@/lib/config'
 
 export async function GET(req: NextRequest) {
-  const clientId = '27051'
+  const clientId = CONFIG.tiendanube.clientId
   const scope = 'write_orders read_orders'
 
   // Nombre de tienda elegido por el usuario — se empaqueta en "state" para el OAuth.

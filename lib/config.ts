@@ -79,7 +79,9 @@ export const WALLETS_SIN_VENCIMIENTO: readonly string[] = ['MF', 'Lacar', 'MS', 
 
 export const CONFIG = {
   tiendanube: {
-    clientId: '27051',
+    // App de Tiendanube (client_id + secret). Configurables por env para poder cambiar
+    // de app sin tocar código: si no hay env, cae en la app histórica 27051.
+    clientId: process.env.CRIPTOBLUE_TN_CLIENT_ID || '27051',
     clientSecret: process.env.CRIPTOBLUE_TN_CLIENT_SECRET || '',
     apiBase: 'https://api.tiendanube.com/v1',
     userAgent: 'CriptoBlue Agent (padeleroapp@gmail.com)',
