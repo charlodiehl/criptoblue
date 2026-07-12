@@ -10,7 +10,11 @@ import ConfiguracionTiendas from './ConfiguracionTiendas'
 import type { Toast } from './FinanzasApp'
 
 export type SolicitudConTienda = TransferRequest & { storeName: string }
-interface Reclamo { id: number; timestamp: string; storeId: string; storeName: string; amount: number; orderNumber: string }
+interface Reclamo {
+  id: number; timestamp: string; storeId: string; storeName: string; amount: number; orderNumber: string
+  customerName: string; nombrePagador: string; cuit: string; email: string; fechaPago: string
+  billetera: string; metodoPago: string; referencia: string; mpPaymentId: string
+}
 
 const TIPO_LABEL: Record<TransferTipo, string> = {
   ars: 'una transferencia ARS',
@@ -141,21 +145,37 @@ export default function AdminGeneralTab({ notify, onSolicitudPagada, refreshKey 
             Sin reclamos recientes.
           </p>
         ) : (
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             {reclamos.map(r => (
-              <div key={r.id} className="rounded-lg px-4 py-2.5 text-sm flex items-center gap-2 flex-wrap"
+              <div key={r.id} className="rounded-xl px-4 py-3 text-sm"
                 style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(148,163,184,0.08)', color: 'rgba(226,232,240,0.75)' }}>
-                <span className="font-semibold" style={{ color: '#00d4ff' }}>{r.storeName}</span>
-                <span>se adjudicó un pago de</span>
-                <span className="font-bold" style={{ color: '#00ff88' }}>{ARS.format(r.amount)}</span>
-                {r.orderNumber && <span>(orden #{r.orderNumber})</span>}
-                <span className="text-[11px] ml-auto" style={{ color: 'rgba(148,163,184,0.45)' }}>{fmtDate(r.timestamp)}</span>
-                <button onClick={() => darOk(r.id)} disabled={okId === r.id}
-                  title="Dar OK: la tienda reclamó un pago correcto. Lo saca de la lista."
-                  className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-bold transition-all disabled:opacity-50"
-                  style={{ background: 'rgba(0,255,136,0.1)', border: '1px solid rgba(0,255,136,0.35)', color: '#00ff88', cursor: okId === r.id ? 'not-allowed' : 'pointer' }}>
-                  {okId === r.id ? '…' : '✓ OK'}
-                </button>
+                {/* Encabezado: tienda, monto, orden emparejada, fecha de adjudicación y OK */}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-semibold" style={{ color: '#00d4ff' }}>{r.storeName}</span>
+                  <span>se adjudicó un pago de</span>
+                  <span className="font-bold" style={{ color: '#00ff88' }}>{ARS.format(r.amount)}</span>
+                  {r.orderNumber && <span>· orden <span className="font-semibold" style={{ color: 'rgba(226,232,240,0.9)' }}>#{r.orderNumber}</span></span>}
+                  <span className="text-[11px] ml-auto" style={{ color: 'rgba(148,163,184,0.45)' }}>adjudicado {fmtDate(r.timestamp)}</span>
+                  <button onClick={() => darOk(r.id)} disabled={okId === r.id}
+                    title="Dar OK: la tienda reclamó un pago correcto. Lo saca de la lista."
+                    className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-bold transition-all disabled:opacity-50"
+                    style={{ background: 'rgba(0,255,136,0.1)', border: '1px solid rgba(0,255,136,0.35)', color: '#00ff88', cursor: okId === r.id ? 'not-allowed' : 'pointer' }}>
+                    {okId === r.id ? '…' : '✓ OK'}
+                  </button>
+                </div>
+                {/* Detalle completo del pago emparejado */}
+                <div className="mt-2.5 pt-2.5 grid gap-x-6 gap-y-1.5"
+                  style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))', borderTop: '1px solid rgba(148,163,184,0.08)' }}>
+                  <Detalle label="Pagador" value={r.nombrePagador} />
+                  {r.cuit && <Detalle label="CUIT/CUIL/DNI" value={r.cuit} />}
+                  {r.email && <Detalle label="Email" value={r.email} />}
+                  <Detalle label="Fecha del pago" value={fmtDate(r.fechaPago)} />
+                  <Detalle label="Billetera" value={r.billetera} />
+                  {r.metodoPago && <Detalle label="Método de pago" value={r.metodoPago} />}
+                  {r.referencia && <Detalle label="Referencia" value={r.referencia} />}
+                  {r.customerName && <Detalle label="Cliente de la orden" value={r.customerName} />}
+                  <Detalle label="ID del pago" value={r.mpPaymentId} />
+                </div>
               </div>
             ))}
           </div>
@@ -170,5 +190,15 @@ export default function AdminGeneralTab({ notify, onSolicitudPagada, refreshKey 
       )}
     </div>
     </ReembolsosProvider>
+  )
+}
+
+// Un dato (etiqueta + valor) del detalle de un reclamo.
+function Detalle({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex flex-col min-w-0">
+      <span className="text-[10px] uppercase tracking-wider" style={{ color: 'rgba(148,163,184,0.45)' }}>{label}</span>
+      <span className="text-xs truncate" style={{ color: 'rgba(226,232,240,0.85)' }} title={value}>{value || '—'}</span>
+    </div>
   )
 }

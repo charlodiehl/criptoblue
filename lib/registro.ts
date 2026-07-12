@@ -7,6 +7,7 @@ import type { LogEntry, Payment, Order } from './types'
 import { getClient, kvGet, kvSet } from './storage'
 import { registrarIngresoOrden, actualizarDescripcionIngreso } from './balance'
 import { BALANCE_CUTOFF } from './config'
+import { billeteraLabel } from './utils'
 
 const TABLE = 'registro_log'
 
@@ -614,15 +615,31 @@ export async function marcarReclamoOk(id: number): Promise<void> {
   await kvSet(RECLAMOS_OK_KEY, { ids })
 }
 
-export async function getReclamosRecientes(
-  sinceMs: number,
-): Promise<Array<{ id: number; timestamp: string; storeId: string; storeName: string; amount: number; orderNumber: string }>> {
+export interface ReclamoReciente {
+  id: number
+  timestamp: string        // cuándo la tienda se adjudicó el pago
+  storeId: string
+  storeName: string
+  amount: number
+  orderNumber: string
+  customerName: string     // cliente de la orden emparejada
+  nombrePagador: string    // quién pagó
+  cuit: string
+  email: string
+  fechaPago: string        // cuándo entró el pago a la billetera
+  billetera: string        // billetera de origen del dinero (label)
+  metodoPago: string
+  referencia: string
+  mpPaymentId: string
+}
+
+export async function getReclamosRecientes(sinceMs: number): Promise<ReclamoReciente[]> {
   const supabase = getClient()
   const cutoff = new Date(sinceMs).toISOString()
   const [res, okIds] = await Promise.all([
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (supabase.from(TABLE) as any)
-      .select('id, ts, store_id, store_name, amount, order_number')
+      .select('id, ts, store_id, store_name, amount, order_number, customer_name, mp_payment_id, payment')
       .eq('source', 'tienda_buscar')
       .eq('hidden', false)
       .gte('ts', cutoff)
@@ -633,14 +650,26 @@ export async function getReclamosRecientes(
   if (error) throw new Error(`getReclamosRecientes falló: ${error.message} [${error.code}]`)
   return (data ?? [])
     .filter((r: Row) => !okIds.has(Number(r.id)))
-    .map((r: Row) => ({
-      id: Number(r.id),
-      timestamp: r.ts,
-      storeId: r.store_id ?? '',
-      storeName: r.store_name ?? '',
-      amount: Number(r.amount) || 0,
-      orderNumber: r.order_number ?? '',
-    }))
+    .map((r: Row): ReclamoReciente => {
+      const p = r.payment ?? {}
+      return {
+        id: Number(r.id),
+        timestamp: r.ts,
+        storeId: r.store_id ?? '',
+        storeName: r.store_name ?? '',
+        amount: Number(p.monto ?? r.amount) || 0,
+        orderNumber: r.order_number ?? '',
+        customerName: r.customer_name ?? '',
+        nombrePagador: p.nombrePagador ?? '',
+        cuit: p.cuitPagador ?? '',
+        email: p.emailPagador ?? '',
+        fechaPago: p.fechaPago ?? '',
+        billetera: billeteraLabel(p.source ?? ''),
+        metodoPago: p.metodoPago ?? '',
+        referencia: p.referencia ?? '',
+        mpPaymentId: p.mpPaymentId ?? r.mp_payment_id ?? '',
+      }
+    })
 }
 
 // ─────────────────────────────────────────────
