@@ -26,7 +26,8 @@ const LOCK_HOLDER = 'tienda-reclamar'
 //  5. El movimiento de ingreso al balance lo crea el hook de appendRegistroEntry.
 //
 // storeId: rol tienda usa SIEMPRE el suyo (resolveStoreScope ignora el request);
-// el admin debe mandarlo explícito (vista espejo de Administración Financiera).
+// el admin lo manda en la vista espejo — se acepta tanto en la query (?storeId=,
+// como lo agrega BuscarPagosTab) como en el body, para no depender de dónde venga.
 export async function POST(req: NextRequest) {
   let locked = false
   try {
@@ -43,7 +44,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'mpPaymentId y orderNumber son requeridos' }, { status: 400 })
     }
 
-    const storeId = resolveStoreScope(user, body.storeId)
+    const storeId = resolveStoreScope(user, req.nextUrl.searchParams.get('storeId') || body.storeId)
     if (!storeId) {
       return NextResponse.json({ error: 'No hay tienda asignada para esta operación' }, { status: 400 })
     }
