@@ -158,8 +158,10 @@ export function ReembolsosProvider({ notify, onReembolsado, children }: Provider
       notify(`${data.descripcion} · se restó ${ARS.format(m)} del saldo ✓`, 'success')
       onReembolsado()
       fetchSolicitudes()
-      setMonto(''); setComprobantePath(null); setRequestId(null); setPagador('')
-      buscar(storeId, resultado.order.orderNumber)
+      // Reiniciar TODO el formulario a blanco para cargar otro reembolso desde cero
+      // (tienda, orden, monto, cotización, comprobante y quién paga). Subir compKey
+      // remonta el ComprobanteInput y el TasaInput para que también queden vacíos.
+      setStoreId(''); setOrden(''); resetForm(); setCompKey(k => k + 1)
     } catch (e) {
       notify(e instanceof Error ? e.message : 'No se pudo ejecutar el reembolso', 'error')
     } finally {
