@@ -720,3 +720,34 @@ export async function waitForLock(
   }
   return false
 }
+
+// Ejecuta una sección de lectura-modificación-escritura del estado bajo el lock
+// global, para que se SERIALICE con los matches/dismisses manuales (que también
+// toman el lock antes de guardar). Sin esto, el ciclo (reevaluar/run/sync) hace
+// load→merge→save del hot state sin candado: si un match manual guarda entre el
+// load y el save del ciclo, el ciclo escribe último con una vista vieja y re-agrega
+// a la cola un pago ya emparejado (fantasma). El lock cierra esa ventana de
+// "lost update" — el ciclo espera a que el match commitee su saveHotState completo
+// (que ya removió el pago de la cola y lo puso en recentMatches), y recién ahí
+// lee `current` consistente, donde el merge de saveHotState lo excluye por
+// confirmedByRecentMatch.
+//
+// Best-effort: si no logra el lock en maxWaitMs (patológico: alguien lo retuvo
+// >15s, algo que ninguna operación normal hace y que además expira solo a los 30s),
+// ejecuta igual para no bloquear el ciclo, y avisa por consola la degradación.
+export async function withStateLock<T>(
+  holder: string,
+  detail: string | undefined,
+  fn: () => Promise<T>,
+  maxWaitMs = 15_000,
+): Promise<T> {
+  const locked = await waitForLock(holder, detail, maxWaitMs, 400)
+  if (!locked) {
+    console.warn(`[lock] withStateLock: no se pudo adquirir el lock para "${holder}" (${detail ?? ''}) tras ${maxWaitMs}ms — se escribe igual (best-effort)`)
+  }
+  try {
+    return await fn()
+  } finally {
+    if (locked) await releaseLock(holder)
+  }
+}

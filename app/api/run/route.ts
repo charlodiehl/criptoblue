@@ -3,15 +3,17 @@ import { processMPPayments } from '@/lib/cycle'
 import { runAutoMatchCore } from '@/lib/auto-match-runner'
 import { audit } from '@/lib/audit'
 import { cleanupAuditLogs } from '@/lib/audit'
-import { loadHotState, saveHotState, isCronPaused } from '@/lib/storage'
+import { loadHotState, saveHotState, isCronPaused, withStateLock } from '@/lib/storage'
 
 export const maxDuration = 300
 
 // Auth manejada por middleware.ts — GET requiere CRON_SECRET, POST requiere sesión
 
-// El ciclo NO necesita lock global:
-// - processMPPayments (sync) es seguro concurrentemente (tiene merge protection)
-// - runAutoMatchCore adquiere lock por cada candidato individual
+// Los guardados de estado del ciclo se hacen bajo withStateLock para serializarlos
+// con los matches/dismisses manuales (que también toman el lock). Así se cierra el
+// "lost update" que re-agregaba a la cola pagos ya emparejados (fantasmas).
+// processMPPayments toma el lock internamente para su merge-save; runAutoMatchCore
+// adquiere el lock por cada candidato individual.
 async function runCycle(triggeredBy: 'cron' | 'manual_button') {
   await audit({
     category: 'system', action: 'cron_cycle.start', result: 'success',
@@ -22,14 +24,14 @@ async function runCycle(triggeredBy: 'cron' | 'manual_button') {
   // Fase 1: sync de pagos MP
   const hotBeforeSync = await loadHotState()
   hotBeforeSync.currentPhase = 'syncing'
-  await saveHotState(hotBeforeSync)
+  await withStateLock('run', 'fase1-syncing', () => saveHotState(hotBeforeSync))
 
   const syncResult = await processMPPayments()
 
   // Fase 2: auto-match (el runner setea 'idle' al finalizar)
   const hotBeforeMatch = await loadHotState()
   hotBeforeMatch.currentPhase = 'auto-matching'
-  await saveHotState(hotBeforeMatch)
+  await withStateLock('run', 'fase2-automatching', () => saveHotState(hotBeforeMatch))
 
   const autoMatch = await runAutoMatchCore(syncResult.stores, triggeredBy)
 

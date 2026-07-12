@@ -1,7 +1,7 @@
 import { fetchAllPaymentsSince } from './mercadopago'
 import { getPendingOrders as getTNOrders } from './tiendanube'
 import { getPendingOrders as getShopifyOrders } from './shopify'
-import { loadState, saveState, getStores, appendError, loadLogs, saveLogs } from './storage'
+import { loadState, saveState, getStores, appendError, loadLogs, saveLogs, withStateLock } from './storage'
 import { getConfirmedMarks } from './registro'
 import { HARD_CUTOFF_PAYMENTS, HARD_CUTOFF_ORDERS, SAMEMONTO_WINDOW_HOURS, ORDER_CACHE_MIN_HOURS, ORDER_CACHE_BUFFER_HOURS, PAYMENT_CACHE_HOURS, WALLETS_SIN_VENCIMIENTO } from './config'
 import type { UnmatchedPayment, Store } from './types'
@@ -162,10 +162,18 @@ export async function processMPPayments(): Promise<CycleResult> {
     result.newUnmatched++
   }
 
-  // ─── Re-cargar estado fresco antes de guardar ──────────────────────────────
-  // Evita race condition: si un usuario hizo match/dismiss mientras este ciclo
-  // corría, sus cambios en unmatchedPayments quedarían sobreescritos si usamos
-  // el state cargado al inicio. Recargamos y hacemos merge solo de lo nuevo.
+  // ─── Sección crítica: recarga fresca + merge + guardado, BAJO EL LOCK ───────
+  // Serializa con los matches/dismisses manuales (que también toman el lock).
+  // El fetch lento de MP y de órdenes ya ocurrió arriba SIN candado (es solo
+  // lectura); acá tomamos el lock solo para la fusión y el guardado, que son
+  // rápidos. Sin este candado había un "lost update": si un match manual guardaba
+  // entre el loadState() y el saveState() de este ciclo, el ciclo escribía último
+  // con una vista vieja y re-agregaba a la cola un pago ya emparejado (fantasma).
+  await withStateLock('cycle', 'sync-merge', async () => {
+  // Re-cargar estado fresco antes de guardar: si un usuario hizo match/dismiss
+  // mientras este ciclo corría, sus cambios en unmatchedPayments quedarían
+  // sobreescritos si usáramos el state cargado al inicio. Recargamos y hacemos
+  // merge solo de lo nuevo.
   const freshState = await loadState()
 
   // 1. Purge en el estado fresco (eliminar pagos vencidos). Los pagos de
@@ -284,6 +292,7 @@ export async function processMPPayments(): Promise<CycleResult> {
   }
 
   await saveState(freshState)
+  }) // fin de withStateLock (sección crítica)
 
   await audit({
     category: 'system', action: 'sync.end', result: result.errors.length > 0 ? 'partial' : 'success',
