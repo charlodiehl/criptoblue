@@ -15,10 +15,19 @@ export async function POST(req: NextRequest) {
     if (!locked) {
       return NextResponse.json({ error: 'El sistema está procesando otra operación. Esperá unos segundos.' }, { status: 409 })
     }
-    const { orderId, storeId, monto, medioPago, nombrePagador, cuitPagador, order: orderFromClient, fechaPago } = await req.json()
+    const { orderId, storeId, monto, medioPago, nombrePagador, cuitPagador, order: orderFromClient, fechaPago, billetera, billeteraOtra } = await req.json()
     if (!orderId || !storeId || !monto || !medioPago) {
       return NextResponse.json({ error: 'orderId, storeId, monto y medioPago son requeridos' }, { status: 400 })
     }
+
+    // Billetera del pago: MF/Lacar/MS/Montemar (source = el nombre de la billetera),
+    // "Otras" con nombre libre (source = `otras:<nombre>`), o sin elegir → el medio
+    // de pago (comportamiento viejo). El source es lo que atribuye el pago a la billetera.
+    const billeteraSel = String(billetera || '').trim()
+    const nombreOtras = String(billeteraOtra || '').trim()
+    const source = billeteraSel === 'Otras'
+      ? `otras:${nombreOtras}`
+      : (billeteraSel || medioPago)
 
     const [hot, logs, stores] = await Promise.all([
       loadHotState(), loadLogs(), getStores()
@@ -51,7 +60,7 @@ export async function POST(req: NextRequest) {
       metodoPago: medioPago,
       fechaPago: fechaPagoISO,
       status: 'approved',
-      source: medioPago,
+      source,
       rawData: {},
     }
 

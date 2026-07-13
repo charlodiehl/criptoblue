@@ -524,12 +524,12 @@ export default function Dashboard() {
     }
   }
 
-  const handleMarkOrderManual = async (orderId: string, storeId: string, monto: number, medioPago: string, nombrePagador: string, order: import('@/lib/types').Order, cuitPagador?: string, fechaPago?: string) => {
+  const handleMarkOrderManual = async (orderId: string, storeId: string, monto: number, medioPago: string, nombrePagador: string, order: import('@/lib/types').Order, cuitPagador?: string, fechaPago?: string, billetera?: string, billeteraOtra?: string) => {
     try {
       const res = await fetch('/api/mark-order-paid-manual', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orderId, storeId, monto, medioPago, nombrePagador, cuitPagador, order, fechaPago }),
+        body: JSON.stringify({ orderId, storeId, monto, medioPago, nombrePagador, cuitPagador, order, fechaPago, billetera, billeteraOtra }),
       })
       const data = await res.json()
       if (checkLockResponse(res, data)) return

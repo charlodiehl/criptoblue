@@ -14,6 +14,7 @@ interface Pago {
   monto: number
   comision: number
   estado: 'emparejado' | 'en_cola' | 'reembolsado'
+  detalle?: string   // billetera "Otras": nombre libre del pago
 }
 const ESTADO_LABEL: Record<Pago['estado'], string> = { emparejado: 'Emparejado', en_cola: 'En cola', reembolsado: 'Reembolsado' }
 const ESTADO_STYLE: Record<Pago['estado'], React.CSSProperties> = {
@@ -267,7 +268,10 @@ export default function BilleteraTab({ wallet, notify, refreshKey = 0 }: { walle
                   <motion.tr key={i} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3, delay: Math.min(i * 0.025, 0.4) }}
                     style={{ borderBottom: '1px solid rgba(148,163,184,0.05)' }}>
                     <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: 'rgba(226,232,240,0.85)' }}>{fmtDate(p.fecha)}</td>
-                    <td className="px-3 py-2.5" style={{ color: 'rgba(226,232,240,0.85)' }}>{p.titular || '—'}</td>
+                    <td className="px-3 py-2.5" style={{ color: 'rgba(226,232,240,0.85)' }}>
+                      {p.titular || '—'}
+                      {p.detalle && <span className="ml-1.5 text-[11px]" style={{ color: 'rgba(167,139,250,0.9)' }}>· {p.detalle}</span>}
+                    </td>
                     <td className="px-3 py-2.5 whitespace-nowrap font-medium" style={{ color: '#00ff88' }}>{ARS.format(p.monto)}</td>
                     <td className="px-3 py-2.5 whitespace-nowrap font-medium" style={{ color: '#f87171' }}>−{ARS.format(p.comision)}</td>
                     <td className="px-3 py-2.5 whitespace-nowrap">

@@ -45,7 +45,9 @@ export function comisionTiendaSobre(monto: number, pct: number): number {
 
 export function comisionBilletera(cfg: ComisionesConfig, wallet: string): number {
   const v = cfg.billeteras[wallet]
-  return Number.isFinite(v) ? v : DEFAULT_COMISION_BILLETERA
+  if (Number.isFinite(v)) return v
+  // "Otras" (cajón de pagos manuales sueltos) no cobra comisión; el resto, 1%.
+  return wallet === 'Otras' ? 0 : DEFAULT_COMISION_BILLETERA
 }
 
 // Guarda el porcentaje de una entidad. pct 0..100.

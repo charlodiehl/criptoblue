@@ -58,7 +58,9 @@ export const PAYMENT_SOURCE_NAMES: Record<string, string> = {
 // Billeteras del sistema (para saldos, retiros, reembolsos y comisiones).
 // Para agregar una billetera nueva: sumarla acá y mapear sus fuentes de pago en
 // PAYMENT_SOURCE_TO_WALLET.
-export const WALLETS = ['MF', 'Lacar', 'MS', 'Montemar'] as const
+// "Otras" es un cajón para pagos manuales que no entraron por ninguna billetera
+// conocida: su source se codifica como `otras:<nombre libre>` y NO cobra comisión.
+export const WALLETS = ['MF', 'Lacar', 'MS', 'Montemar', 'Otras'] as const
 
 // Mapeo de fuente de pago (payment.source) → billetera a la que pertenece el DINERO
 // (para el saldo de cada billetera). NO acota el emparejamiento: cualquier pago puede

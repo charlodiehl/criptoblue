@@ -4,12 +4,14 @@ import { useState, useMemo } from 'react'
 import MontoInput from '@/components/MontoInput'
 import type { Order, Store } from '@/lib/types'
 import { ARS, fmtDate, matchesSearch } from '@/lib/utils'
-import { MONTO_DIFF_WARNING_THRESHOLD } from '@/lib/config'
+import { MONTO_DIFF_WARNING_THRESHOLD, WALLETS } from '@/lib/config'
 
 const PAGE_SIZE = 100
 
 interface ManualPayForm {
   medioPago: string
+  billetera: string        // billetera a la que va el pago (WALLETS) o '' = medio de pago
+  billeteraOtra: string    // nombre libre si billetera === 'Otras'
   monto: string
   nombrePagador: string
   cuitPagador: string
@@ -48,13 +50,37 @@ function toDatetimeLocal(date: Date): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
+const campoBillStyle: React.CSSProperties = { width: '100%', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(148,163,184,0.2)', borderRadius: '6px', padding: '6px 10px', fontSize: '12px', color: 'white', outline: 'none', boxSizing: 'border-box' }
+const campoBillLabel: React.CSSProperties = { fontSize: '10px', color: 'rgba(148,163,184,0.5)', letterSpacing: '0.08em', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }
+
+// Selector de billetera del pago (para el marcado manual). Elegí una de las
+// billeteras del sistema, u "Otras" con un nombre libre para pagos que no entraron
+// por ninguna. El pago queda atribuido a esa billetera en Administración Financiera.
+function SelectorBilletera({ form, onChange }: { form: ManualPayForm; onChange: (patch: Partial<ManualPayForm>) => void }) {
+  return (
+    <div>
+      <label style={campoBillLabel}>Billetera del pago</label>
+      <select value={form.billetera} onChange={e => onChange({ billetera: e.target.value })}
+        style={{ ...campoBillStyle, colorScheme: 'dark' }}>
+        <option value="" style={{ background: '#1a2235' }}>— Sin billetera —</option>
+        {WALLETS.map(w => <option key={w} value={w} style={{ background: '#1a2235' }}>{w}</option>)}
+      </select>
+      {form.billetera === 'Otras' && (
+        <input type="text" placeholder="Nombre de la billetera (ej: Ualá, Efectivo)"
+          value={form.billeteraOtra} onChange={e => onChange({ billeteraOtra: e.target.value })}
+          style={{ ...campoBillStyle, marginTop: '6px' }} />
+      )}
+    </div>
+  )
+}
+
 interface Props {
   orders: Order[]
   stores?: Store[]
   matchedIds?: Set<string>
   duplicateMap?: Map<string, DuplicateInfo>
   onMarkExternal?: (orderId: string, storeId: string) => Promise<void>
-  onMarkManual?: (orderId: string, storeId: string, monto: number, medioPago: string, nombrePagador: string, order: Order, cuitPagador?: string, fechaPago?: string) => Promise<void>
+  onMarkManual?: (orderId: string, storeId: string, monto: number, medioPago: string, nombrePagador: string, order: Order, cuitPagador?: string, fechaPago?: string, billetera?: string, billeteraOtra?: string) => Promise<void>
   loading?: boolean
 }
 
@@ -62,7 +88,7 @@ export default function OrdersListTab({ orders, stores, matchedIds, duplicateMap
   const [page, setPage] = useState(1)
   const [marking, setMarking] = useState<string | null>(null)
   const [manualOpen, setManualOpen] = useState<string | null>(null)
-  const [manualForm, setManualForm] = useState<ManualPayForm>({ medioPago: '', monto: '', nombrePagador: '', cuitPagador: '', fechaPago: '', loading: false, confirmedDiff: false })
+  const [manualForm, setManualForm] = useState<ManualPayForm>({ medioPago: '', billetera: '', billeteraOtra: '', monto: '', nombrePagador: '', cuitPagador: '', fechaPago: '', loading: false, confirmedDiff: false })
   const [search, setSearch] = useState('')
 
   // Estado del modal "Validar orden antigua"
@@ -73,7 +99,7 @@ export default function OrdersListTab({ orders, stores, matchedIds, duplicateMap
   const [validarError, setValidarError] = useState<string | null>(null)
   const [validarResult, setValidarResult] = useState<BuscarOrdenResult | null>(null)
   const [validarManualOpen, setValidarManualOpen] = useState(false)
-  const [validarManualForm, setValidarManualForm] = useState<ManualPayForm>({ medioPago: '', monto: '', nombrePagador: '', cuitPagador: '', fechaPago: '', loading: false, confirmedDiff: false })
+  const [validarManualForm, setValidarManualForm] = useState<ManualPayForm>({ medioPago: '', billetera: '', billeteraOtra: '', monto: '', nombrePagador: '', cuitPagador: '', fechaPago: '', loading: false, confirmedDiff: false })
 
   const openValidar = () => {
     setValidarOpen(true)
@@ -117,6 +143,7 @@ export default function OrdersListTab({ orders, stores, matchedIds, duplicateMap
       if (data.order) {
         setValidarManualForm({
           medioPago: '',
+          billetera: '', billeteraOtra: '',
           monto: String(data.order.total),
           nombrePagador: data.order.customerName || '',
           cuitPagador: data.order.customerCuit || '',
@@ -146,6 +173,8 @@ export default function OrdersListTab({ orders, stores, matchedIds, duplicateMap
         o,
         validarManualForm.cuitPagador.trim() || undefined,
         validarManualForm.fechaPago || undefined,
+        validarManualForm.billetera || undefined,
+        validarManualForm.billeteraOtra.trim() || undefined,
       )
       setValidarOpen(false)
     } finally {
@@ -166,7 +195,7 @@ export default function OrdersListTab({ orders, stores, matchedIds, duplicateMap
 
   const openManual = (key: string, orderTotal: number) => {
     setManualOpen(key)
-    setManualForm({ medioPago: '', monto: String(orderTotal), nombrePagador: '', cuitPagador: '', fechaPago: toDatetimeLocal(new Date()), loading: false, confirmedDiff: false })
+    setManualForm({ medioPago: '', billetera: '', billeteraOtra: '', monto: String(orderTotal), nombrePagador: '', cuitPagador: '', fechaPago: toDatetimeLocal(new Date()), loading: false, confirmedDiff: false })
   }
 
   const handleManualSubmit = async (o: Order) => {
@@ -175,7 +204,7 @@ export default function OrdersListTab({ orders, stores, matchedIds, duplicateMap
     if (!manualForm.medioPago.trim() || isNaN(monto) || monto <= 0) return
     setManualForm(f => ({ ...f, loading: true }))
     try {
-      await onMarkManual(o.orderId, o.storeId, monto, manualForm.medioPago.trim(), manualForm.nombrePagador.trim(), o, manualForm.cuitPagador.trim() || undefined, manualForm.fechaPago || undefined)
+      await onMarkManual(o.orderId, o.storeId, monto, manualForm.medioPago.trim(), manualForm.nombrePagador.trim(), o, manualForm.cuitPagador.trim() || undefined, manualForm.fechaPago || undefined, manualForm.billetera || undefined, manualForm.billeteraOtra.trim() || undefined)
       setManualOpen(null)
     } finally {
       setManualForm(f => ({ ...f, loading: false }))
@@ -343,6 +372,7 @@ export default function OrdersListTab({ orders, stores, matchedIds, duplicateMap
                           style={{ width: '100%', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(148,163,184,0.2)', borderRadius: '6px', padding: '6px 10px', fontSize: '12px', color: 'white', outline: 'none', boxSizing: 'border-box' }}
                         />
                       </div>
+                      <SelectorBilletera form={validarManualForm} onChange={patch => setValidarManualForm(f => ({ ...f, ...patch }))} />
                       <div>
                         <label style={{ fontSize: '10px', color: 'rgba(148,163,184,0.5)', letterSpacing: '0.08em', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>Monto recibido *</label>
                         <MontoInput placeholder="0"
@@ -598,6 +628,7 @@ export default function OrdersListTab({ orders, stores, matchedIds, duplicateMap
                         style={{ width: '100%', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(148,163,184,0.2)', borderRadius: '6px', padding: '6px 10px', fontSize: '12px', color: 'white', outline: 'none', boxSizing: 'border-box' }}
                       />
                     </div>
+                    <SelectorBilletera form={manualForm} onChange={patch => setManualForm(f => ({ ...f, ...patch }))} />
                     <div>
                       <label style={{ fontSize: '10px', color: 'rgba(148,163,184,0.5)', letterSpacing: '0.08em', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>Monto recibido *</label>
                       <MontoInput

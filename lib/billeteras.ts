@@ -82,6 +82,7 @@ export interface PagoBilletera {
   // 'reembolsado' es un estado SOLO visual: el pago sigue emparejado y su saldo no
   // cambia; marca que la orden asociada tuvo un reembolso (total o parcial).
   estado: 'emparejado' | 'en_cola' | 'reembolsado'
+  detalle?: string          // billetera "Otras": el nombre libre que se le puso al pago
 }
 
 export interface ReembolsoBilletera {
@@ -150,6 +151,8 @@ interface Ingreso {
 const WALLET_SET = new Set<string>(WALLETS as readonly string[])
 export function resolveWallet(source?: string | null): string | null {
   if (!source) return null
+  // Pagos manuales cargados a "Otras": source = `otras:<nombre libre>`.
+  if (source.startsWith('otras:')) return 'Otras'
   const canon = PAYMENT_SOURCE_TO_WALLET[source]
   if (canon) return canon
   if (WALLET_SET.has(source)) return source
@@ -157,16 +160,9 @@ export function resolveWallet(source?: string | null): string | null {
   return srcKey ? (PAYMENT_SOURCE_TO_WALLET[srcKey] ?? null) : null
 }
 
-// Todas las etiquetas de source que resuelven a una billetera (claves canónicas +
-// nombre de billetera + nombres para mostrar).
-function sourceLabelsDeBilletera(wallet: string): string[] {
-  const canon = Object.entries(PAYMENT_SOURCE_TO_WALLET)
-    .filter(([, w]) => w === wallet)
-    .map(([source]) => source)
-  const labels = new Set<string>(canon)
-  labels.add(wallet)
-  for (const s of canon) if (PAYMENT_SOURCE_NAMES[s]) labels.add(PAYMENT_SOURCE_NAMES[s])
-  return [...labels]
+// El nombre libre de un pago "Otras" (lo que va después de `otras:`). Vacío si no aplica.
+export function detalleOtras(source?: string | null): string {
+  return source && source.startsWith('otras:') ? source.slice(6) : ''
 }
 
 // Billeteras que el usuario pidió ocultar (se eliminan del menú y su panel).
@@ -243,15 +239,16 @@ async function ingresosEmparejados(): Promise<Ingreso[]> {
 
 // Pagos EN COLA (no emparejados), excluyendo los marcados "No es de tiendas" y
 // los que YA están emparejados en el registro (quedaron en la cola por una
-// inconsistencia: se contarían dos veces). labelSet opcional acota a una billetera.
+// inconsistencia: se contarían dos veces). `filtro` opcional acota a una billetera
+// (recibe el source; se usa resolveWallet para soportar "Otras" con nombres libres).
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function ingresosEnCola(hot: any, emparejadosIds: Set<string>, labelSet?: Set<string>): Ingreso[] {
+function ingresosEnCola(hot: any, emparejadosIds: Set<string>, filtro?: (source: string) => boolean): Ingreso[] {
   const externos = new Set((hot.externallyMarkedPayments ?? []).map((e: { id: string }) => e.id))
   const out: Ingreso[] = []
   for (const u of hot.unmatchedPayments ?? []) {
     const p = u.payment
     if (!p?.source) continue
-    if (labelSet && !labelSet.has(p.source)) continue
+    if (filtro && !filtro(p.source)) continue
     const id = u.mpPaymentId || p.mpPaymentId
     if (externos.has(id)) continue
     if (emparejadosIds.has(id)) continue   // ya emparejado: lo aporta el registro
@@ -330,9 +327,9 @@ export async function getIngresosBilleteras(): Promise<IngresoBilletera[]> {
 // emparejó, un retiro o un reembolso. El calendario deshabilita el resto, para que
 // no se pueda elegir un día que seguro está vacío.
 export async function getDiasConMovimiento(wallet: string): Promise<string[]> {
-  const labels = sourceLabelsDeBilletera(wallet)
-  if (labels.length === 0) return []
-  const labelSet = new Set(labels)
+  // Un pago pertenece a la billetera si resolveWallet(source) coincide (soporta
+  // "Otras" con sources `otras:<nombre>` dinámicos).
+  const esDeEsta = (s: string) => resolveWallet(s) === wallet
 
   const [emparejados, hot, refunds, salidas, yaEmparejados, cortes] = await Promise.all([
     ingresosEmparejados(), loadHotState(), getRefundsDeWallet(wallet), getSalidasDeWallet(wallet), idsEmparejados(), getCortesBilletera(),
@@ -354,8 +351,8 @@ export async function getDiasConMovimiento(wallet: string): Promise<string[]> {
     const d = diaART(f); if (d) dias.add(d)
   }
 
-  for (const m of emparejados) if (labelSet.has(m.source)) agregar(m.fechaDia)
-  for (const m of ingresosEnCola(hot, yaEmparejados, labelSet)) agregar(m.fechaDia)
+  for (const m of emparejados) if (esDeEsta(m.source)) agregar(m.fechaDia)
+  for (const m of ingresosEnCola(hot, yaEmparejados, esDeEsta)) agregar(m.fechaDia)
   for (const s of salidas) agregar(s.fecha)
   for (const r of refunds) agregar(r.createdAt)
 
@@ -372,11 +369,9 @@ export async function getDiasConMovimiento(wallet: string): Promise<string[]> {
 export async function getIngresosBilletera(wallet: string, diaART?: string): Promise<DetalleBilletera> {
   const cfg = await getComisiones()
   const pct = comisionBilletera(cfg, wallet)
-  const labels = sourceLabelsDeBilletera(wallet)
-  if (labels.length === 0) {
-    return { wallet, totalArs: 0, cantidad: 0, comisionArs: 0, comisionPct: pct, reembolsosArs: 0, reembolsos: [], salidasArs: 0, salidas: [], pagos: [] }
-  }
-  const labelSet = new Set(labels)
+  // Un pago pertenece a la billetera si resolveWallet(source) coincide (soporta
+  // "Otras" con sources `otras:<nombre>` dinámicos).
+  const esDeEsta = (s: string) => resolveWallet(s) === wallet
 
   const [emparejados, hot, refundsAll, salidasAll, yaEmparejados, cortes, reembolsadas] = await Promise.all([
     ingresosEmparejados(), loadHotState(), getRefundsDeWallet(wallet), getSalidasDeWallet(wallet), idsEmparejados(), getCortesBilletera(), getOrdenesReembolsadas(),
@@ -392,8 +387,8 @@ export async function getIngresosBilletera(wallet: string, diaART?: string): Pro
   const enPeriodo = corte?.soloInicial ? () => false : (f: string) => (new Date(f).getTime() || 0) >= desdeCorte
 
   const ingresos = [
-    ...emparejados.filter(m => labelSet.has(m.source)),
-    ...ingresosEnCola(hot, yaEmparejados, labelSet),
+    ...emparejados.filter(m => esDeEsta(m.source)),
+    ...ingresosEnCola(hot, yaEmparejados, esDeEsta),
   ].filter(m => enPeriodo(m.fechaDia))
   const refunds = refundsAll.filter(r => enPeriodo(r.createdAt))
   const salidas = salidasAll.filter(s => enPeriodo(s.fecha))
@@ -494,6 +489,7 @@ export async function getIngresosBilletera(wallet: string, diaART?: string): Pro
       estado: m.estado === 'emparejado' && m.storeId && reembolsadas.has(`${m.storeId}|${m.orderNumber}`)
         ? 'reembolsado' as const
         : m.estado,
+      detalle: detalleOtras(m.source) || undefined,
     })),
   }
 }
