@@ -135,15 +135,24 @@ export async function registrarSalida(input: {
 
 // Total ARS que salió de cada billetera. Paginado: es una suma de dinero sin cota
 // temporal; truncarla dejaría el saldo inflado en silencio.
-export async function sumSalidasByWallet(): Promise<Record<string, number>> {
+// `cortes` opcional: si una billetera tiene corte, se ignoran las salidas previas al
+// umbral `desde` (ya están en su saldo inicial), y todas si es soloInicial.
+export async function sumSalidasByWallet(
+  cortes?: Record<string, { desde: number; soloInicial?: boolean }>,
+): Promise<Record<string, number>> {
   const out: Record<string, number> = {}
   const PAGE = 1000
   let from = 0
   for (;;) {
     const { data, error } = await getClient()
-      .from(TABLE).select('wallet, ars').order('id', { ascending: true }).range(from, from + PAGE - 1)
+      .from(TABLE).select('wallet, ars, fecha').order('id', { ascending: true }).range(from, from + PAGE - 1)
     if (error) throw new Error(`sumSalidasByWallet falló: ${error.message} [${error.code}]`)
-    for (const r of data ?? []) out[r.wallet as string] = (out[r.wallet as string] ?? 0) + (Number(r.ars) || 0)
+    for (const r of data ?? []) {
+      const w = r.wallet as string
+      const c = cortes?.[w]
+      if (c && (c.soloInicial || (new Date(r.fecha).getTime() || 0) < c.desde)) continue
+      out[w] = (out[w] ?? 0) + (Number(r.ars) || 0)
+    }
     if (!data || data.length < PAGE) break
     from += PAGE
   }

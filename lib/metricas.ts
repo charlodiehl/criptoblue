@@ -166,13 +166,15 @@ export async function getMetricas(desdeMs: number, hastaMs: number): Promise<Met
   // dentro del período. Los movimientos previos al corte no se contaron (ya están adentro).
   const walletSet = new Set<string>([...WALLETS, ...ingBilletera.keys(), ...salidasBill.keys(), ...reembBill.keys()])
   const billeteras: MetricaBilletera[] = [...walletSet].map(w => {
-    const ingresos = ingBilletera.get(w) ?? 0
-    const comision = ingresos * comisionBilletera(cfg, w) / 100
     // El saldo inicial se suma si la fecha de corte cae dentro del período. El borde
     // superior es INCLUSIVE: si el corte es justo el instante "hasta" (p. ej. hasta =
     // 12/7 00:00 y el corte es 12/7 00:00), el saldo reconciliado ES el de ese momento.
     const corte = cortes[w]
     const saldoInicial = corte && corte.desde >= desdeMs && corte.desde <= hastaMs ? corte.saldoInicial : 0
+    // "Solo saldo inicial": la billetera ignora toda su actividad, igual que en su panel.
+    if (corte?.soloInicial) return { wallet: w, netoArs: saldoInicial }
+    const ingresos = ingBilletera.get(w) ?? 0
+    const comision = ingresos * comisionBilletera(cfg, w) / 100
     return { wallet: w, netoArs: saldoInicial + ingresos - comision - (reembBill.get(w) ?? 0) - (salidasBill.get(w) ?? 0) }
   })
     .filter(b => (WALLETS as readonly string[]).includes(b.wallet) || b.netoArs !== 0)

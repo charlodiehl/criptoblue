@@ -190,14 +190,19 @@ export async function marcarRefundRequestProcesada(id: number, processedBy: stri
 // Total ARS reembolsado por billetera (la billetera devolvió ese dinero → su saldo baja).
 // Paginado: es una suma de dinero sin cota temporal. Si truncara a 1000 filas
 // restaría de menos y el saldo de la billetera quedaría inflado, en silencio.
-export async function sumRefundsByWallet(): Promise<Record<string, number>> {
+// `cortes` opcional: si una billetera tiene corte, se ignoran los reembolsos previos
+// al umbral `desde` (ya están en su saldo inicial), y todos si es soloInicial. Así el
+// total del menú queda consistente con el detalle de la billetera.
+export async function sumRefundsByWallet(
+  cortes?: Record<string, { desde: number; soloInicial?: boolean }>,
+): Promise<Record<string, number>> {
   const out: Record<string, number> = {}
   const PAGE = 1000
   let from = 0
   for (;;) {
     const { data, error } = await getClient()
       .from(REFUNDS)
-      .select('wallet, monto')
+      .select('wallet, monto, created_at')
       .not('wallet', 'is', null)
       .order('id', { ascending: true })
       .range(from, from + PAGE - 1)
@@ -205,6 +210,8 @@ export async function sumRefundsByWallet(): Promise<Record<string, number>> {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     for (const r of (data ?? []) as any[]) {
       const w = r.wallet as string
+      const c = cortes?.[w]
+      if (c && (c.soloInicial || (new Date(r.created_at).getTime() || 0) < c.desde)) continue
       out[w] = (out[w] ?? 0) + (Number(r.monto) || 0)
     }
     if (!data || data.length < PAGE) break

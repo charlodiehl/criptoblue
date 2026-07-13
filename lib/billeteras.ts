@@ -40,13 +40,26 @@ const CORTES_KEY = 'criptoblue:billetera-cortes'
 // que se suma al total. Espejo del BALANCE_CUTOFF de tiendas pero por billetera y
 // configurable en kv (criptoblue:billetera-cortes): { "MF": { desde, saldoInicial } }.
 // Sin corte configurado, la billetera cuenta todo su histórico (comportamiento default).
-export interface CorteBilletera { desde: number; saldoInicial: number } // desde = epoch ms
+//
+// soloInicial: si viene true, la billetera IGNORA toda su actividad (pagos, reembolsos,
+// salidas, de cualquier fecha) y muestra ÚNICAMENTE el saldo inicial en su día de corte.
+// No borra nada; es un modo de "congelar" el saldo de esa billetera.
+//
+// etiqueta: fecha en la que se MUESTRA el saldo inicial ("Saldo inicial al …"), que
+// puede ser distinta de `desde` (el umbral desde el que se cuenta la actividad). Sirve
+// para "resetear la billetera hoy pero etiquetar el saldo con otra fecha": desde = hoy
+// (se ignora todo lo anterior, se cuenta lo nuevo), etiqueta = 1/7 (lo que se ve). Si
+// no viene, la etiqueta es el propio `desde`.
+export interface CorteBilletera { desde: number; saldoInicial: number; soloInicial?: boolean; etiqueta?: number } // desde/etiqueta = epoch ms
 export async function getCortesBilletera(): Promise<Record<string, CorteBilletera>> {
-  const raw = await kvGet<Record<string, { desde: string; saldoInicial: number }>>(CORTES_KEY)
+  const raw = await kvGet<Record<string, { desde: string; saldoInicial: number; soloInicial?: boolean; etiqueta?: string }>>(CORTES_KEY)
   const out: Record<string, CorteBilletera> = {}
   for (const [w, c] of Object.entries(raw ?? {})) {
     const t = new Date(c?.desde).getTime()
-    if (Number.isFinite(t) && Number.isFinite(c?.saldoInicial)) out[w] = { desde: t, saldoInicial: Number(c.saldoInicial) }
+    if (Number.isFinite(t) && Number.isFinite(c?.saldoInicial)) {
+      const et = c?.etiqueta ? new Date(c.etiqueta).getTime() : NaN
+      out[w] = { desde: t, saldoInicial: Number(c.saldoInicial), soloInicial: !!c?.soloInicial, etiqueta: Number.isFinite(et) ? et : undefined }
+    }
   }
   return out
 }
@@ -258,15 +271,17 @@ function ingresosEnCola(hot: any, emparejadosIds: Set<string>, labelSet?: Set<st
 // Total por billetera (para los ítems del menú). Muestra TODAS las billeteras
 // (aunque el saldo sea 0), salvo las ocultas.
 export async function getIngresosBilleteras(): Promise<IngresoBilletera[]> {
-  const [emparejados, hot, ocultas, cfg, reembolsosPorWallet, salidasPorWallet, yaEmparejados, cortes] = await Promise.all([
+  // Los cortes se leen primero para pasarlos a las sumas de reembolsos/salidas, que
+  // así excluyen lo previo al corte (consistente con el detalle de cada billetera).
+  const cortes = await getCortesBilletera()
+  const [emparejados, hot, ocultas, cfg, reembolsosPorWallet, salidasPorWallet, yaEmparejados] = await Promise.all([
     ingresosEmparejados(),
     loadHotState(),
     getBilleterasOcultas(),
     getComisiones(),
-    sumRefundsByWallet(),
-    sumSalidasByWallet(),
+    sumRefundsByWallet(cortes),
+    sumSalidasByWallet(cortes),
     idsEmparejados(),
-    getCortesBilletera(),
   ])
   const cola = ingresosEnCola(hot, yaEmparejados)
 
@@ -276,8 +291,9 @@ export async function getIngresosBilleteras(): Promise<IngresoBilletera[]> {
   const sumar = (wallet: string | null, monto: number, fechaDia: string) => {
     if (!wallet) return
     // Con corte, los ingresos previos ya están en el saldo inicial: no se recuentan.
+    // Con soloInicial, NINGÚN ingreso se cuenta (la billetera muestra solo el inicial).
     const corte = cortes[wallet]
-    if (corte && (new Date(fechaDia).getTime() || 0) < corte.desde) return
+    if (corte && (corte.soloInicial || (new Date(fechaDia).getTime() || 0) < corte.desde)) return
     const cur = acc.get(wallet) ?? { totalArs: 0, cantidad: 0 }
     cur.totalArs += monto
     cur.cantidad += 1
@@ -290,14 +306,16 @@ export async function getIngresosBilleteras(): Promise<IngresoBilletera[]> {
   return [...acc.entries()]
     .filter(([wallet]) => !ocultasSet.has(wallet))
     .map(([wallet, v]) => {
+      const corte = cortes[wallet]
       const pct = comisionBilletera(cfg, wallet)
       const comisionArs = v.totalArs * pct / 100
-      const reembolsosArs = reembolsosPorWallet[wallet] ?? 0
-      const salidasArs = salidasPorWallet[wallet] ?? 0
       // El saldo baja por la comisión (nuestra), los reembolsos (dinero devuelto al
       // cliente) y las salidas (retiros y transferencias hechas desde la billetera).
-      // Con corte se le suma el saldo inicial (neto) previo al corte.
-      const saldoInicial = cortes[wallet]?.saldoInicial ?? 0
+      // Con corte se le suma el saldo inicial (neto) previo al corte. Reembolsos y
+      // salidas ya vienen filtrados por el corte (ver sumRefundsByWallet/…ByWallet).
+      const reembolsosArs = reembolsosPorWallet[wallet] ?? 0
+      const salidasArs = salidasPorWallet[wallet] ?? 0
+      const saldoInicial = corte?.saldoInicial ?? 0
       return {
         wallet,
         totalArs: saldoInicial + v.totalArs - comisionArs - reembolsosArs - salidasArs,
@@ -319,7 +337,8 @@ export async function getDiasConMovimiento(wallet: string): Promise<string[]> {
   const [emparejados, hot, refunds, salidas, yaEmparejados, cortes] = await Promise.all([
     ingresosEmparejados(), loadHotState(), getRefundsDeWallet(wallet), getSalidasDeWallet(wallet), idsEmparejados(), getCortesBilletera(),
   ])
-  const desdeCorte = cortes[wallet]?.desde ?? -Infinity
+  // Con soloInicial ningún día de actividad se lista: solo el día del corte (se agrega abajo).
+  const desdeCorte = cortes[wallet]?.soloInicial ? Infinity : (cortes[wallet]?.desde ?? -Infinity)
 
   // Argentina es UTC-3 fijo: restar 3h y quedarse con la fecha.
   const diaART = (f: string) => {
@@ -340,8 +359,9 @@ export async function getDiasConMovimiento(wallet: string): Promise<string[]> {
   for (const s of salidas) agregar(s.fecha)
   for (const r of refunds) agregar(r.createdAt)
 
-  // El día del corte siempre se lista (aunque no haya pagos): ahí figura el saldo inicial.
-  if (cortes[wallet]) { const d = diaART(new Date(cortes[wallet].desde).toISOString()); if (d) dias.add(d) }
+  // El día de la etiqueta del corte siempre se lista (aunque no haya pagos): ahí
+  // figura el saldo inicial. La etiqueta puede diferir del umbral `desde`.
+  if (cortes[wallet]) { const fa = cortes[wallet].etiqueta ?? cortes[wallet].desde; const d = diaART(new Date(fa).toISOString()); if (d) dias.add(d) }
 
   return [...dias].sort()
 }
@@ -362,10 +382,14 @@ export async function getIngresosBilletera(wallet: string, diaART?: string): Pro
     ingresosEmparejados(), loadHotState(), getRefundsDeWallet(wallet), getSalidasDeWallet(wallet), idsEmparejados(), getCortesBilletera(), getOrdenesReembolsadas(),
   ])
   // Corte: se cuenta desde `desde`; lo previo ya está en el saldo inicial (neto).
+  // Con soloInicial se ignora TODA la actividad (pagos, reembolsos, salidas) de
+  // cualquier fecha: la billetera muestra únicamente el saldo inicial en su día de corte.
   const corte = cortes[wallet]
   const desdeCorte = corte?.desde ?? -Infinity
   const saldoInicial = corte?.saldoInicial ?? 0
-  const enPeriodo = (f: string) => (new Date(f).getTime() || 0) >= desdeCorte
+  // Día en que se MUESTRA el saldo inicial (etiqueta), que puede diferir del umbral.
+  const fechaAjuste = corte?.etiqueta ?? corte?.desde
+  const enPeriodo = corte?.soloInicial ? () => false : (f: string) => (new Date(f).getTime() || 0) >= desdeCorte
 
   const ingresos = [
     ...emparejados.filter(m => labelSet.has(m.source)),
@@ -411,8 +435,9 @@ export async function getIngresosBilletera(wallet: string, diaART?: string): Pro
     salidasDiaArs = salidasDelDia.reduce((s, r) => s + r.ars, 0)
     reembolsosDiaArs = refundsDelDia.reduce((s, r) => s + r.monto, 0)
     comisionDia = totalDia * pct / 100
-    // Si el corte cae en este día, el saldo inicial figura como un ajuste (suma).
-    const corteEnDia = corte != null && corte.desde >= desde && corte.desde < hasta
+    // Si la fecha de etiqueta del corte cae en este día, el saldo inicial figura como
+    // un ajuste (suma). La etiqueta puede diferir del umbral `desde`.
+    const corteEnDia = corte != null && fechaAjuste != null && fechaAjuste >= desde && fechaAjuste < hasta
     ajustesDiaArs = corteEnDia ? saldoInicial : 0
     saldoDia = totalDia - comisionDia - salidasDiaArs - reembolsosDiaArs + ajustesDiaArs
 
@@ -420,7 +445,7 @@ export async function getIngresosBilletera(wallet: string, diaART?: string): Pro
     movimientosDia = [
       // El saldo inicial del corte se muestra como un ajuste (positivo) al inicio del día.
       ...(corteEnDia ? [{
-        clase: 'ajuste' as const, fecha: new Date(corte!.desde).toISOString(),
+        clase: 'ajuste' as const, fecha: new Date(fechaAjuste!).toISOString(),
         concepto: `Saldo inicial al ${dd}/${mm}/${aa}`,
         ars: saldoInicial, moneda: 'ARS' as const, montoOrigen: saldoInicial, cotizacion: null,
       }] : []),
