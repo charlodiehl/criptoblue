@@ -764,10 +764,27 @@ export async function buscarEntradasPorOrden(
 
 export interface RegistroCampos {
   orderNumber?: string
+  orderId?: string | null   // reasociar el pago a otra orden de la tienda
   customerName?: string
   cuit?: string
   storeName?: string
   hidden?: boolean
+}
+
+// Datos mínimos de una entrada (para reasociar: saber la orden vieja y el pago).
+export async function getRegistroBasico(registroId: number): Promise<
+  { orderId: string | null; orderNumber: string | null; mpPaymentId: string | null; storeId: string | null; storeName: string | null } | null
+> {
+  const supabase = getClient()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (supabase.from(TABLE) as any)
+    .select('order_id, order_number, mp_payment_id, store_id, store_name').eq('id', registroId).maybeSingle()
+  if (error) throw new Error(`getRegistroBasico falló: ${error.message} [${error.code}]`)
+  if (!data) return null
+  return {
+    orderId: data.order_id ?? null, orderNumber: data.order_number ?? null,
+    mpPaymentId: data.mp_payment_id ?? null, storeId: data.store_id ?? null, storeName: data.store_name ?? null,
+  }
 }
 
 // ÚNICO camino de edición del registro. Lo usan las dos pantallas —el registro
@@ -804,6 +821,10 @@ export async function updateRegistroPorId(registroId: number, campos: RegistroCa
   if (campos.orderNumber !== undefined) {
     patch.order_number = campos.orderNumber
     if (orderData) orderData.orderNumber = campos.orderNumber
+  }
+  if (campos.orderId !== undefined) {
+    patch.order_id = campos.orderId
+    if (orderData) orderData.orderId = campos.orderId ?? undefined
   }
   if (campos.storeName !== undefined) {
     patch.store_name = campos.storeName

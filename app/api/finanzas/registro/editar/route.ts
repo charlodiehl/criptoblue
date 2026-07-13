@@ -1,24 +1,32 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireUser } from '@/lib/auth/server'
-import { getStores } from '@/lib/storage'
-import { buscarEntradasPorOrden, updateRegistroPorId } from '@/lib/registro'
+import { getStores, loadHotState, saveHotState } from '@/lib/storage'
+import { updateRegistroPorId, getRegistroBasico } from '@/lib/registro'
+import { buscarOrdenEnTienda } from '@/lib/buscar-orden'
+import { markOrderAsPaid as markTNPaid } from '@/lib/tiendanube'
+import { markOrderAsPaid as markShopifyPaid } from '@/lib/shopify'
 import { actualizarCotizacionDeIngreso } from '@/lib/balance'
 import { audit } from '@/lib/audit'
 
 // POST /api/finanzas/registro/editar
 //   { registroId, storeId, cotizacion?, cuit?, nombre?, orderNumber? }
 //
-// Los cuatro campos que el admin puede corregir de una orden ya registrada. No se
-// tocan monto ni fecha: eso movería el saldo por la puerta de atrás.
+// Campos que el admin puede corregir de una orden ya registrada. No se tocan monto
+// ni fecha: eso movería el saldo por la puerta de atrás.
 //
-// La ÚNICA condición que bloquea es que el número de orden sea exactamente igual al
-// de otra entrada de esa tienda (409). Que la orden no exista, o esté pendiente o
-// cancelada, o que haya un pago parcial con otro sufijo, son avisos que el admin ya
-// vio al validar: acá no se repiten como errores.
+// La edición NO bloquea por ningún motivo (a veces se marca mal y hay que corregir).
 //
-// El saldo solo cambia si cambia la cotización: se recalcula el USDT del ingreso
-// (el ARS queda igual). Eso pasa DESPUÉS de guardar los campos, y si falla se
-// informa: los campos ya quedaron guardados y el saldo no cambió.
+// Al cambiar el número de orden, se REASOCIA el pago:
+//   • Se guarda el nuevo número + order_id en el registro.
+//   • Se marca la orden NUEVA como pagada en la tienda (best-effort, igual que el
+//     emparejamiento normal: si TN responde 403/422 solo queda una nota).
+//   • La orden VIEJA se des-asocia en la app (el match reciente pasa a la nueva). Su
+//     estado en Tiendanube NO se toca —TN no permite "despagar"—: se corrige a mano.
+//     Como quedó pagada, igual sale sola de la app.
+//
+// El saldo solo cambia si cambia la cotización: se recalcula el USDT del ingreso.
+const PAGADA = ['paid', 'authorized']
+
 export async function POST(req: NextRequest) {
   try {
     const auth = await requireUser('admin')
@@ -47,21 +55,59 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'El número de orden no puede quedar vacío' }, { status: 400 })
     }
 
-    // Lo único que bloquea. Un sufijo distinto ("77349" vs "77349 (1)") NO es un
-    // duplicado: es un pago que vino en dos partes.
+    // ── Reasociación de orden (solo si el número cambió) ──────────────────────────
+    let mensajeOrden: string | null = null
+    let orderId: string | null | undefined = undefined   // se patchea solo si hay orden nueva
+
     if (orderNumber !== undefined) {
-      const store = (await getStores())[storeId]
-      if (!store) return NextResponse.json({ error: 'Tienda no encontrada' }, { status: 404 })
-      const { exactas } = await buscarEntradasPorOrden(storeId, store.storeName, orderNumber, registroId)
-      if (exactas.length) {
-        return NextResponse.json({
-          error: `La orden #${orderNumber} ya está en otra entrada del registro de esta tienda.`,
-          duplicadoExacto: exactas[0],
-        }, { status: 409 })
+      const basico = await getRegistroBasico(registroId)
+      if (!basico) return NextResponse.json({ error: 'La entrada del registro no existe' }, { status: 404 })
+
+      if (String(basico.orderNumber ?? '') !== orderNumber) {
+        const store = (await getStores())[storeId]
+        if (!store) return NextResponse.json({ error: 'Tienda no encontrada' }, { status: 404 })
+
+        // Buscar la orden NUEVA en la tienda (id + estado). Si falla, se guarda igual.
+        let nueva = null
+        try { nueva = await buscarOrdenEnTienda(store, orderNumber) } catch { /* se guarda sin reasociar */ }
+        orderId = nueva?.order.orderId ?? null
+
+        // Marcar la orden NUEVA como pagada (si existe y no lo estaba).
+        let marcado: { success: boolean; method?: string; error?: string } | null = null
+        if (nueva && orderId && !PAGADA.includes(String(nueva.paymentStatus))) {
+          marcado = (store.platform ?? 'tiendanube') === 'shopify'
+            ? await markShopifyPaid(storeId, store.accessToken, orderId, nueva.order.total)
+            : await markTNPaid(storeId, store.accessToken, orderId)
+        }
+
+        // Des-asociar la VIEJA en la app: el match reciente del pago apunta a la nueva.
+        if (basico.mpPaymentId) {
+          const hot = await loadHotState()
+          const rm = (hot.recentMatches ?? []).find(m => m.mpPaymentId === basico.mpPaymentId)
+          if (rm) {
+            rm.orderId = orderId ?? rm.orderId
+            rm.storeId = storeId
+            if (nueva) rm.order = nueva.order
+            await saveHotState(hot)
+          }
+        }
+
+        const partes = [`Pago reasociado a la orden #${orderNumber}`]
+        if (marcado) {
+          partes.push(marcado.success
+            ? (marcado.method === 'note' ? 'la nueva no se pudo marcar en TN (quedó una nota)' : 'orden nueva marcada pagada')
+            : `no se pudo marcar la orden nueva: ${marcado.error || 'error de Tiendanube'}`)
+        } else if (nueva) {
+          partes.push('la orden nueva ya estaba pagada')
+        } else {
+          partes.push('la orden nueva no se encontró en la tienda (se guardó igual)')
+        }
+        if (basico.orderNumber) partes.push(`orden vieja #${basico.orderNumber} des-asociada — corregí su estado en Tiendanube a mano`)
+        mensajeOrden = partes.join(' · ')
       }
     }
 
-    const ok = await updateRegistroPorId(registroId, { orderNumber, customerName: nombre, cuit })
+    const ok = await updateRegistroPorId(registroId, { orderNumber, orderId, customerName: nombre, cuit })
     if (!ok) return NextResponse.json({ error: 'La entrada del registro no existe' }, { status: 404 })
 
     let movimiento = null
@@ -91,6 +137,7 @@ export async function POST(req: NextRequest) {
       usdt: movimiento?.usdt ?? null,
       usdtRate: movimiento?.usdtRate ?? null,
       avisoSaldo,
+      mensajeOrden,
     })
   } catch (err) {
     return NextResponse.json({ error: err instanceof Error ? err.message : String(err) }, { status: 500 })

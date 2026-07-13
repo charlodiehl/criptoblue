@@ -90,12 +90,13 @@ export default function EditarRegistroModal({
     return () => { if (debounce.current) clearTimeout(debounce.current) }
   }, [orderNumber, validar])
 
-  const bloqueado = !!validacion?.duplicadoExacto
+  // La edición NUNCA bloquea: a veces se marca mal y hay que corregir el número de
+  // orden. Los avisos (duplicado, orden inexistente, estado) son informativos.
   const cotizacionCambio = cotizacion !== (fila.usdtRate != null ? String(fila.usdtRate) : '')
   const usdtPrevisto = Number(cotizacion) > 0 ? fila.monto / Number(cotizacion) : null
 
   async function guardar() {
-    if (bloqueado || guardando) return
+    if (guardando) return
     setGuardando(true)
     try {
       const body: Record<string, unknown> = { registroId: fila.registroId, storeId }
@@ -109,7 +110,8 @@ export default function EditarRegistroModal({
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Error')
-      notify(data.avisoSaldo || 'Registro actualizado ✓', data.avisoSaldo ? 'info' : 'success')
+      const msg = [data.mensajeOrden, data.avisoSaldo].filter(Boolean).join(' — ')
+      notify(msg || 'Registro actualizado ✓', msg ? 'info' : 'success')
       onGuardado()
       onCerrar()
     } catch (e) {
@@ -167,7 +169,7 @@ export default function EditarRegistroModal({
             style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(148,163,184,0.15)', color: 'rgba(148,163,184,0.8)' }}>
             Cancelar
           </button>
-          <button onClick={guardar} disabled={bloqueado || guardando}
+          <button onClick={guardar} disabled={guardando}
             className="rounded-lg px-4 py-2 text-xs font-bold text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed"
             style={{ background: 'linear-gradient(135deg, #00d4ff, #0070f3)' }}>
             {guardando ? 'Guardando…' : 'Guardar'}
@@ -184,9 +186,9 @@ function Avisos({ v }: { v: Validacion }) {
 
   if (v.duplicadoExacto) {
     cajas.push({
-      color: '#f87171', borde: 'rgba(248,113,113,0.3)',
-      texto: <>Ese número ya está en otra entrada del registro de esta tienda
-        {v.duplicadoExacto.cliente ? ` (${v.duplicadoExacto.cliente})` : ''}. <strong>No se puede guardar.</strong></>,
+      color: '#fbbf24', borde: 'rgba(245,158,11,0.3)',
+      texto: <>Ese número ya figura en otra entrada del registro de esta tienda
+        {v.duplicadoExacto.cliente ? ` (${v.duplicadoExacto.cliente})` : ''}. Podés guardar igual.</>,
     })
   }
   // El sufijo "(n)" no existe en la tienda: se consultó la orden base.
