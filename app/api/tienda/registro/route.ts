@@ -43,8 +43,15 @@ export async function GET(req: NextRequest) {
         nombre: entry.payment?.nombrePagador || entry.order?.customerName || entry.customerName || '',
         orderNumber: entry.orderNumber || entry.order?.orderNumber || '',
         billetera: billeteraLabel(entry.payment?.source),
+        // false = la orden no tiene movimiento de balance (se le quitó a propósito para
+        // que no duplique el saldo inicial). La UI muestra "No suma", no "Pendiente".
+        enSaldo: !!mov,
         usdtRate: mov?.usdtRate ?? null,   // null = cotización pendiente
-        usdt: mov?.usdt ?? null,           // ya SIGNADO (ingreso → positivo)
+        // Equivalente USDT NETO de esta orden: el bruto (mov.usdt) menos la comisión
+        // en USDT, con la MISMA fórmula grossed-up que usa el saldo (lib/balance.ts).
+        // Así la suma de la columna cuadra con el "Saldo en USDT". null si la
+        // cotización está pendiente. mov.usdt viene SIGNADO (ingreso → positivo).
+        usdt: mov?.usdt != null ? mov.usdt - comisionTiendaSobre(mov.usdt, comisionPct) : null,
       }
     })
 

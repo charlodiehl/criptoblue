@@ -61,6 +61,7 @@ interface Row {
   nombre: string
   orderNumber: string
   billetera: string
+  enSaldo: boolean       // false = sin movimiento de balance → no aporta al saldo ("No suma")
   usdtRate: number | null
   usdt: number | null
 }
@@ -103,7 +104,7 @@ export default function BalanceTab({ storeId, qs, notify, admin = false, refresh
     { key: 'monto', label: 'Monto (ARS)' },
     { key: 'comision', label: `Comisión (${fmtPct(balance?.comisionPct ?? 0)}%)` },
     { key: 'usdtRate', label: 'Cotización USDT' },
-    { key: 'usdt', label: 'Equivalente USDT' },
+    { key: 'usdt', label: 'Equivalente USDT (Neto)' },
     { key: 'cuit', label: 'CUIT/CUIL/DNI' },
     { key: 'nombre', label: 'Nombre y apellido' },
     { key: 'orderNumber', label: 'N° orden' },
@@ -349,11 +350,11 @@ export default function BalanceTab({ storeId, qs, notify, admin = false, refresh
                     <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: 'rgba(226,232,240,0.85)' }}>{fmtDate(r.fecha)}</td>
                     <td className="px-3 py-2.5 whitespace-nowrap font-medium" style={{ color: '#00ff88' }}>{ARS.format(r.monto)}</td>
                     <td className="px-3 py-2.5 whitespace-nowrap font-medium" style={{ color: '#f87171' }}>−{ARS.format(r.comision)}</td>
-                    <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: r.usdtRate == null ? 'rgba(245,158,11,0.9)' : 'rgba(226,232,240,0.7)' }}>
-                      {r.usdtRate == null ? 'Pendiente' : ARS.format(r.usdtRate)}
+                    <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: !r.enSaldo ? 'rgba(148,163,184,0.55)' : r.usdtRate == null ? 'rgba(245,158,11,0.9)' : 'rgba(226,232,240,0.7)' }}>
+                      {!r.enSaldo ? 'No suma' : r.usdtRate == null ? 'Pendiente' : ARS.format(r.usdtRate)}
                     </td>
-                    <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: r.usdt == null ? 'rgba(148,163,184,0.4)' : '#00d4ff' }}>
-                      {r.usdt == null ? '—' : fmtUsdt(r.usdt)}
+                    <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: !r.enSaldo ? 'rgba(148,163,184,0.55)' : r.usdt == null ? 'rgba(148,163,184,0.4)' : '#00d4ff' }}>
+                      {!r.enSaldo ? 'No suma' : r.usdt == null ? '—' : fmtUsdt(r.usdt)}
                     </td>
                     <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: 'rgba(226,232,240,0.7)' }}>{r.cuit || '—'}</td>
                     <td className="px-3 py-2.5" style={{ color: 'rgba(226,232,240,0.85)' }}>{r.nombre || '—'}</td>
