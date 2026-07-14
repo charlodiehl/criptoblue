@@ -269,7 +269,7 @@ export default function Dashboard() {
   }, [tab, fetchOrders, fetchUnmatched, fetchLog])
 
   const handleDeleteStore = async (storeId: string, storeName: string) => {
-    if (!confirm(`¿Eliminar "${storeName}"? Se borrarán todas sus órdenes del registro.`)) return
+    if (!confirm(`¿Desconectar "${storeName}"? Se quita de la lista y de gestión financiera. NO se borra el registro general ni el saldo: se conservan y vuelven si la reconectás.`)) return
     setDeletingStore(storeId)
     try {
       const res = await fetch('/api/stores', {
