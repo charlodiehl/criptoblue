@@ -229,14 +229,15 @@ export default function SolicitarTab({ qs, notify }: Props) {
                     <span className="text-sm font-bold" style={{ color: '#00d4ff' }}>{montoDeSolicitud(s)}</span>
                   </div>
                   <span className="text-[11px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wide"
-                    style={s.estado === 'pagada'
-                      ? { background: 'rgba(0,255,136,0.12)', border: '1px solid rgba(0,255,136,0.3)', color: '#00ff88' }
+                    style={
+                      s.estado === 'pagada' ? { background: 'rgba(0,255,136,0.12)', border: '1px solid rgba(0,255,136,0.3)', color: '#00ff88' }
+                      : s.estado === 'rechazada' ? { background: 'rgba(248,113,113,0.12)', border: '1px solid rgba(248,113,113,0.3)', color: '#f87171' }
                       : { background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.3)', color: '#fbbf24' }}>
-                    {s.estado === 'pagada' ? 'Pagada' : 'Pendiente'}
+                    {s.estado === 'pagada' ? 'Pagada' : s.estado === 'rechazada' ? 'Rechazada' : 'Pendiente'}
                   </span>
                 </div>
                 <div className="text-[11px] mt-1.5" style={{ color: 'rgba(148,163,184,0.5)' }}>
-                  Solicitada: {fmtDate(s.createdAt)}{s.paidAt ? ` · Pagada: ${fmtDate(s.paidAt)}` : ''}
+                  Solicitada: {fmtDate(s.createdAt)}{s.paidAt ? ` · ${s.estado === 'rechazada' ? 'Rechazada' : 'Pagada'}: ${fmtDate(s.paidAt)}` : ''}
                 </div>
                 {s.estado === 'pagada' && s.descuento && (
                   <div className="text-[11px] mt-2 px-3 py-2 rounded-lg"

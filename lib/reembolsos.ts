@@ -185,6 +185,20 @@ export async function marcarRefundRequestProcesada(id: number, processedBy: stri
   return (data?.length ?? 0) > 0
 }
 
+// Rechaza (aborta) una solicitud de reembolso pendiente: el admin decide no
+// reembolsar. CLAIM condicional (solo si sigue 'pendiente'). No ejecuta ningún
+// reembolso ni toca saldos. La tienda la ve como "Rechazada" en su historial.
+export async function marcarRefundRequestRechazada(id: number, processedBy: string): Promise<boolean> {
+  const { data, error } = await getClient()
+    .from(REQUESTS)
+    .update({ estado: 'rechazada', processed_at: new Date().toISOString(), processed_by: processedBy })
+    .eq('id', id)
+    .eq('estado', 'pendiente')
+    .select('id')
+  if (error) throw new Error(`marcarRefundRequestRechazada falló: ${error.message} [${error.code}]`)
+  return (data?.length ?? 0) > 0
+}
+
 // ─── Reembolsos por billetera (para restarlos del saldo de la billetera) ──────
 
 // Total ARS reembolsado por billetera (la billetera devolvió ese dinero → su saldo baja).

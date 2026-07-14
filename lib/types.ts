@@ -179,7 +179,7 @@ export interface AppUser {
 }
 
 export type TransferTipo = 'ars' | 'usd' | 'usdt' | 'usd_billete' | 'ars_billete'
-export type TransferEstado = 'pendiente' | 'pagada'
+export type TransferEstado = 'pendiente' | 'pagada' | 'rechazada'
 
 // Moneda con la que el admin descuenta el saldo al pagar una solicitud
 export type DescuentoMoneda = 'USDT' | 'USD' | 'ARS' | 'USD_BILLETE' | 'ARS_BILLETE'

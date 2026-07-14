@@ -38,6 +38,7 @@ export default function AdminGeneralTab({ notify, onSolicitudPagada, refreshKey 
   const [loading, setLoading] = useState(true)
   const [modal, setModal] = useState<SolicitudConTienda | null>(null)
   const [okId, setOkId] = useState<number | null>(null)  // reclamo al que se le está dando OK
+  const [abortandoId, setAbortandoId] = useState<number | null>(null)  // solicitud que se está abortando
 
   const fetchAll = useCallback(async () => {
     try {
@@ -68,6 +69,28 @@ export default function AdminGeneralTab({ notify, onSolicitudPagada, refreshKey 
     setModal(null)
     fetchAll()
     onSolicitudPagada()  // refresca los balances de la franja superior
+  }
+
+  // Abortar una solicitud de transferencia: queda rechazada (la tienda la ve así).
+  // No descuenta saldo. Pide confirmación porque la tienda lo ve en su historial.
+  async function abortarSolicitud(s: SolicitudConTienda) {
+    if (abortandoId != null) return
+    if (!window.confirm(`¿Abortar la solicitud de ${s.storeName}? Quedará rechazada y la tienda la verá como "Rechazada" en su historial. No se descuenta ningún saldo.`)) return
+    setAbortandoId(s.id)
+    try {
+      const res = await fetch('/api/finanzas/abortar-solicitud', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: s.id }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error || 'Error')
+      setSolicitudes(list => list.filter(x => x.id !== s.id))  // sacarla de las pendientes
+      notify('Solicitud abortada. La tienda la verá como rechazada.', 'success')
+    } catch (e) {
+      notify(`No se pudo abortar: ${e instanceof Error ? e.message : e}`, 'error')
+    } finally {
+      setAbortandoId(null)
+    }
   }
 
   // El admin da OK a un reclamo: lo saca del feed (no afecta el pago ni el saldo).
@@ -121,11 +144,19 @@ export default function AdminGeneralTab({ notify, onSolicitudPagada, refreshKey 
                   <span className="font-semibold">{TIPO_LABEL[s.tipo]}</span>
                   <span className="text-[11px]" style={{ color: 'rgba(148,163,184,0.5)' }}>· {fmtDate(s.createdAt)}</span>
                 </div>
-                <button onClick={() => setModal(s)}
-                  className="px-4 py-2 rounded-xl text-xs font-bold transition-all"
-                  style={{ background: 'rgba(0,212,255,0.1)', border: '1px solid rgba(0,212,255,0.3)', color: '#00d4ff', cursor: 'pointer' }}>
-                  Ver detalles
-                </button>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => setModal(s)}
+                    className="px-4 py-2 rounded-xl text-xs font-bold transition-all"
+                    style={{ background: 'rgba(0,212,255,0.1)', border: '1px solid rgba(0,212,255,0.3)', color: '#00d4ff', cursor: 'pointer' }}>
+                    Ver detalles
+                  </button>
+                  <button onClick={() => abortarSolicitud(s)} disabled={abortandoId === s.id}
+                    title="Abortar: la solicitud queda rechazada. La tienda la ve como rechazada. No descuenta saldo."
+                    className="px-4 py-2 rounded-xl text-xs font-bold transition-all disabled:opacity-50"
+                    style={{ background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.35)', color: '#f87171', cursor: abortandoId === s.id ? 'not-allowed' : 'pointer' }}>
+                    {abortandoId === s.id ? 'Abortando…' : 'Abortar'}
+                  </button>
+                </div>
               </div>
             ))}
           </div>

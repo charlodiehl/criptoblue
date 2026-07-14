@@ -158,6 +158,21 @@ export async function marcarPagada(
   return (data?.length ?? 0) > 0
 }
 
+// Aborta (rechaza) una solicitud pendiente: el admin decide no pagarla. CLAIM
+// condicional (solo si sigue 'pendiente') → true si ESTE llamado la abortó. NO
+// toca saldos (la solicitud nunca se pagó). Reutiliza paid_at/paid_by como
+// "resuelta el / por" para mostrar la fecha de rechazo en el historial.
+export async function marcarRechazada(id: number, rechazadaPor: string): Promise<boolean> {
+  const { data, error } = await getClient()
+    .from(TABLE)
+    .update({ estado: 'rechazada', paid_at: new Date().toISOString(), paid_by: rechazadaPor })
+    .eq('id', id)
+    .eq('estado', 'pendiente')
+    .select('id')
+  if (error) throw new Error(`marcarRechazada falló: ${error.message} [${error.code}]`)
+  return (data?.length ?? 0) > 0
+}
+
 // Sube un comprobante al bucket privado 'comprobantes'. Devuelve el path guardado.
 export async function subirComprobante(
   transferId: number, filename: string, bytes: ArrayBuffer, contentType: string,

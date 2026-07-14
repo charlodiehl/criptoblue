@@ -43,6 +43,8 @@ interface CtxValue {
   tiendas: { storeId: string; storeName: string }[]
   solicitudes: SolicitudConTienda[]
   procesarSolicitud: (s: SolicitudConTienda) => void
+  abortarSolicitud: (s: SolicitudConTienda) => void
+  abortandoId: number | null
   open: boolean; setOpen: React.Dispatch<React.SetStateAction<boolean>>
   storeId: string; setStoreId: (v: string) => void
   orden: string; setOrden: (v: string) => void
@@ -90,6 +92,7 @@ export function ReembolsosProvider({ notify, onReembolsado, children }: Provider
   const [compKey, setCompKey] = useState(0)
   const [ejecutando, setEjecutando] = useState(false)
   const [requestId, setRequestId] = useState<number | null>(null)
+  const [abortandoId, setAbortandoId] = useState<number | null>(null)
   const toolRef = useRef<HTMLDivElement | null>(null)
 
   const fetchTiendas = useCallback(async () => {
@@ -181,8 +184,29 @@ export function ReembolsosProvider({ notify, onReembolsado, children }: Provider
     setTimeout(() => toolRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60)
   }
 
+  // Rechazar una solicitud de reembolso: queda "Rechazada" (la tienda la ve así).
+  // No ejecuta ningún reembolso ni toca saldos. Pide confirmación.
+  async function abortarSolicitud(s: SolicitudConTienda) {
+    if (abortandoId != null) return
+    if (!window.confirm(`¿Rechazar la solicitud de reembolso de ${s.storeName} (orden #${s.orderNumber})? La tienda la verá como "Rechazada". No se ejecuta ningún reembolso ni se descuenta saldo.`)) return
+    setAbortandoId(s.id)
+    try {
+      const res = await fetch('/api/finanzas/rechazar-reembolso', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: s.id }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error || 'Error')
+      notify('Solicitud de reembolso rechazada. La tienda la verá como rechazada.', 'success')
+      fetchSolicitudes()
+    } catch (e) {
+      notify(e instanceof Error ? e.message : 'No se pudo rechazar la solicitud', 'error')
+    } finally {
+      setAbortandoId(null)
+    }
+  }
+
   const value: CtxValue = {
-    notify, tiendas, solicitudes, procesarSolicitud,
+    notify, tiendas, solicitudes, procesarSolicitud, abortarSolicitud, abortandoId,
     open, setOpen, storeId, setStoreId, orden, setOrden, buscando, resultado,
     monto, setMonto, cotizacion, setCotizacion, comprobantePath, setComprobantePath, pagador, setPagador, compKey,
     ejecutando, requestId, toolRef, buscar, ejecutar, resetForm,
@@ -193,7 +217,7 @@ export function ReembolsosProvider({ notify, onReembolsado, children }: Provider
 
 // ─── Lista de solicitudes de reembolso de las tiendas ─────────────────────────
 export function ReembolsosSolicitados() {
-  const { solicitudes, procesarSolicitud } = useReembolsos()
+  const { solicitudes, procesarSolicitud, abortarSolicitud, abortandoId } = useReembolsos()
   return (
     <section>
       <h3 className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: 'rgba(0,212,255,0.8)' }}>
@@ -218,11 +242,19 @@ export function ReembolsosSolicitados() {
                   {s.montoSolicitado != null && <span style={{ color: '#00ff88' }}>· {ARS.format(s.montoSolicitado)}</span>}
                   <span className="text-[11px]" style={{ color: 'rgba(148,163,184,0.5)' }}>· {fmtDate(s.createdAt)}</span>
                 </div>
-                <button onClick={() => procesarSolicitud(s)}
-                  className="px-4 py-2 rounded-xl text-xs font-bold transition-all"
-                  style={{ background: 'rgba(0,212,255,0.1)', border: '1px solid rgba(0,212,255,0.3)', color: '#00d4ff', cursor: 'pointer' }}>
-                  Procesar
-                </button>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => procesarSolicitud(s)}
+                    className="px-4 py-2 rounded-xl text-xs font-bold transition-all"
+                    style={{ background: 'rgba(0,212,255,0.1)', border: '1px solid rgba(0,212,255,0.3)', color: '#00d4ff', cursor: 'pointer' }}>
+                    Procesar
+                  </button>
+                  <button onClick={() => abortarSolicitud(s)} disabled={abortandoId === s.id}
+                    title="Abortar: la solicitud queda rechazada. La tienda la ve como rechazada. No ejecuta el reembolso."
+                    className="px-4 py-2 rounded-xl text-xs font-bold transition-all disabled:opacity-50"
+                    style={{ background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.35)', color: '#f87171', cursor: abortandoId === s.id ? 'not-allowed' : 'pointer' }}>
+                    {abortandoId === s.id ? 'Abortando…' : 'Abortar'}
+                  </button>
+                </div>
               </motion.div>
             ))}
           </AnimatePresence>
