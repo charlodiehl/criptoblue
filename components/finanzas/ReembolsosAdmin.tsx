@@ -239,7 +239,9 @@ export function ReembolsosSolicitados() {
                   <span className="font-bold" style={{ color: '#00d4ff' }}>{s.storeName}</span>
                   <span>pide reembolsar la orden</span>
                   <span className="font-semibold">#{s.orderNumber}</span>
-                  {s.montoSolicitado != null && <span style={{ color: '#00ff88' }}>· {ARS.format(s.montoSolicitado)}</span>}
+                  <span className="font-bold" style={{ color: s.montoSolicitado != null ? '#00ff88' : 'rgba(148,163,184,0.6)' }}>
+                    · {s.montoSolicitado != null ? ARS.format(s.montoSolicitado) : 'monto a definir'}
+                  </span>
                   <span className="text-[11px]" style={{ color: 'rgba(148,163,184,0.5)' }}>· {fmtDate(s.createdAt)}</span>
                 </div>
                 <div className="flex items-center gap-2">

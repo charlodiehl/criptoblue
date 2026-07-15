@@ -24,6 +24,20 @@ const TIPO_LABEL: Record<TransferTipo, string> = {
   ars_billete: 'recibir ARS billete',
 }
 
+// Monto solicitado de una transferencia, con su moneda (según el tipo y sus datos).
+function montoSolicitud(s: SolicitudConTienda): string {
+  const d = s.datos
+  const n = (v: unknown) => Number(v).toLocaleString('es-AR', { maximumFractionDigits: 2 })
+  switch (s.tipo) {
+    case 'ars': return `${n(d.montoArs)} ARS`
+    case 'usd': return `${n(d.montoUsd)} USD`
+    case 'usdt': return `${n(d.montoUsdt)} USDT`
+    case 'usd_billete': return `${n(d.monto)} USD`
+    case 'ars_billete': return `${n(d.monto)} ARS`
+    default: return '—'
+  }
+}
+
 interface Props {
   notify: (msg: string, type?: Toast['type']) => void
   onSolicitudPagada: () => void
@@ -142,6 +156,8 @@ export default function AdminGeneralTab({ notify, onSolicitudPagada, refreshKey 
                   <span className="font-bold" style={{ color: '#00d4ff' }}>{s.storeName}</span>
                   <span>solicitó</span>
                   <span className="font-semibold">{TIPO_LABEL[s.tipo]}</span>
+                  <span>por</span>
+                  <span className="font-bold" style={{ color: '#00ff88' }}>{montoSolicitud(s)}</span>
                   <span className="text-[11px]" style={{ color: 'rgba(148,163,184,0.5)' }}>· {fmtDate(s.createdAt)}</span>
                 </div>
                 <div className="flex items-center gap-2">
@@ -185,7 +201,7 @@ export default function AdminGeneralTab({ notify, onSolicitudPagada, refreshKey 
                   <span className="font-semibold" style={{ color: '#00d4ff' }}>{r.storeName}</span>
                   <span>se adjudicó un pago de</span>
                   <span className="font-bold" style={{ color: '#00ff88' }}>{ARS.format(r.amount)}</span>
-                  {r.orderNumber && <span>· orden <span className="font-semibold" style={{ color: 'rgba(226,232,240,0.9)' }}>#{r.orderNumber}</span></span>}
+                  {r.nombrePagador && <span>de <span className="font-semibold" style={{ color: 'rgba(226,232,240,0.9)' }}>{r.nombrePagador}</span></span>}
                   <span className="text-[11px] ml-auto" style={{ color: 'rgba(148,163,184,0.45)' }}>adjudicado {fmtDate(r.timestamp)}</span>
                   <button onClick={() => darOk(r.id)} disabled={okId === r.id}
                     title="Dar OK: la tienda reclamó un pago correcto. Lo saca de la lista."
@@ -197,6 +213,7 @@ export default function AdminGeneralTab({ notify, onSolicitudPagada, refreshKey 
                 {/* Detalle completo del pago emparejado */}
                 <div className="mt-2.5 pt-2.5 grid gap-x-6 gap-y-1.5"
                   style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))', borderTop: '1px solid rgba(148,163,184,0.08)' }}>
+                  {r.orderNumber && <Detalle label="N° de orden contra el que se adjudicó" value={`#${r.orderNumber}`} />}
                   <Detalle label="Pagador" value={r.nombrePagador} />
                   {r.cuit && <Detalle label="CUIT/CUIL/DNI" value={r.cuit} />}
                   {r.email && <Detalle label="Email" value={r.email} />}
