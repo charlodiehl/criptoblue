@@ -6,6 +6,7 @@ import { ARS, fmtDate } from '@/lib/utils'
 import AnimatedNumber, { NumberSkeleton } from '@/components/AnimatedNumber'
 import SelectorDia from '@/components/SelectorDia'
 import EditarRegistroModal, { type FilaEditable } from './EditarRegistroModal'
+import EditarMovimientoModal, { type MovimientoEditable } from '@/components/EditarMovimientoModal'
 import type { Toast } from './TiendaPortal'
 
 interface Props {
@@ -20,10 +21,11 @@ interface Props {
 
 interface Movimiento {
   id: number
-  tipo: 'egreso_transferencia' | 'reembolso' | 'ajuste'
+  tipo: 'egreso_transferencia' | 'reembolso' | 'ajuste' | 'ingreso_manual'
   fecha: string
   ars: number
   usdt: number | null
+  usdtRate: number | null
   descripcion: string | null
   // Detalle de la transferencia: monto que ingresó el admin (en su moneda) y comprobante.
   montoOriginal: number | null
@@ -81,6 +83,7 @@ type SortKey = 'fecha' | 'monto' | 'comision' | 'usdtRate' | 'usdt' | 'cuit' | '
 
 export default function BalanceTab({ storeId, qs, notify, admin = false, refreshKey = 0 }: Props) {
   const [editando, setEditando] = useState<FilaEditable | null>(null)
+  const [editandoMov, setEditandoMov] = useState<MovimientoEditable | null>(null)
   const [balance, setBalance] = useState<Balance | null>(null)
   const [fecha, setFecha] = useState(hoyART())
   const [search, setSearch] = useState('')
@@ -392,10 +395,11 @@ export default function BalanceTab({ storeId, qs, notify, admin = false, refresh
             <table className="w-full text-sm" style={{ borderCollapse: 'collapse', minWidth: '640px' }}>
               <thead>
                 <tr style={{ borderBottom: '1px solid rgba(248,113,113,0.15)' }}>
-                  {['Fecha y hora', 'Concepto', 'Monto (ARS)', 'Monto (USDT)', 'Tipo', 'Comprobante'].map(h => (
+                  {['Fecha y hora', 'Concepto', 'Monto (ARS)', 'Monto (USDT)', 'Cotización', 'Tipo', 'Comprobante'].map(h => (
                     <th key={h} className="text-left px-3 py-3 text-[11px] font-semibold uppercase tracking-wider whitespace-nowrap"
                       style={{ color: 'rgba(248,113,113,0.7)' }}>{h}</th>
                   ))}
+                  {admin && <th className="px-3 py-3" />}
                 </tr>
               </thead>
               <tbody>
@@ -423,6 +427,9 @@ export default function BalanceTab({ storeId, qs, notify, admin = false, refresh
                       <td className="px-3 py-2.5 whitespace-nowrap font-medium" style={{ color: positivo ? '#00ff88' : '#f87171' }}>
                         {m.usdt == null ? '—' : `${positivo ? '+' : '−'}${fmtUsdt(Math.abs(m.usdt))}`}
                       </td>
+                      <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: m.usdtRate == null ? 'rgba(148,163,184,0.4)' : 'rgba(226,232,240,0.7)' }}>
+                        {m.usdtRate == null ? '—' : ARS.format(m.usdtRate)}
+                      </td>
                       <td className="px-3 py-2.5 whitespace-nowrap">
                         <span className="text-[11px] px-2 py-0.5 rounded-full"
                           style={positivo ? { background: 'rgba(0,255,136,0.1)', color: '#00ff88' } : { background: 'rgba(248,113,113,0.1)', color: '#f87171' }}>
@@ -445,6 +452,19 @@ export default function BalanceTab({ storeId, qs, notify, admin = false, refresh
                           <span style={{ color: 'rgba(148,163,184,0.4)' }}>—</span>
                         )}
                       </td>
+                      {admin && (
+                        <td className="px-3 py-2.5 whitespace-nowrap text-right">
+                          <button onClick={() => setEditandoMov({
+                            fuente: 'balance', id: m.id, fechaISO: m.fecha, concepto: m.descripcion || '',
+                            montoArs: Math.abs(m.ars) || 0, tasa: m.usdtRate,
+                            puedeMontoTasa: m.tipo !== 'egreso_transferencia', tasaLabel: 'ARS/USDT',
+                          })}
+                            className="rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-all"
+                            style={{ background: 'rgba(0,212,255,0.08)', border: '1px solid rgba(0,212,255,0.3)', color: '#00d4ff' }}>
+                            Editar
+                          </button>
+                        </td>
+                      )}
                     </motion.tr>
                   )
                 })}
@@ -452,6 +472,12 @@ export default function BalanceTab({ storeId, qs, notify, admin = false, refresh
             </table>
           </div>
         </div>
+      )}
+
+      {editandoMov && (
+        <EditarMovimientoModal mov={editandoMov} notify={notify}
+          onCerrar={() => setEditandoMov(null)}
+          onGuardado={() => { fetchRows(); fetchBalance() }} />
       )}
 
       {editando && (

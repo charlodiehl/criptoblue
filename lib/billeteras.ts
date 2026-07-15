@@ -105,6 +105,9 @@ export interface MovimientoDia {
   cotizacion: number | null               // ARS por unidad; null si ya era ARS
   ars: number                             // retiro/reembolso: sale (resta). ajuste: suma.
   refundId?: number                       // reembolso con comprobante → id para descargarlo
+  salidaId?: number                       // id del wallet_movement (retiro/ajuste) → editable
+  reembolsoId?: number                    // id del refund → editable
+  tasaEdit?: number | null                // cotización para prellenar la edición (retiro: ARS/moneda; reembolso: ARS/USDT)
 }
 
 export interface DetalleBilletera {
@@ -447,6 +450,7 @@ export async function getIngresosBilletera(wallet: string, diaART?: string): Pro
       ...salidasDelDia.map((s): MovimientoDia => ({
         clase: 'retiro', fecha: s.fecha, concepto: s.motivo, ars: s.ars,
         moneda: s.moneda, montoOrigen: s.montoOrigen, cotizacion: s.cotizacion,
+        salidaId: s.id, tasaEdit: s.cotizacion,
       })),
       // Un reembolso siempre se devuelve en ARS: no hay conversión que mostrar.
       ...refundsDelDia.map((r): MovimientoDia => ({
@@ -454,6 +458,7 @@ export async function getIngresosBilletera(wallet: string, diaART?: string): Pro
         concepto: `Reembolso orden #${r.orderNumber}${r.seq > 1 ? ` (${r.seq})` : ''}`,
         moneda: 'ARS' as const, montoOrigen: r.monto, cotizacion: null,
         refundId: r.comprobantePath ? r.id : undefined,
+        reembolsoId: r.id, tasaEdit: r.cotizacion,
       })),
     ].sort((a, b) => (new Date(a.fecha).getTime() || 0) - (new Date(b.fecha).getTime() || 0))
   }

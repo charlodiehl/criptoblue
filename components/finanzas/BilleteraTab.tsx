@@ -6,6 +6,7 @@ import { ARS, fmtDate } from '@/lib/utils'
 import AnimatedNumber, { NumberSkeleton } from '@/components/AnimatedNumber'
 import SelectorDia from '@/components/SelectorDia'
 import BilleteraRetiros from './BilleteraRetiros'
+import EditarMovimientoModal, { type MovimientoEditable } from '@/components/EditarMovimientoModal'
 import type { Toast } from './FinanzasApp'
 
 interface Pago {
@@ -31,6 +32,9 @@ interface MovimientoDia {
   cotizacion?: number | null
   ars: number
   refundId?: number   // reembolso con comprobante → id para descargarlo
+  salidaId?: number   // id del wallet_movement (retiro/ajuste) → editable
+  reembolsoId?: number // id del refund → editable
+  tasaEdit?: number | null // cotización para prellenar la edición
 }
 interface Detalle {
   wallet: string
@@ -71,6 +75,7 @@ export default function BilleteraTab({ wallet, notify, refreshKey = 0 }: { walle
   // asc/desc. Default: por fecha ascendente (igual que devuelve el backend).
   const [sortKey, setSortKey] = useState<SortKey>('fecha')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
+  const [editandoMov, setEditandoMov] = useState<MovimientoEditable | null>(null)
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -313,6 +318,7 @@ export default function BilleteraTab({ wallet, notify, refreshKey = 0 }: { walle
                     <th key={h} className="text-left px-3 py-3 text-[11px] font-semibold uppercase tracking-wider whitespace-nowrap"
                       style={{ color: 'rgba(248,113,113,0.7)' }}>{h}</th>
                   ))}
+                  <th className="px-3 py-3" />
                 </tr>
               </thead>
               <tbody>
@@ -358,6 +364,19 @@ export default function BilleteraTab({ wallet, notify, refreshKey = 0 }: { walle
                           <span style={{ color: 'rgba(148,163,184,0.4)' }}>—</span>
                         )}
                       </td>
+                      <td className="px-3 py-2.5 whitespace-nowrap text-right">
+                        {(m.reembolsoId != null || m.salidaId != null) && (
+                          <button onClick={() => setEditandoMov(
+                            m.reembolsoId != null
+                              ? { fuente: 'refund', id: m.reembolsoId, fechaISO: m.fecha, concepto: m.concepto, montoArs: m.ars, tasa: m.tasaEdit ?? null, puedeMontoTasa: true, tasaLabel: 'ARS/USDT' }
+                              : { fuente: 'wallet', id: m.salidaId!, fechaISO: m.fecha, concepto: m.concepto, montoArs: m.ars, tasa: m.tasaEdit ?? null, puedeMontoTasa: true, tasaLabel: m.moneda && m.moneda !== 'ARS' ? `ARS por 1 ${m.moneda}` : undefined }
+                          )}
+                            className="rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-all"
+                            style={{ background: 'rgba(0,212,255,0.08)', border: '1px solid rgba(0,212,255,0.3)', color: '#00d4ff' }}>
+                            Editar
+                          </button>
+                        )}
+                      </td>
                     </motion.tr>
                   )
                 })}
@@ -367,6 +386,10 @@ export default function BilleteraTab({ wallet, notify, refreshKey = 0 }: { walle
         </div>
       )}
       </>}
+      {editandoMov && (
+        <EditarMovimientoModal mov={editandoMov} notify={notify}
+          onCerrar={() => setEditandoMov(null)} onGuardado={fetchData} />
+      )}
     </div>
   )
 }
