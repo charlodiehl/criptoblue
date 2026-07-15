@@ -99,6 +99,11 @@ export default function MetricasTab({ notify }: { notify: (msg: string, type?: T
 
           {/* Gráficos */}
           <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))' }}>
+            <Panel titulo="Saldo adeudado a cada tienda">
+              <BarrasHorizontales items={data.tiendas.map((t, i) => ({ label: t.storeName, value: t.netoUsdt, color: PALETA[i % PALETA.length] }))}
+                fmt={fmtUsdt} />
+            </Panel>
+
             <Panel titulo="Contribución de cada tienda al aumento del saldo adeudado">
               <BarrasPct items={data.tiendas.map((t, i) => ({ label: t.storeName, value: t.netoUsdt, color: PALETA[i % PALETA.length] }))} />
             </Panel>
