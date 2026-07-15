@@ -94,6 +94,7 @@ export async function crearRefund(input: {
   storeId: string; orderNumber: string; orderId?: string | null; orderTotal?: number | null
   monto: number; usdt: number; cotizacion: number; wallet?: string | null; seq: number
   comprobantePath: string; requestId?: number | null; refMovementId?: number | null; createdBy: string
+  createdAt?: string   // día anterior (fechaEgresoSaldo): la billetera atribuye el reembolso por created_at
 }): Promise<Refund> {
   const { data, error } = await getClient()
     .from(REFUNDS)
@@ -111,6 +112,7 @@ export async function crearRefund(input: {
       request_id: input.requestId ?? null,
       ref_movement_id: input.refMovementId ?? null,
       created_by: input.createdBy,
+      ...(input.createdAt ? { created_at: input.createdAt } : {}),
     })
     .select('*')
     .single()

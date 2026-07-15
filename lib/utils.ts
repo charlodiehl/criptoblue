@@ -44,6 +44,14 @@ export function toUTCISO(iso: string): string {
   return isNaN(d.getTime()) ? iso : d.toISOString()
 }
 
+// Los egresos de saldo (transferencias y reembolsos confirmados) se anotan 24 hs
+// ANTES del momento del pago, para que en el registro de la tienda (y su billetera)
+// caigan en el DÍA ANTERIOR y se descuenten del saldo diario de ese día. No cambia
+// el saldo total, solo el día en que figura el egreso.
+export function fechaEgresoSaldo(base: Date = new Date()): string {
+  return new Date(base.getTime() - 24 * 60 * 60 * 1000).toISOString()
+}
+
 export const ARS = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 0 })
 
 export function fmtDate(iso: string): string {

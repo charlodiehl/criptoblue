@@ -1,6 +1,6 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import { getUsdtRate } from './cotizacion'
-import { toUTCISO } from './utils'
+import { toUTCISO, fechaEgresoSaldo } from './utils'
 import { BALANCE_CUTOFF } from './config'
 import { getComisiones, comisionTienda, comisionTiendaSobre } from './comisiones'
 import { getRefundsByMovementIds } from './reembolsos'
@@ -105,7 +105,7 @@ export async function registrarEgresoTransferencia(
   const { error } = await getClient().from(TABLE).insert({
     store_id: storeId,
     tipo: 'egreso_transferencia',
-    fecha: new Date().toISOString(),
+    fecha: fechaEgresoSaldo(),   // día anterior: el egreso se descuenta del saldo diario de ayer
     ars: -descuento.arsDescontado,   // 0: la tienda ya no lleva saldo en ARS
     usdt: -descuento.usdtDescontado,
     usdt_rate: descuento.cotizacionUsdtArs ?? null,   // solo aplica a retiros en ARS
@@ -145,11 +145,12 @@ export async function backfillCotizacionesPendientes(): Promise<{ actualizados: 
 // comisión), solo baja el saldo. Devuelve el id del movimiento creado.
 export async function registrarReembolso(
   storeId: string, arsMonto: number, usdtMonto: number, cotizacion: number, descripcion: string,
+  fecha?: string,   // día anterior (fechaEgresoSaldo); se pasa igual que el created_at del refund para que tienda y billetera queden en el mismo día
 ): Promise<number> {
   const { data, error } = await getClient().from(TABLE).insert({
     store_id: storeId,
     tipo: 'reembolso',
-    fecha: new Date().toISOString(),
+    fecha: fecha ?? fechaEgresoSaldo(),
     ars: -Math.abs(arsMonto),
     usdt: -Math.abs(usdtMonto),
     usdt_rate: cotizacion,

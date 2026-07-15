@@ -5,6 +5,7 @@ import { buscarOrdenEnTienda } from '@/lib/buscar-orden'
 import { registrarReembolso } from '@/lib/balance'
 import { resumenReembolsos, crearRefund, setRefundMovement, getRefundRequestById, marcarRefundRequestProcesada } from '@/lib/reembolsos'
 import { WALLETS } from '@/lib/config'
+import { fechaEgresoSaldo } from '@/lib/utils'
 import { audit } from '@/lib/audit'
 
 // POST /api/finanzas/reembolso
@@ -79,15 +80,21 @@ export async function POST(req: NextRequest) {
     // La billetera que paga la eligió el admin (arriba). 'externo' → wallet=null:
     // el reembolso no se le anota a ninguna billetera, solo baja el saldo de la tienda.
 
+    // El egreso (tienda y billetera) se anota en el DÍA ANTERIOR (24 hs antes). La
+    // misma fecha para el refund (created_at → billetera) y el movimiento (→ tienda),
+    // así ambos quedan en el mismo día.
+    const fechaEgreso = fechaEgresoSaldo()
+
     // 1) Registrar el reembolso (fuente de verdad del tope acumulado)
     const refund = await crearRefund({
       storeId, orderNumber: order.orderNumber, orderId: order.orderId, orderTotal: total,
       monto, usdt, cotizacion, wallet, seq, comprobantePath, requestId, createdBy: auth.user.email,
+      createdAt: fechaEgreso,
     })
 
     // 2) Restar el saldo (best-effort — reconstruible desde la fila de refunds)
     try {
-      const movementId = await registrarReembolso(storeId, monto, usdt, cotizacion, descripcion)
+      const movementId = await registrarReembolso(storeId, monto, usdt, cotizacion, descripcion, fechaEgreso)
       await setRefundMovement(refund.id, movementId)
     } catch (err) {
       const logs = await loadLogs()
