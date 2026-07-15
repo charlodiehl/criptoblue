@@ -322,6 +322,7 @@ export default function BalanceTab({ storeId, qs, notify, admin = false, refresh
           <table className="w-full text-sm" style={{ borderCollapse: 'collapse', minWidth: '900px' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid rgba(0,212,255,0.12)' }}>
+                <th className="text-left px-3 py-3 text-[11px] font-semibold uppercase tracking-wider" style={{ color: 'rgba(148,163,184,0.6)' }}>#</th>
                 {columnas.map(col => {
                   const activa = sortKey === col.key
                   return (
@@ -343,15 +344,16 @@ export default function BalanceTab({ storeId, qs, notify, admin = false, refresh
             </thead>
             <tbody>
               {loadingRows ? (
-                <tr><td colSpan={admin ? 10 : 8} className="px-3 py-8 text-center text-sm" style={{ color: 'rgba(148,163,184,0.5)' }}>Cargando…</td></tr>
+                <tr><td colSpan={admin ? 11 : 9} className="px-3 py-8 text-center text-sm" style={{ color: 'rgba(148,163,184,0.5)' }}>Cargando…</td></tr>
               ) : rows.length === 0 ? (
-                <tr><td colSpan={admin ? 10 : 8} className="px-3 py-8 text-center text-sm" style={{ color: 'rgba(148,163,184,0.5)' }}>
+                <tr><td colSpan={admin ? 11 : 9} className="px-3 py-8 text-center text-sm" style={{ color: 'rgba(148,163,184,0.5)' }}>
                   {searching ? `Sin resultados para "${debouncedSearch}"` : 'Sin órdenes acreditadas este día'}
                 </td></tr>
               ) : (
                 rowsOrdenados.map((r, i) => (
                   <motion.tr key={i} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3, delay: Math.min(i * 0.025, 0.4) }}
                     style={{ borderBottom: '1px solid rgba(148,163,184,0.05)' }}>
+                    <td className="px-3 py-2.5 whitespace-nowrap tabular-nums" style={{ color: 'rgba(148,163,184,0.55)' }}>{i + 1}</td>
                     <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: 'rgba(226,232,240,0.85)' }}>{fmtDate(r.fecha)}</td>
                     <td className="px-3 py-2.5 whitespace-nowrap font-medium" style={{ color: '#00ff88' }}>{ARS.format(r.monto)}</td>
                     <td className="px-3 py-2.5 whitespace-nowrap font-medium" style={{ color: '#f87171' }}>−{ARS.format(r.comision)}</td>
