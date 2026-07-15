@@ -118,7 +118,12 @@ export async function appendRegistroEntries(entries: LogEntry[]): Promise<void> 
 // verdad). Un ingreso faltante se detecta y reconstruye por ref_registro_id.
 async function registrarIngresoBestEffort(registroId: number | null, entry: LogEntry): Promise<void> {
   if (entry.action !== 'auto_paid' && entry.action !== 'manual_paid') return
-  if (!entry.storeId) return
+  if (!entry.storeId) {
+    // Un pago sin tienda no genera ingreso: no cuenta en la planilla ni en el saldo.
+    // Se deja rastro para que nunca pase en silencio (bug del store_id null, 15/7).
+    console.error(`[balance] registro #${registroId ?? '?'} pagado SIN storeId (tienda "${entry.storeName || '—'}"): no genera movimiento de saldo`)
+    return
+  }
   try {
     await registrarIngresoOrden(registroId, entry)
   } catch (err) {

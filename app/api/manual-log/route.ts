@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
     const { mpPaymentId, storeName, orderNumber, matchedOrder } = await req.json()
     if (!mpPaymentId) return NextResponse.json({ error: 'mpPaymentId required' }, { status: 400 })
 
-    const [hot, logs] = await Promise.all([loadHotState(), loadLogs()])
+    const [hot, logs, stores] = await Promise.all([loadHotState(), loadLogs(), getStores()])
 
     const unmatchedIndex = hot.unmatchedPayments.findIndex(
       u => (u.mpPaymentId || u.payment?.mpPaymentId || '') === mpPaymentId
@@ -46,7 +46,6 @@ export async function POST(req: NextRequest) {
 
     // Si hay una orden macheada, marcarla como pagada en la plataforma correspondiente
     if (matchedOrder) {
-      const stores = await getStores()
       const store = stores[matchedOrder.storeId]
       if (store) {
         const platform = store.platform ?? 'tiendanube'
@@ -88,12 +87,20 @@ export async function POST(req: NextRequest) {
 
     const order: Order | undefined = matchedOrder || undefined
 
+    // Tienda del pago: la de la orden matcheada; si se eligió a mano en el desplegable
+    // (sin una orden real), se resuelve el ID por el nombre. Sin ID el pago no cuenta en
+    // la planilla de la tienda ni suma a su saldo (ver registrarIngresoOrden).
+    const storeNameFinal = order?.storeName || storeName || ''
+    const storeIdFinal = order?.storeId
+      || (storeNameFinal ? Object.values(stores).find(s => s.storeName === storeNameFinal)?.storeId : undefined)
+      || undefined
+
     hot.recentMatches = hot.recentMatches || []
     hot.recentMatches.push({
       mpPaymentId: payment.mpPaymentId,
       matchedAt: nowART(),
       orderId: order?.orderId,
-      storeId: order?.storeId,
+      storeId: storeIdFinal,
       order,
       payment,
     })
@@ -110,8 +117,8 @@ export async function POST(req: NextRequest) {
       orderTotal: order?.total,
       orderNumber: order?.orderNumber || orderNumber || '',
       orderId: order?.orderId,
-      storeId: order?.storeId,
-      storeName: order?.storeName || storeName || '',
+      storeId: storeIdFinal,
+      storeName: storeNameFinal,
       customerName: order?.customerName,
       paymentReceivedAt: toUTCISO(payment.fechaPago),
       orderCreatedAt: order?.createdAt,
@@ -134,12 +141,19 @@ export async function POST(req: NextRequest) {
       mpPaymentId: payment.mpPaymentId,
       matchedAt: logEntry.timestamp,
       orderId: order?.orderId,
-      storeId: order?.storeId,
+      storeId: storeIdFinal,
       order,
       payment,
     }
 
-    return NextResponse.json({ success: true, markMethod, markError, logEntry, recentMatch })
+    // Si se indicó una tienda pero no se pudo resolver su ID (nombre que no coincide
+    // con ninguna conectada), avisar: el pago quedó en el registro general pero NO
+    // cuenta en la planilla de esa tienda ni suma a su saldo.
+    const storeWarning = storeNameFinal && !storeIdFinal
+      ? `La tienda "${storeNameFinal}" no coincide con ninguna tienda conectada: el pago quedó registrado pero NO suma al saldo ni a la planilla de esa tienda.`
+      : undefined
+
+    return NextResponse.json({ success: true, markMethod, markError, storeWarning, logEntry, recentMatch })
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 })
   } finally {

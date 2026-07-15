@@ -472,6 +472,9 @@ export default function Dashboard() {
         } else {
           addToast(data.markMethod ? 'Orden marcada como pagada y registrada' : 'Pago registrado manualmente', 'success')
         }
+        // La tienda elegida no coincide con ninguna conectada → el pago no suma a su
+        // planilla ni a su saldo. Se avisa fuerte para corregirlo al momento.
+        if (data.storeWarning) addToast(data.storeWarning, 'error')
         // Actualización local instantánea
         setUnmatchedPayments(prev => prev.filter(u => (u.mpPaymentId || u.payment.mpPaymentId) !== mpPaymentId))
         if (data.logEntry) setLogEntries(prev => [...prev, data.logEntry])
