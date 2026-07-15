@@ -5,6 +5,7 @@ import { markOrderAsPaid as markTNOrderAsPaid } from '@/lib/tiendanube'
 import { markOrderAsPaid as markShopifyOrderAsPaid } from '@/lib/shopify'
 import type { LogEntry, Payment } from '@/lib/types'
 import { auditMatch } from '@/lib/audit'
+import { requireUser } from '@/lib/auth/server'
 import { nowART, toUTCISO } from '@/lib/utils'
 
 const LOCK_HOLDER = 'mark-order-paid-manual'
@@ -15,6 +16,9 @@ export async function POST(req: NextRequest) {
     if (!locked) {
       return NextResponse.json({ error: 'El sistema está procesando otra operación. Esperá unos segundos.' }, { status: 409 })
     }
+    // Quién carga el pago (trazabilidad). El proxy ya exige sesión; acá tomamos el email.
+    const auth = await requireUser('admin')
+    if ('error' in auth) return auth.error
     const { orderId, storeId, monto, medioPago, nombrePagador, cuitPagador, order: orderFromClient, fechaPago, billetera, billeteraOtra } = await req.json()
     if (!orderId || !storeId || !monto || !medioPago) {
       return NextResponse.json({ error: 'orderId, storeId, monto y medioPago son requeridos' }, { status: 400 })
@@ -97,6 +101,7 @@ export async function POST(req: NextRequest) {
       cuitPagador: cuitPagador || undefined,
       paymentReceivedAt: toUTCISO(fechaPagoISO),
       orderCreatedAt: order?.createdAt,
+      hechoPor: auth.user.email,
     }
     // Write-ahead: insertar el registro ANTES de marcar en la plataforma.
     await appendRegistroEntry(logEntry)

@@ -43,6 +43,7 @@ export async function GET(req: NextRequest) {
         nombre: entry.payment?.nombrePagador || entry.order?.customerName || entry.customerName || '',
         orderNumber: entry.orderNumber || entry.order?.orderNumber || '',
         billetera: billeteraLabel(entry.payment?.source),
+        hechoPor: entry.hechoPor ?? null,   // email del admin que lo cargó/editó a mano (null = automático)
         // false = la orden no tiene movimiento de balance (se le quitó a propósito para
         // que no duplique el saldo inicial). La UI muestra "No suma", no "Pendiente".
         enSaldo: !!mov,

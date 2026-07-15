@@ -72,6 +72,7 @@ export interface LogEntry {
   orderCreatedAt?: string     // Cuándo se creó la orden en la tienda (order.createdAt)
   hidden?: boolean            // true = oculto en la UI (botón "Borrar registro"), pero se conserva en Supabase
   copiedAt?: string           // ISO timestamp de cuando fue copiado con "Copiar nuevos registros"
+  hechoPor?: string | null    // email del admin que cargó/editó el pago a mano (null = automático)
 }
 
 export interface UnmatchedPayment {

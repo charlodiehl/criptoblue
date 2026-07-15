@@ -46,6 +46,7 @@ function entryToRow(e: LogEntry): Row {
     order_created_at: e.orderCreatedAt ?? null,
     hidden: e.hidden ?? false,
     copied_at: e.copiedAt ?? null,
+    hecho_por: e.hechoPor ?? null,
     payment: e.payment ? stripRawData(e.payment) : null,
     order_data: e.order ?? null,
   }
@@ -71,6 +72,7 @@ function rowToEntry(r: Row): LogEntry {
     orderCreatedAt: r.order_created_at ?? undefined,
     hidden: r.hidden ?? undefined,
     copiedAt: r.copied_at ?? undefined,
+    hechoPor: r.hecho_por ?? undefined,
     payment: (r.payment as Payment) ?? undefined,
     order: (r.order_data as Order) ?? undefined,
   }
@@ -769,6 +771,7 @@ export interface RegistroCampos {
   cuit?: string
   storeName?: string
   hidden?: boolean
+  hechoPor?: string         // email del admin que editó (trazabilidad)
 }
 
 // Datos mínimos de una entrada (para reasociar: saber la orden vieja y el pago).
@@ -831,6 +834,7 @@ export async function updateRegistroPorId(registroId: number, campos: RegistroCa
     if (orderData) orderData.storeName = campos.storeName
   }
   if (campos.hidden !== undefined) patch.hidden = campos.hidden
+  if (campos.hechoPor !== undefined) patch.hecho_por = campos.hechoPor
   if (payment) patch.payment = payment
   if (orderData) patch.order_data = orderData
 

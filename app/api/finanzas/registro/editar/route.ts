@@ -107,7 +107,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const ok = await updateRegistroPorId(registroId, { orderNumber, orderId, customerName: nombre, cuit })
+    const ok = await updateRegistroPorId(registroId, { orderNumber, orderId, customerName: nombre, cuit, hechoPor: auth.user.email })
     if (!ok) return NextResponse.json({ error: 'La entrada del registro no existe' }, { status: 404 })
 
     let movimiento = null
