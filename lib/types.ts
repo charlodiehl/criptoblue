@@ -50,7 +50,7 @@ export interface LogEntry {
   // 'manual_ordenes' → tarjeta 2 (Marcados manualmente) — desde pestaña Órdenes
   // 'tienda_buscar'  → tarjeta 1 (cuenta como emparejado) — pago reclamado por una
   //                    tienda desde su portal (Buscar pagos → Reclamar)
-  source?: 'emparejamiento' | 'manual_pagos' | 'manual_ordenes' | 'tienda_buscar'
+  source?: 'emparejamiento' | 'manual_pagos' | 'manual_ordenes' | 'tienda_buscar' | 'saldo_personalizado'
   // Quién disparó el match:
   // 'cron'          → el cron automático de Vercel
   // 'manual_button' → botón ⚡ tocado por un humano
@@ -221,7 +221,7 @@ export interface TransferRequest {
 export interface BalanceMovement {
   id: number
   storeId: string
-  tipo: 'ingreso_orden' | 'egreso_transferencia' | 'ajuste' | 'reembolso'
+  tipo: 'ingreso_orden' | 'egreso_transferencia' | 'ajuste' | 'reembolso' | 'ingreso_manual'
   fecha: string
   ars: number                    // SIGNADO: ingresos +, egresos −
   usdt: number | null            // SIGNADO; null = cotización pendiente

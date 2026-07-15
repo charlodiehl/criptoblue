@@ -161,16 +161,19 @@ export async function registrarReembolso(
   return data.id as number
 }
 
-// Ingreso con cotización MANUAL (saldo personalizado del admin). tipo='ingreso_orden'
-// → cuenta en la base de comisión, igual que una orden. ars/usdt positivos, la tasa
-// la pone el admin → rate_source 'manual' (no entra al backfill).
+// Ingreso con cotización MANUAL (saldo personalizado del admin). tipo='ingreso_manual'
+// → cuenta en el saldo y en la base de comisión igual que una orden, pero se muestra en
+// la sección de MOVIMIENTOS del extracto (no en la tabla de órdenes). ars/usdt positivos,
+// la tasa la pone el admin → rate_source 'manual' (no entra al backfill). La fecha es la
+// del pago ingresada por el admin (default: ahora).
 export async function registrarIngresoManual(
   storeId: string, registroId: number | null, ars: number, usdt: number, tasa: number, descripcion: string,
+  fecha?: string,
 ): Promise<void> {
   const { error } = await getClient().from(TABLE).insert({
     store_id: storeId,
-    tipo: 'ingreso_orden',
-    fecha: new Date().toISOString(),
+    tipo: 'ingreso_manual',
+    fecha: fecha ?? new Date().toISOString(),
     ars,
     usdt,
     usdt_rate: tasa,
@@ -400,11 +403,15 @@ export async function getBalanceDia(storeId: string, diaART: string): Promise<Ba
   const suma = (fn: (m: BalanceMovement) => number, filtro: (m: BalanceMovement) => boolean) =>
     movs.filter(filtro).reduce((s, m) => s + fn(m), 0)
 
+  // "Ingresos por órdenes" = solo ingreso_orden (lo que se ve en la tabla de órdenes).
+  // El saldo personalizado (ingreso_manual) NO va en esa línea: figura en movimientos.
   const esIngreso = (m: BalanceMovement) => m.tipo === 'ingreso_orden'
+  // Gravado por la comisión de tienda: órdenes + saldo personalizado.
+  const esGravado = (m: BalanceMovement) => m.tipo === 'ingreso_orden' || m.tipo === 'ingreso_manual'
   const ingresosArs = suma(m => m.ars, esIngreso)
   const ingresosUsdt = suma(m => m.usdt ?? 0, esIngreso)
-  const comisionArs = comisionTiendaSobre(ingresosArs, pct)
-  const comisionUsdt = comisionTiendaSobre(ingresosUsdt, pct)
+  const comisionArs = comisionTiendaSobre(suma(m => m.ars, esGravado), pct)
+  const comisionUsdt = comisionTiendaSobre(suma(m => m.usdt ?? 0, esGravado), pct)
 
   const transferenciasUsdt = Math.abs(suma(m => m.usdt ?? 0, m => m.tipo === 'egreso_transferencia'))
   const reembolsosArs = Math.abs(suma(m => m.ars, m => m.tipo === 'reembolso'))

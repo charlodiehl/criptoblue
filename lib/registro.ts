@@ -561,6 +561,7 @@ export async function queryRegistroByStoreDay(
     .eq('store_id', storeId)
     .eq('hidden', false)
     .in('action', ['manual_paid', 'auto_paid'])
+    .neq('source', 'saldo_personalizado')   // el saldo personalizado va en movimientos, no en la tabla de órdenes
     .gte('ts', desde)
     .lt('ts', hasta)
     .order('ts', { ascending: false })
@@ -591,6 +592,7 @@ export async function searchRegistroByStore(
     .eq('store_id', storeId)
     .eq('hidden', false)
     .in('action', ['manual_paid', 'auto_paid'])
+    .neq('source', 'saldo_personalizado')   // el saldo personalizado no es una orden
     .gte('ts', desde)
     .or(ors.join(','))
     .order('ts', { ascending: false })

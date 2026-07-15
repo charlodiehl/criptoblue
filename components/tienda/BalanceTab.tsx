@@ -417,15 +417,15 @@ export default function BalanceTab({ storeId, qs, notify, admin = false, refresh
                       style={{ borderBottom: '1px solid rgba(148,163,184,0.05)' }}>
                       <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: 'rgba(226,232,240,0.85)' }}>{fmtDate(m.fecha)}</td>
                       <td className="px-3 py-2.5" style={{ color: 'rgba(226,232,240,0.85)' }}>{m.descripcion || '—'}</td>
-                      <td className="px-3 py-2.5 whitespace-nowrap font-medium" style={{ color: montoArs == null ? 'rgba(148,163,184,0.4)' : '#f87171' }}>
-                        {montoArs == null ? '—' : `−${ARS.format(montoArs)}`}
+                      <td className="px-3 py-2.5 whitespace-nowrap font-medium" style={{ color: montoArs == null ? 'rgba(148,163,184,0.4)' : positivo ? '#00ff88' : '#f87171' }}>
+                        {montoArs == null ? '—' : `${positivo ? '+' : '−'}${ARS.format(montoArs)}`}
                       </td>
                       <td className="px-3 py-2.5 whitespace-nowrap font-medium" style={{ color: positivo ? '#00ff88' : '#f87171' }}>
                         {m.usdt == null ? '—' : `${positivo ? '+' : '−'}${fmtUsdt(Math.abs(m.usdt))}`}
                       </td>
                       <td className="px-3 py-2.5 whitespace-nowrap">
                         <span className="text-[11px] px-2 py-0.5 rounded-full"
-                          style={{ background: 'rgba(248,113,113,0.1)', color: '#f87171' }}>
+                          style={positivo ? { background: 'rgba(0,255,136,0.1)', color: '#00ff88' } : { background: 'rgba(248,113,113,0.1)', color: '#f87171' }}>
                           {TIPO_LABEL[m.tipo] ?? m.tipo}
                         </span>
                       </td>
@@ -471,6 +471,7 @@ const TIPO_LABEL: Record<string, string> = {
   egreso_transferencia: 'Transferencia',
   reembolso: 'Reembolso',
   ajuste: 'Ajuste',
+  ingreso_manual: 'Saldo personalizado',
 }
 
 // Una línea del desglose del saldo del día. Todo en USDT: el saldo de tienda vive

@@ -53,7 +53,7 @@ const fmtPct = (n: number) => n.toLocaleString('es-AR', { maximumFractionDigits:
 const fmtArs = (n: number) => ARS.format(n)
 
 // Columnas ordenables del extracto del día.
-type SortKey = 'fecha' | 'titular' | 'monto' | 'comision' | 'estado'
+type SortKey = 'fecha' | 'titular' | 'detalle' | 'monto' | 'comision' | 'estado'
 
 // Hoy en horario Argentina (UTC-3) como 'YYYY-MM-DD'
 function hoyART(): string {
@@ -110,9 +110,13 @@ export default function BilleteraTab({ wallet, notify, refreshKey = 0 }: { walle
 
   // Cabeceras del extracto: clickear una columna la ordena; volver a clickearla
   // invierte el sentido. Las de texto arrancan ascendente; las numéricas, descendente.
+  // "Otras" agrupa pagos con distinto nombre libre: se muestra ese nombre en su propia
+  // columna "Billetera", ordenable alfabéticamente (útil para filtrar por nombre).
+  const esOtras = wallet === 'Otras'
   const columnas: { key: SortKey; label: string }[] = [
     { key: 'fecha', label: 'Fecha y hora del pago' },
     { key: 'titular', label: 'Titular' },
+    ...(esOtras ? [{ key: 'detalle' as SortKey, label: 'Billetera' }] : []),
     { key: 'monto', label: 'Monto (ARS)' },
     { key: 'comision', label: `Comisión (${fmtPct(data?.comisionPct ?? 0)}%)` },
     { key: 'estado', label: 'Estado' },
@@ -132,6 +136,7 @@ export default function BilleteraTab({ wallet, notify, refreshKey = 0 }: { walle
       switch (sortKey) {
         case 'fecha':   cmp = (new Date(a.fecha).getTime() || 0) - (new Date(b.fecha).getTime() || 0); break
         case 'titular': cmp = (a.titular || '').localeCompare(b.titular || '', 'es'); break
+        case 'detalle': cmp = (a.detalle || '').localeCompare(b.detalle || '', 'es'); break
         case 'monto':   cmp = a.monto - b.monto; break
         case 'comision': cmp = a.comision - b.comision; break
         case 'estado':  cmp = a.estado.localeCompare(b.estado, 'es'); break
@@ -260,9 +265,9 @@ export default function BilleteraTab({ wallet, notify, refreshKey = 0 }: { walle
             </thead>
             <tbody>
               {loading && !data ? (
-                <tr><td colSpan={5} className="px-3 py-8 text-center text-sm" style={{ color: 'rgba(148,163,184,0.5)' }}>Cargando…</td></tr>
+                <tr><td colSpan={esOtras ? 6 : 5} className="px-3 py-8 text-center text-sm" style={{ color: 'rgba(148,163,184,0.5)' }}>Cargando…</td></tr>
               ) : !data || data.pagos.length === 0 ? (
-                <tr><td colSpan={5} className="px-3 py-8 text-center text-sm" style={{ color: 'rgba(148,163,184,0.5)' }}>Sin pagos este día</td></tr>
+                <tr><td colSpan={esOtras ? 6 : 5} className="px-3 py-8 text-center text-sm" style={{ color: 'rgba(148,163,184,0.5)' }}>Sin pagos este día</td></tr>
               ) : (
                 pagosOrdenados.map((p, i) => (
                   <motion.tr key={i} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3, delay: Math.min(i * 0.025, 0.4) }}
@@ -270,8 +275,11 @@ export default function BilleteraTab({ wallet, notify, refreshKey = 0 }: { walle
                     <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: 'rgba(226,232,240,0.85)' }}>{fmtDate(p.fecha)}</td>
                     <td className="px-3 py-2.5" style={{ color: 'rgba(226,232,240,0.85)' }}>
                       {p.titular || '—'}
-                      {p.detalle && <span className="ml-1.5 text-[11px]" style={{ color: 'rgba(167,139,250,0.9)' }}>· {p.detalle}</span>}
+                      {!esOtras && p.detalle && <span className="ml-1.5 text-[11px]" style={{ color: 'rgba(167,139,250,0.9)' }}>· {p.detalle}</span>}
                     </td>
+                    {esOtras && (
+                      <td className="px-3 py-2.5 whitespace-nowrap font-medium" style={{ color: 'rgba(167,139,250,0.95)' }}>{p.detalle || '—'}</td>
+                    )}
                     <td className="px-3 py-2.5 whitespace-nowrap font-medium" style={{ color: '#00ff88' }}>{ARS.format(p.monto)}</td>
                     <td className="px-3 py-2.5 whitespace-nowrap font-medium" style={{ color: '#f87171' }}>−{ARS.format(p.comision)}</td>
                     <td className="px-3 py-2.5 whitespace-nowrap">

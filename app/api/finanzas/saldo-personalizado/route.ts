@@ -5,10 +5,11 @@ import { WALLETS } from '@/lib/config'
 import { agregarSaldoPersonalizado } from '@/lib/saldo-personalizado'
 
 // POST /api/finanzas/saldo-personalizado
-//   { tipo:'tienda'|'billetera', id, fechaHora, monto, tasa?, cuit?, nombre?, motivo? }
+//   { storeId, fechaHora, monto, tasa, billetera, billeteraOtra?, cuit?, nombre?, motivo? }
 //
-// Registra un ingreso manual a una tienda (con tasa → USDT) o billetera (ARS) y lo
-// suma al balance. La fecha/hora es la del pago (columna "Fecha y hora"). Admin-only.
+// Registra un ingreso manual (saldo personalizado) a una TIENDA: se suma al saldo en
+// USDT (monto ÷ tasa) con su comisión, se atribuye a la billetera de origen elegida y
+// figura en la sección de movimientos con la fecha del pago. Admin-only.
 
 // datetime-local ("YYYY-MM-DDTHH:mm", hora Argentina) → instante ISO. Acepta ISO completo.
 function toInstanteISO(v: string): string | null {
@@ -25,31 +26,32 @@ export async function POST(req: NextRequest) {
     if ('error' in auth) return auth.error
 
     const body = await req.json().catch(() => null)
-    const tipo = body?.tipo
-    const id = String(body?.id || '').trim()
+    const storeId = String(body?.storeId || '').trim()
     const monto = Number(body?.monto)
-    if (tipo !== 'tienda' && tipo !== 'billetera') return NextResponse.json({ error: 'tipo inválido' }, { status: 400 })
-    if (!id) return NextResponse.json({ error: 'Elegí una tienda o billetera' }, { status: 400 })
+    const tasa = Number(body?.tasa)
+    if (!storeId) return NextResponse.json({ error: 'Elegí una tienda' }, { status: 400 })
     if (!Number.isFinite(monto) || monto <= 0) return NextResponse.json({ error: 'Monto a agregar inválido' }, { status: 400 })
+    if (!Number.isFinite(tasa) || tasa <= 0) return NextResponse.json({ error: 'La tasa ARS/USDT es obligatoria' }, { status: 400 })
 
     const fechaHoraISO = toInstanteISO(String(body?.fechaHora || ''))
     if (!fechaHoraISO) return NextResponse.json({ error: 'Fecha y hora inválida' }, { status: 400 })
 
-    let storeName: string | undefined
-    let tasa: number | undefined
-    if (tipo === 'tienda') {
-      const stores = await getStores()
-      const store = stores[id]
-      if (!store) return NextResponse.json({ error: 'Tienda no encontrada' }, { status: 404 })
-      storeName = store.storeName
-      tasa = Number(body?.tasa)
-      if (!Number.isFinite(tasa) || tasa <= 0) return NextResponse.json({ error: 'La tasa ARS/USDT es obligatoria para tiendas' }, { status: 400 })
-    } else {
-      if (!(WALLETS as readonly string[]).includes(id)) return NextResponse.json({ error: 'Billetera inválida' }, { status: 400 })
+    const store = (await getStores())[storeId]
+    if (!store) return NextResponse.json({ error: 'Tienda no encontrada' }, { status: 404 })
+
+    // Billetera de origen: una de las billeteras, o "Otras" con nombre libre.
+    const billeteraSel = String(body?.billetera || '').trim()
+    const nombreOtras = String(body?.billeteraOtra || '').trim()
+    if (billeteraSel !== 'Otras' && !(WALLETS as readonly string[]).includes(billeteraSel)) {
+      return NextResponse.json({ error: 'Elegí desde qué billetera entró el pago' }, { status: 400 })
     }
+    if (billeteraSel === 'Otras' && !nombreOtras) {
+      return NextResponse.json({ error: 'Completá el nombre de la billetera (Otras)' }, { status: 400 })
+    }
+    const billeteraSource = billeteraSel === 'Otras' ? `otras:${nombreOtras}` : billeteraSel
 
     await agregarSaldoPersonalizado({
-      tipo, id, storeName, fechaHoraISO, monto, tasa,
+      storeId, storeName: store.storeName, fechaHoraISO, monto, tasa, billeteraSource,
       cuit: body?.cuit ? String(body.cuit).trim() : undefined,
       nombre: body?.nombre ? String(body.nombre).trim() : undefined,
       motivo: body?.motivo ? String(body.motivo).trim() : undefined,

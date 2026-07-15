@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import TasaInput from '@/components/TasaInput'
 import MontoInput from '@/components/MontoInput'
+import { WALLETS } from '@/lib/config'
 import type { Toast } from './FinanzasApp'
 
 interface Props {
@@ -26,60 +27,57 @@ function nowARTLocal(): string {
 
 export default function SaldoPersonalizado({ notify, onSaldoAgregado }: Props) {
   const [tiendas, setTiendas] = useState<{ storeId: string; storeName: string }[]>([])
-  const [billeteras, setBilleteras] = useState<{ wallet: string }[]>([])
   const [loaded, setLoaded] = useState(false)
 
-  const [selEntity, setSelEntity] = useState('')   // 'tienda:<id>' | 'billetera:<wallet>'
+  const [storeId, setStoreId] = useState('')
   const [fechaHora, setFechaHora] = useState(nowARTLocal())
   const [monto, setMonto] = useState('')
   const [tasa, setTasa] = useState('')
+  const [billetera, setBilletera] = useState('')     // billetera de origen del pago
+  const [billeteraOtra, setBilleteraOtra] = useState('')
   const [cuit, setCuit] = useState('')
   const [nombre, setNombre] = useState('')
   const [motivo, setMotivo] = useState('')
   const [guardando, setGuardando] = useState(false)
   const [formKey, setFormKey] = useState(0)   // remonta el TasaInput al resetear
 
-  const fetchEntities = useCallback(async () => {
+  const fetchTiendas = useCallback(async () => {
     try {
       const res = await fetch('/api/finanzas/comisiones')
       if (res.ok) {
         const d = await res.json()
         setTiendas((d.tiendas || []).map((t: { storeId: string; storeName: string }) => ({ storeId: t.storeId, storeName: t.storeName })))
-        setBilleteras((d.billeteras || []).map((b: { wallet: string }) => ({ wallet: b.wallet })))
         setLoaded(true)
       }
     } catch { /* silencioso */ }
   }, [])
-  useEffect(() => { if (!loaded) fetchEntities() }, [loaded, fetchEntities])
-
-  const esTienda = selEntity.startsWith('tienda:')
+  useEffect(() => { if (!loaded) fetchTiendas() }, [loaded, fetchTiendas])
 
   function resetForm() {
-    setSelEntity(''); setFechaHora(nowARTLocal()); setMonto(''); setTasa(''); setCuit(''); setNombre(''); setMotivo('')
+    setStoreId(''); setFechaHora(nowARTLocal()); setMonto(''); setTasa('')
+    setBilletera(''); setBilleteraOtra(''); setCuit(''); setNombre(''); setMotivo('')
     setFormKey(k => k + 1)
   }
 
   async function guardar() {
     if (guardando) return
-    if (!selEntity) { notify('Elegí una tienda o billetera', 'error'); return }
+    if (!storeId) { notify('Elegí una tienda', 'error'); return }
     const m = Number(monto.replace(',', '.'))
     if (!Number.isFinite(m) || m <= 0) { notify('Ingresá el monto a agregar (ARS)', 'error'); return }
     if (!fechaHora) { notify('La fecha y hora es obligatoria', 'error'); return }
-    const [tipo, id] = selEntity.split(':')
-    let tasaNum: number | undefined
-    if (tipo === 'tienda') {
-      tasaNum = Number(tasa.replace(',', '.'))
-      if (!Number.isFinite(tasaNum) || tasaNum <= 0) { notify('La tasa ARS/USDT es obligatoria para tiendas', 'error'); return }
-    }
+    const tasaNum = Number(tasa.replace(',', '.'))
+    if (!Number.isFinite(tasaNum) || tasaNum <= 0) { notify('La tasa ARS/USDT es obligatoria', 'error'); return }
+    if (!billetera) { notify('Elegí desde qué billetera entró el pago', 'error'); return }
+    if (billetera === 'Otras' && !billeteraOtra.trim()) { notify('Completá el nombre de la billetera (Otras)', 'error'); return }
     setGuardando(true)
     try {
       const res = await fetch('/api/finanzas/saldo-personalizado', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tipo, id, fechaHora, monto: m, tasa: tasaNum, cuit, nombre, motivo }),
+        body: JSON.stringify({ storeId, fechaHora, monto: m, tasa: tasaNum, billetera, billeteraOtra: billeteraOtra.trim(), cuit, nombre, motivo }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Error')
-      notify('Saldo personalizado agregado ✓', 'success')
+      notify('Saldo agregado ✓', 'success')
       onSaldoAgregado()
       resetForm()
     } catch (e) {
@@ -95,31 +93,26 @@ export default function SaldoPersonalizado({ notify, onSaldoAgregado }: Props) {
       <div className="flex items-center gap-2 px-3 sm:px-4 py-3 text-[13px] sm:text-sm font-semibold"
         style={{ borderBottom: '1px solid rgba(0,212,255,0.12)', background: 'rgba(0,212,255,0.04)', color: '#00d4ff' }}>
         <span className="shrink-0">➕</span>
-        <span>Añadir Saldo Personalizado</span>
+        <span>Añadir saldo a una tienda</span>
       </div>
 
       <div className="p-3 sm:p-4 space-y-4">
           <div>
-            <label style={labelStyle}>Tienda o billetera</label>
-            <select value={selEntity} onChange={e => { setSelEntity(e.target.value); setFormKey(k => k + 1) }} disabled={!loaded}
+            <label style={labelStyle}>Tienda</label>
+            <select value={storeId} onChange={e => { setStoreId(e.target.value); setFormKey(k => k + 1) }} disabled={!loaded}
               style={{ ...inputStyle, colorScheme: 'dark', cursor: loaded ? 'pointer' : 'wait', opacity: loaded ? 1 : 0.6 }}>
               {!loaded ? (
                 <option value="" style={optionStyle}>Cargando…</option>
               ) : (
                 <>
-                  <option value="" style={optionStyle}>Seleccioná una entidad…</option>
-                  <optgroup label="Tiendas" style={optionStyle}>
-                    {tiendas.map(t => <option key={t.storeId} value={`tienda:${t.storeId}`} style={optionStyle}>{t.storeName}</option>)}
-                  </optgroup>
-                  <optgroup label="Billeteras" style={optionStyle}>
-                    {billeteras.map(b => <option key={b.wallet} value={`billetera:${b.wallet}`} style={optionStyle}>{b.wallet}</option>)}
-                  </optgroup>
+                  <option value="" style={optionStyle}>Seleccioná una tienda…</option>
+                  {tiendas.map(t => <option key={t.storeId} value={t.storeId} style={optionStyle}>{t.storeName}</option>)}
                 </>
               )}
             </select>
           </div>
 
-          {selEntity && (
+          {storeId && (
             <div className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
@@ -131,8 +124,20 @@ export default function SaldoPersonalizado({ notify, onSaldoAgregado }: Props) {
                   <label style={labelStyle}>Monto a agregar (ARS) *</label>
                   <MontoInput value={monto} onChange={setMonto} placeholder="0,00" style={inputStyle} />
                 </div>
-                {esTienda && (
-                  <TasaInput key={formKey} label="Tasa ARS/USDT *" value={tasa} onChange={setTasa} notify={notify} />
+                <TasaInput key={formKey} label="Tasa ARS/USDT *" value={tasa} onChange={setTasa} notify={notify} />
+                <div>
+                  <label style={labelStyle}>Billetera de origen *</label>
+                  <select value={billetera} onChange={e => setBilletera(e.target.value)}
+                    style={{ ...inputStyle, colorScheme: 'dark', cursor: 'pointer' }}>
+                    <option value="" style={optionStyle}>Elegí la billetera…</option>
+                    {WALLETS.map(w => <option key={w} value={w} style={optionStyle}>{w}</option>)}
+                  </select>
+                </div>
+                {billetera === 'Otras' && (
+                  <div>
+                    <label style={labelStyle}>Nombre de la billetera (Otras) *</label>
+                    <input value={billeteraOtra} onChange={e => setBilleteraOtra(e.target.value)} placeholder="Nombre a mostrar" style={inputStyle} />
+                  </div>
                 )}
                 <div>
                   <label style={labelStyle}>CUIT / CUIL / DNI (opcional)</label>
@@ -149,9 +154,7 @@ export default function SaldoPersonalizado({ notify, onSaldoAgregado }: Props) {
               </div>
 
               <p className="text-[11px]" style={{ color: 'rgba(148,163,184,0.55)' }}>
-                {esTienda
-                  ? 'Se suma al saldo de la tienda en USDT (monto ÷ tasa), con su comisión, y aparece en el registro con la fecha del pago.'
-                  : 'Se suma al saldo de la billetera en ARS y aparece en su extracto con la fecha del pago.'}
+                Se suma al saldo de la tienda en USDT (monto ÷ tasa), con su comisión. Se anota en la sección de movimientos con la fecha del pago y se atribuye a la billetera elegida.
               </p>
 
               <button onClick={guardar} disabled={guardando}
