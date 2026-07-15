@@ -28,8 +28,8 @@ function artLocal(ms: number): string {
 }
 
 export default function MetricasTab({ notify }: { notify: (msg: string, type?: Toast['type']) => void }) {
-  // Default: desde el 1 de enero de 2026 hasta el momento en que se abre la pestaña.
-  const [desde, setDesde] = useState('2026-01-01T00:00')
+  // Default: desde el 1 de julio de 2026 hasta el momento en que se abre la pestaña.
+  const [desde, setDesde] = useState('2026-07-01T00:00')
   const [hasta, setHasta] = useState(() => artLocal(Date.now()))
   const [data, setData] = useState<Metricas | null>(null)
   const [loading, setLoading] = useState(true)
@@ -48,7 +48,7 @@ export default function MetricasTab({ notify }: { notify: (msg: string, type?: T
     }
   }, [notify])
 
-  // Carga inicial: período por defecto (1 de enero de 2026 → ahora).
+  // Carga inicial: período por defecto (1 de julio de 2026 → ahora).
   useEffect(() => { fetchMetricas(desde, hasta) }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   function aplicar() {
@@ -60,7 +60,7 @@ export default function MetricasTab({ notify }: { notify: (msg: string, type?: T
     <div className="space-y-6">
       <div>
         <h2 className="text-lg font-bold" style={{ color: '#00d4ff' }}>Métricas</h2>
-        <p className="text-xs mt-0.5" style={{ color: 'rgba(148,163,184,0.5)' }}>Todo lo de abajo corresponde al período seleccionado. Por defecto, desde el 1 de enero de 2026 hasta ahora.</p>
+        <p className="text-xs mt-0.5" style={{ color: 'rgba(148,163,184,0.5)' }}>Todo lo de abajo corresponde al período seleccionado. Por defecto, desde el 1 de julio de 2026 hasta ahora.</p>
       </div>
 
       {/* Selector de período */}
