@@ -6,8 +6,8 @@
 import type { LogEntry, Payment, Order } from './types'
 import { getClient, kvGet, kvSet } from './storage'
 import { registrarIngresoOrden, actualizarDescripcionIngreso } from './balance'
-import { BALANCE_CUTOFF } from './config'
-import { billeteraLabel } from './utils'
+import { BALANCE_CUTOFF, SOURCE_SIN_BILLETERA } from './config'
+import { billeteraLabel, billeteraIdentificada } from './utils'
 
 const TABLE = 'registro_log'
 
@@ -26,7 +26,41 @@ function stripRawData(payment: Payment): Payment {
   return { ...payment, rawData: {} }
 }
 
-function entryToRow(e: LogEntry): Row {
+// ─── SEGURO: todo pago del registro cae SIEMPRE en una billetera ──────────────
+// Si la entrada no trae payment, o su source está vacío o no identifica ninguna
+// billetera, se guarda bajo "Otras" (conservando el texto original como detalle).
+// Va acá, en entryToRow, porque es la ÚNICA puerta por la que pasa todo lo que se
+// escribe al registro: ningún flujo puede saltearlo. Antes, un pago sin billetera
+// se descartaba en silencio de Administración Financiera (sumaba por tienda pero
+// no por billetera) o se mostraba como "MercadoPago", que ni siquiera existe.
+function conBilleteraSegura(e: LogEntry): LogEntry {
+  if (e.action !== 'auto_paid' && e.action !== 'manual_paid') return e
+  const raw = (e.payment?.source ?? '').trim()
+  if (billeteraIdentificada(raw)) return e
+  // No identificada → "Otras". Si había un texto suelto ("transferencia", "-"), se
+  // conserva como nombre libre del cajón; si no había nada, "Sin identificar".
+  const source = raw && raw !== '-' ? `otras:${raw}` : SOURCE_SIN_BILLETERA
+  const payment: Payment = {
+    ...(e.payment ?? {
+      mpPaymentId: e.mpPaymentId ?? '',
+      monto: e.amount ?? 0,
+      nombrePagador: e.customerName ?? '',
+      emailPagador: '',
+      cuitPagador: e.cuitPagador ?? '',
+      referencia: '',
+      operationId: '',
+      metodoPago: '',
+      fechaPago: e.paymentReceivedAt ?? e.timestamp,
+      status: 'approved',
+      rawData: {},
+    }),
+    source,
+  }
+  return { ...e, payment }
+}
+
+function entryToRow(e0: LogEntry): Row {
+  const e = conBilleteraSegura(e0)
   return {
     ts: e.timestamp,
     action: e.action,

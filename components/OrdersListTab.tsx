@@ -62,7 +62,8 @@ function SelectorBilletera({ form, onChange }: { form: ManualPayForm; onChange: 
       <label style={campoBillLabel}>Billetera del pago</label>
       <select value={form.billetera} onChange={e => onChange({ billetera: e.target.value })}
         style={{ ...campoBillStyle, colorScheme: 'dark' }}>
-        <option value="" style={{ background: '#1a2235' }}>— Sin billetera —</option>
+        {/* Sin elegir, el pago NO queda sin billetera: cae en "Otras" (seguro del registro). */}
+        <option value="" style={{ background: '#1a2235' }}>— Sin identificar (va a Otras) —</option>
         {WALLETS.map(w => <option key={w} value={w} style={{ background: '#1a2235' }}>{w}</option>)}
       </select>
       {form.billetera === 'Otras' && (

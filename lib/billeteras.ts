@@ -24,7 +24,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { getClient, kvGet, loadHotState } from './storage'
-import { PAYMENT_SOURCE_TO_WALLET, PAYMENT_SOURCE_NAMES, WALLETS } from './config'
+import { resolveWallet } from './utils'
+import { WALLETS } from './config'
 import { getComisiones, comisionBilletera } from './comisiones'
 import { sumRefundsByWallet, getRefundsDeWallet, getOrdenesReembolsadas } from './reembolsos'
 import { sumSalidasByWallet, getSalidasDeWallet, type SalidaBilletera } from './billetera-salidas'
@@ -146,22 +147,9 @@ interface Ingreso {
   orderNumber?: string
 }
 
-// Resuelve el payment.source de un pago a su billetera. Tolerante con datos
-// históricos "sucios": además de las claves canónicas (mercadopago, fiwind, …),
-// reconoce cuando el source quedó guardado como el nombre de la billetera (MF,
-// Lacar, …) o su nombre para mostrar (Mileidy = mercadopago → MF). Los sources
-// desconocidos (nombres sueltos, "-", etc.) devuelven null → no se cuentan.
-const WALLET_SET = new Set<string>(WALLETS as readonly string[])
-export function resolveWallet(source?: string | null): string | null {
-  if (!source) return null
-  // Pagos manuales cargados a "Otras": source = `otras:<nombre libre>`.
-  if (source.startsWith('otras:')) return 'Otras'
-  const canon = PAYMENT_SOURCE_TO_WALLET[source]
-  if (canon) return canon
-  if (WALLET_SET.has(source)) return source
-  const srcKey = Object.entries(PAYMENT_SOURCE_NAMES).find(([, disp]) => disp === source)?.[0]
-  return srcKey ? (PAYMENT_SOURCE_TO_WALLET[srcKey] ?? null) : null
-}
+// resolveWallet vive en lib/utils.ts (para que la escritura del registro pueda
+// usarla sin ciclos de import). Se re-exporta acá porque es su uso natural.
+export { resolveWallet }
 
 // El nombre libre de un pago "Otras" (lo que va después de `otras:`). Vacío si no aplica.
 export function detalleOtras(source?: string | null): string {
@@ -221,10 +209,12 @@ async function ingresosEmparejados(): Promise<Ingreso[]> {
     if (error) throw new Error(`ingresosEmparejados falló: ${error.message} [${error.code}]`)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     for (const r of (data ?? []) as any[]) {
-      if (!r.source || !r.ts) continue
+      // Un pago sin source NO se descarta: resolveWallet lo manda a "Otras". Antes se
+      // salteaba acá y desaparecía de las billeteras (sumaba por tienda, no por billetera).
+      if (!r.ts) continue
       const ingreso = r.fechaPago || r.payment_received_at || r.ts
       out.push({
-        source: r.source,
+        source: r.source ?? '',
         monto: Number(r.monto ?? r.amount) || 0,
         fechaDia: ingreso,     // agrupa por el día en que ENTRÓ el pago (no el del match)
         fechaPago: ingreso,    // y se muestra con esa misma fecha

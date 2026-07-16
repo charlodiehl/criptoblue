@@ -1,10 +1,53 @@
 // Utilidades compartidas entre componentes
 
-import { PAYMENT_SOURCE_NAMES, PAYMENT_SOURCE_TO_WALLET } from './config'
+import { PAYMENT_SOURCE_NAMES, PAYMENT_SOURCE_TO_WALLET, WALLETS } from './config'
+
+// Resuelve el payment.source de un pago a su billetera. Tolerante con datos
+// históricos "sucios": además de las claves canónicas (mercadopago, fiwind, …),
+// reconoce cuando el source quedó guardado como el nombre de la billetera (MF,
+// Lacar, …) o su nombre para mostrar (Mileidy = mercadopago → MF).
+// SEGURO: lo que no se identifica (sin source, "-", un nombre suelto) cae en
+// "Otras" — NUNCA devuelve null. Todo pago tiene que caer en alguna billetera:
+// antes los desconocidos se descartaban en silencio y la suma por billetera no
+// cuadraba contra la suma por tienda.
+// Vive acá (y no en billeteras.ts) para que la escritura del registro pueda usarla
+// sin ciclos de import.
+const WALLET_SET = new Set<string>(WALLETS as readonly string[])
+
+// Billetera del source, o null si NO se identifica con ninguna. Uso interno: la
+// versión pública (resolveWallet) nunca devuelve null.
+function resolveWalletEstricto(source?: string | null): string | null {
+  if (!source) return null
+  // Pagos manuales cargados a "Otras": source = `otras:<nombre libre>`.
+  if (source.startsWith('otras:')) return 'Otras'
+  const canon = PAYMENT_SOURCE_TO_WALLET[source]
+  if (canon) return canon
+  if (WALLET_SET.has(source)) return source
+  const srcKey = Object.entries(PAYMENT_SOURCE_NAMES).find(([, disp]) => disp === source)?.[0]
+  return srcKey ? (PAYMENT_SOURCE_TO_WALLET[srcKey] ?? null) : null
+}
+
+export function resolveWallet(source?: string | null): string {
+  return resolveWalletEstricto(source) ?? 'Otras'
+}
+
+// ¿El source identifica una billetera concreta del sistema? false = no se pudo
+// identificar (sin source, "-", un nombre suelto) y por lo tanto cae en "Otras".
+// Lo usa la escritura del registro para normalizar el source antes de guardarlo.
+export function billeteraIdentificada(source?: string | null): boolean {
+  return resolveWalletEstricto(source) !== null
+}
 
 // Nombre amigable de la billetera/medio de pago desde payment.source ('fiwind' → 'MF', etc.)
+// Un pago sin billetera identificable cae en "Otras" (antes decía 'MercadoPago', que ni
+// siquiera es una billetera del sistema: atribuía el pago a una billetera equivocada).
 export function billeteraLabel(source?: string): string {
-  if (!source) return 'MercadoPago'
+  if (!source) return 'Otras'
+  // Cajón "Otras": el source es `otras:<nombre libre>`.
+  if (source.startsWith('otras:')) {
+    const detalle = source.slice(6).trim()
+    return detalle ? `Otras · ${detalle}` : 'Otras'
+  }
   return PAYMENT_SOURCE_NAMES[source] ?? source
 }
 

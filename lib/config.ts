@@ -62,6 +62,11 @@ export const PAYMENT_SOURCE_NAMES: Record<string, string> = {
 // conocida: su source se codifica como `otras:<nombre libre>` y NO cobra comisión.
 export const WALLETS = ['MF', 'Lacar', 'MS', 'Montemar', 'Otras'] as const
 
+// SEGURO: todo pago que entra al registro sin una billetera identificable (sin
+// payment, source vacío o desconocido) se guarda con este source → cae en "Otras".
+// Ningún pago del registro puede quedar sin billetera.
+export const SOURCE_SIN_BILLETERA = 'otras:Sin identificar'
+
 // Mapeo de fuente de pago (payment.source) → billetera a la que pertenece el DINERO
 // (para el saldo de cada billetera). NO acota el emparejamiento: cualquier pago puede
 // emparejar con cualquier tienda.
