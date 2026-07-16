@@ -234,8 +234,8 @@ export function ReembolsosSolicitados() {
               <motion.div key={s.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, height: 0 }}
                 className="rounded-xl p-4 flex items-center justify-between gap-3 flex-wrap"
                 style={{ background: 'linear-gradient(135deg, #0d1117, #111827)', border: '1px solid rgba(245,158,11,0.2)' }}>
-                <div className="flex items-center gap-2 text-sm flex-wrap" style={{ color: 'rgba(226,232,240,0.9)' }}>
-                  <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#fbbf24', display: 'inline-block' }} />
+                <div className="flex items-center gap-x-2 gap-y-1 text-sm flex-wrap min-w-0" style={{ color: 'rgba(226,232,240,0.9)' }}>
+                  <span className="shrink-0" style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#fbbf24', display: 'inline-block' }} />
                   <span className="font-bold" style={{ color: '#00d4ff' }}>{s.storeName}</span>
                   <span>pide reembolsar la orden</span>
                   <span className="font-semibold">#{s.orderNumber}</span>

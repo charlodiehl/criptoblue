@@ -151,8 +151,10 @@ export default function AdminGeneralTab({ notify, onSolicitudPagada, refreshKey 
             {solicitudes.map(s => (
               <div key={s.id} className="rounded-xl p-4 flex items-center justify-between gap-3 flex-wrap"
                 style={{ background: 'linear-gradient(135deg, #0d1117, #111827)', border: '1px solid rgba(245,158,11,0.2)' }}>
-                <div className="flex items-center gap-2 text-sm" style={{ color: 'rgba(226,232,240,0.9)' }}>
-                  <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#fbbf24', display: 'inline-block' }} />
+                {/* Texto fluido: sin flex-wrap los spans no envuelven como texto, se
+                    comprimen uno al lado del otro y desbordan a lo ancho en móvil. */}
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm min-w-0" style={{ color: 'rgba(226,232,240,0.9)' }}>
+                  <span className="shrink-0" style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#fbbf24', display: 'inline-block' }} />
                   <span className="font-bold" style={{ color: '#00d4ff' }}>{s.storeName}</span>
                   <span>solicitó</span>
                   <span className="font-semibold">{TIPO_LABEL[s.tipo]}</span>
@@ -212,7 +214,7 @@ export default function AdminGeneralTab({ notify, onSolicitudPagada, refreshKey 
                 </div>
                 {/* Detalle completo del pago emparejado */}
                 <div className="mt-2.5 pt-2.5 grid gap-x-6 gap-y-1.5"
-                  style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))', borderTop: '1px solid rgba(148,163,184,0.08)' }}>
+                  style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(min(210px, 100%), 1fr))', borderTop: '1px solid rgba(148,163,184,0.08)' }}>
                   {r.orderNumber && <Detalle label="N° de orden contra el que se adjudicó" value={`#${r.orderNumber}`} />}
                   <Detalle label="Pagador" value={r.nombrePagador} />
                   {r.cuit && <Detalle label="CUIT/CUIL/DNI" value={r.cuit} />}
