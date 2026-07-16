@@ -8,7 +8,7 @@
  *   - fetch (no-op):          cumple el criterio "Installable" de Chrome/Android.
  */
 
-const SW_VERSION = 'v1.0.0-webpush'
+const SW_VERSION = 'v1.1.0-webpush-badge'
 
 // Clave pública VAPID (es pública — puede ir en el cliente/SW). Debe coincidir con
 // NEXT_PUBLIC_VAPID_PUBLIC_KEY. Se usa solo para re-suscribir en pushsubscriptionchange.
@@ -43,7 +43,9 @@ self.addEventListener('push', (event) => {
   const options = {
     body: data.body || '',
     icon: data.icon || '/icons/icon-192.png',
-    badge: data.badge || '/icons/icon-192.png',
+    // El badge (barra de estado) Android lo muestra como silueta: usa una imagen con
+    // transparencia (solo la forma del logo), no el ícono opaco (que se veía cuadrado).
+    badge: data.badge || '/icons/badge-96.png',
     vibrate: [100, 50, 100],
     data: { url: data.url || '/', ...data.data },
     tag: data.tag || `criptoblue-${Date.now()}`,

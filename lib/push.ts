@@ -124,7 +124,7 @@ export async function sendPushNotification(email: string, payload: PushNotificat
     title: payload.title,
     body: payload.body,
     icon: payload.icon || '/icons/icon-192.png',
-    badge: payload.badge || '/icons/icon-192.png',
+    badge: payload.badge || '/icons/badge-96.png',
     url: payload.url || '/',
     data: payload.data,
   })
