@@ -88,6 +88,11 @@ function hoyART(): string {
 const fmtUsdt = (n: number) => n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const fmtPct = (n: number) => n.toLocaleString('es-AR', { maximumFractionDigits: 2 })
 
+// Cada cuánto se vuelve a pedir la cotización para el saldo en pesos. El texto que
+// se le muestra al usuario se deriva de acá, para que nunca queden desfasados.
+const REFRESCO_COTIZACION_MS = 15 * 60 * 1000
+const REFRESCO_COTIZACION_TXT = `${REFRESCO_COTIZACION_MS / 60_000} minutos`
+
 // Columnas ordenables del registro de la tienda.
 type SortKey = 'fecha' | 'monto' | 'comision' | 'usdtRate' | 'usdt' | 'cuit' | 'nombre' | 'orderNumber'
 
@@ -103,7 +108,7 @@ export default function BalanceTab({ storeId, qs, notify, admin = false, refresh
   const [loadingBalance, setLoadingBalance] = useState(true)
   const [loadingRows, setLoadingRows] = useState(true)
   // Cotización para mostrar el saldo también en pesos: precio de venta Binance P2P
-  // +0%. Se refresca cada hora (no en cada refresco de saldo).
+  // +0%. Se refresca cada 15 minutos (no en cada refresco de saldo).
   const [cotizacion, setCotizacion] = useState<number | null>(null)
   // Ordenamiento del registro: se clickea la cabecera para elegir columna y alternar
   // asc/desc. Default: por fecha descendente (más nuevos arriba, igual que el backend).
@@ -210,7 +215,7 @@ export default function BalanceTab({ storeId, qs, notify, admin = false, refresh
   // Tiempo real: al marcar una orden desde el app de órdenes, re-consultar saldo + tabla.
   useEffect(() => { if (refreshKey > 0) { fetchBalance(); fetchRows() } }, [refreshKey, fetchBalance, fetchRows])
 
-  // Cotización para el saldo en pesos: carga inicial + refresco cada 1 hora. Si la
+  // Cotización para el saldo en pesos: carga inicial + refresco cada 15 minutos. Si la
   // API falla se conserva la última (no se pisa con null) para no perder el peso mostrado.
   useEffect(() => {
     let vivo = true
@@ -220,10 +225,10 @@ export default function BalanceTab({ storeId, qs, notify, admin = false, refresh
         if (!res.ok) return
         const data = await res.json()
         if (vivo && Number(data.rate) > 0) setCotizacion(Number(data.rate))
-      } catch { /* se reintenta en la próxima hora */ }
+      } catch { /* se reintenta en el próximo refresco */ }
     }
     traer()
-    const iv = setInterval(traer, 60 * 60 * 1000)
+    const iv = setInterval(traer, REFRESCO_COTIZACION_MS)
     return () => { vivo = false; clearInterval(iv) }
   }, [qs])
 
@@ -621,7 +626,7 @@ function BalanceCard({ label, value, format, suffix, color, delay, loading, arsV
           ≈ {ARS.format(arsValue)}
           {cotizacion != null && (
             <span className="block text-[11px] font-medium mt-1" style={{ color: 'rgba(148,163,184,0.5)' }}>
-              a {ARS.format(cotizacion)}/USDT · valor estimado en pesos, se actualiza cada 1 hora
+              a {ARS.format(cotizacion)}/USDT · valor estimado en pesos, se actualiza cada {REFRESCO_COTIZACION_TXT}
             </span>
           )}
         </p>
