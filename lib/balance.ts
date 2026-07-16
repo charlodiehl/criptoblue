@@ -63,12 +63,15 @@ export async function registrarIngresoOrden(registroId: number | null, entry: Lo
 // todo retiro se traduce a USDT y solo se piden las tasas necesarias para eso.
 //   ARS / ARS_BILLETE  → cotizacionUsdtArs  (usdt = monto / cotización)
 //   USDT               → sin tasa           (usdt = monto)
-//   USD / USD_BILLETE   → tasaUsdUsdt        (usdt = monto × tasaUsdUsdt)
+//   USD / USD_BILLETE  → tasaUsdtUsd        (usdt = monto / tasaUsdtUsd)
+// Las dos tasas se piden en el mismo sentido —cuánto vale 1 USDT— y siempre se
+// DIVIDE. Antes el USD iba al revés (cuántos USDT = 1 USD, multiplicando): con la
+// tasa "cuántos USD = 1 USDT", cobrar 1% es poner 0,99 (histórico: tasaUsdUsdt).
 // arsDescontado queda en 0: la tienda ya no tiene saldo en ARS.
 export function calcularDescuento(
   moneda: DescuentoMoneda,
   monto: number,
-  tasas: { cotizacionUsdtArs?: number; tasaUsdtArs?: number; tasaUsdArs?: number; tasaUsdUsdt?: number },
+  tasas: { cotizacionUsdtArs?: number; tasaUsdtArs?: number; tasaUsdArs?: number; tasaUsdtUsd?: number },
 ): TransferDescuento {
   if (!Number.isFinite(monto) || monto <= 0) throw new Error('Monto inválido')
   const pos = (v: number | undefined, nombre: string): number => {
@@ -86,8 +89,8 @@ export function calcularDescuento(
       return { moneda, monto, arsDescontado: 0, usdtDescontado: monto }
     case 'USD':
     case 'USD_BILLETE': {
-      const tasaUsdt = pos(tasas.tasaUsdUsdt, 'tasa USD/USDT')
-      return { moneda, monto, tasaUsdUsdt: tasaUsdt, arsDescontado: 0, usdtDescontado: monto * tasaUsdt }
+      const tasaUsdt = pos(tasas.tasaUsdtUsd, 'tasa USDT/USD')
+      return { moneda, monto, tasaUsdtUsd: tasaUsdt, arsDescontado: 0, usdtDescontado: monto / tasaUsdt }
     }
     default:
       throw new Error(`Moneda de descuento desconocida: ${moneda}`)

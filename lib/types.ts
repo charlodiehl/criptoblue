@@ -190,10 +190,11 @@ export type DescuentoMoneda = 'USDT' | 'USD' | 'ARS' | 'USD_BILLETE' | 'ARS_BILL
 export interface TransferDescuento {
   moneda: DescuentoMoneda
   monto: number                  // en la moneda retirada
-  cotizacionUsdtArs?: number     // requerida para ARS / ARS_BILLETE
+  cotizacionUsdtArs?: number     // requerida para ARS / ARS_BILLETE: cuántos ARS = 1 USDT
   tasaUsdtArs?: number           // requerida para USDT
   tasaUsdArs?: number            // requerida para USD / USD_BILLETE
-  tasaUsdUsdt?: number           // requerida para USD / USD_BILLETE
+  tasaUsdtUsd?: number           // requerida para USD / USD_BILLETE: cuántos USD = 1 USDT (usdt = monto / tasa)
+  tasaUsdUsdt?: number           // LEGACY: descuentos viejos, al revés (usdt = monto × tasa). No usar en nuevos.
   arsDescontado: number          // resultado (positivo; el movimiento lo guarda en negativo)
   usdtDescontado: number
 }

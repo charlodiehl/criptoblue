@@ -38,8 +38,8 @@ const TASAS_POR_MONEDA: Record<DescuentoMoneda, { key: string; label: string }[]
   ARS: [{ key: 'cotizacionUsdtArs', label: 'Cotización USDT/ARS (cuántos ARS = 1 USDT)' }],
   ARS_BILLETE: [{ key: 'cotizacionUsdtArs', label: 'Cotización USDT/ARS (cuántos ARS = 1 USDT)' }],
   USDT: [],
-  USD: [{ key: 'tasaUsdUsdt', label: 'Tasa USD/USDT (cuántos USDT = 1 USD)' }],
-  USD_BILLETE: [{ key: 'tasaUsdUsdt', label: 'Tasa USD/USDT (cuántos USDT = 1 USD)' }],
+  USD: [{ key: 'tasaUsdtUsd', label: 'Tasa USDT/USD (cuántos USD = 1 USDT · cobrar 1% = 0,99)' }],
+  USD_BILLETE: [{ key: 'tasaUsdtUsd', label: 'Tasa USDT/USD (cuántos USD = 1 USDT · cobrar 1% = 0,99)' }],
 }
 
 // Etiquetas legibles de los campos del formulario que envió la tienda
@@ -75,7 +75,7 @@ function preview(moneda: DescuentoMoneda, monto: number, tasas: Record<string, n
     case 'USDT':
       return { usdt: monto }
     case 'USD': case 'USD_BILLETE':
-      return ok(tasas.tasaUsdUsdt) ? { usdt: monto * tasas.tasaUsdUsdt } : null
+      return ok(tasas.tasaUsdtUsd) ? { usdt: monto / tasas.tasaUsdtUsd } : null
   }
 }
 

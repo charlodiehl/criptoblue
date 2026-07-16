@@ -10,7 +10,7 @@ import type { DescuentoMoneda } from '@/lib/types'
 const MONEDAS: DescuentoMoneda[] = ['USDT', 'USD', 'ARS', 'USD_BILLETE', 'ARS_BILLETE']
 
 // POST /api/finanzas/pagar-solicitud
-//   { id, moneda, monto, tasas: {cotizacionUsdtArs?, tasaUsdtArs?, tasaUsdArs?, tasaUsdUsdt?}, comprobantePath? }
+//   { id, moneda, monto, tasas: {cotizacionUsdtArs?, tasaUsdtArs?, tasaUsdArs?, tasaUsdtUsd?}, comprobantePath? }
 //
 // El admin confirma el pago de una solicitud: calcula el descuento (calcularDescuento
 // exige las tasas obligatorias según la moneda), marca la solicitud pagada y descuenta
