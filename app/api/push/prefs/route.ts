@@ -1,17 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireUser } from '@/lib/auth/server'
 import { getNotificationPrefs, setNotificationPrefs } from '@/lib/push'
-import { GRUPOS_NOTIFICACION, type NotificationPrefs, type EventoKey } from '@/lib/notificaciones'
+import { gruposPara, type NotificationPrefs, type EventoKey } from '@/lib/notificaciones'
 
-// GET  /api/push/prefs → preferencias por grupo del admin logueado.
+// GET  /api/push/prefs → preferencias por grupo del usuario logueado.
 // POST /api/push/prefs { prefs: { <evento>: boolean } } → las guarda.
-// Solo administradores (las notificaciones por evento son solo para admins por ahora).
-
-const KEYS = new Set(GRUPOS_NOTIFICACION.map(g => g.key))
+// Admin y tienda: cada rol solo puede leer/guardar SUS grupos.
 
 export async function GET() {
   try {
-    const auth = await requireUser('admin')
+    const auth = await requireUser()
     if ('error' in auth) return auth.error
     const prefs = await getNotificationPrefs(auth.user.email)
     return NextResponse.json({ prefs })
@@ -22,7 +20,7 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
-    const auth = await requireUser('admin')
+    const auth = await requireUser()
     if ('error' in auth) return auth.error
 
     const body = await req.json().catch(() => null)
@@ -30,10 +28,12 @@ export async function POST(req: NextRequest) {
     if (!entrada || typeof entrada !== 'object') {
       return NextResponse.json({ error: 'Falta "prefs"' }, { status: 400 })
     }
-    // Solo claves conocidas y valores booleanos (defensa contra basura del cliente).
+    // Solo las claves del ROL del usuario, y valores booleanos: una tienda no puede
+    // guardarse grupos de admin ni mandar basura.
+    const permitidas = new Set(gruposPara(auth.user.role).map(g => g.key))
     const limpias: NotificationPrefs = {}
     for (const [k, v] of Object.entries(entrada)) {
-      if (KEYS.has(k as EventoKey) && typeof v === 'boolean') limpias[k as EventoKey] = v
+      if (permitidas.has(k as EventoKey) && typeof v === 'boolean') limpias[k as EventoKey] = v
     }
     await setNotificationPrefs(auth.user.email, limpias)
     return NextResponse.json({ success: true, prefs: limpias })

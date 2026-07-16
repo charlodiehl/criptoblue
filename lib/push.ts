@@ -12,7 +12,7 @@
 
 import webpush from 'web-push'
 import { getClient } from './storage'
-import { quiereEvento, type EventoKey, type NotificationPrefs } from './notificaciones'
+import { quiereEvento, type EventoKey, type EventoAdminKey, type EventoTiendaKey, type NotificationPrefs } from './notificaciones'
 
 const TABLE = 'push_subscriptions'
 const PREFS_TABLE = 'notification_prefs'
@@ -173,6 +173,17 @@ export async function getAdminEmails(): Promise<string[]> {
   return ((data ?? []) as any[]).map(r => String(r.email).toLowerCase())
 }
 
+// Emails (lowercase) de los usuarios de UNA tienda.
+export async function getEmailsDeTienda(storeId: string): Promise<string[]> {
+  if (!storeId) return []
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (getClient().from('app_users') as any)
+    .select('email').eq('role', 'tienda').eq('store_id', storeId)
+  if (error) throw new Error(`getEmailsDeTienda falló: ${error.message} [${error.code}]`)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return ((data ?? []) as any[]).map(r => String(r.email).toLowerCase())
+}
+
 export async function getNotificationPrefs(email: string): Promise<NotificationPrefs> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data, error } = await (getClient().from(PREFS_TABLE) as any)
@@ -203,17 +214,31 @@ async function getPrefsForEmails(emails: string[]): Promise<Record<string, Notif
   return map
 }
 
-// Notifica a TODOS los administradores que tengan ESE grupo activado (default: sí).
+// Envía a los que tengan ESE grupo activado (default: sí, mientras no lo apaguen).
+async function notificarA(emails: string[], evento: EventoKey, payload: PushNotificationPayload): Promise<void> {
+  if (!emails.length) return
+  const prefs = await getPrefsForEmails(emails)
+  const destinatarios = emails.filter(e => quiereEvento(prefs[e], evento))
+  if (!destinatarios.length) return
+  await sendPushNotificationToEmails(destinatarios, payload)
+}
+
+// Notifica a TODOS los administradores.
 // Best-effort: nunca lanza — si el push falla, el evento de negocio igual se completa.
-export async function notifyAdmins(evento: EventoKey, payload: PushNotificationPayload): Promise<void> {
+export async function notifyAdmins(evento: EventoAdminKey, payload: PushNotificationPayload): Promise<void> {
   try {
-    const emails = await getAdminEmails()
-    if (!emails.length) return
-    const prefs = await getPrefsForEmails(emails)
-    const destinatarios = emails.filter(e => quiereEvento(prefs[e], evento))
-    if (!destinatarios.length) return
-    await sendPushNotificationToEmails(destinatarios, payload)
+    await notificarA(await getAdminEmails(), evento, payload)
   } catch (err) {
     console.error('[Push] notifyAdmins error:', err)
+  }
+}
+
+// Notifica a los usuarios de UNA tienda. Best-effort (ídem notifyAdmins).
+export async function notifyTienda(storeId: string | null | undefined, evento: EventoTiendaKey, payload: PushNotificationPayload): Promise<void> {
+  try {
+    if (!storeId) return
+    await notificarA(await getEmailsDeTienda(storeId), evento, payload)
+  } catch (err) {
+    console.error('[Push] notifyTienda error:', err)
   }
 }

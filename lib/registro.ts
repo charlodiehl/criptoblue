@@ -8,6 +8,10 @@ import { getClient, kvGet, kvSet } from './storage'
 import { registrarIngresoOrden, actualizarDescripcionIngreso } from './balance'
 import { BALANCE_CUTOFF, SOURCE_SIN_BILLETERA } from './config'
 import { billeteraLabel, billeteraIdentificada } from './utils'
+import { notifyTienda } from './push'
+
+// Monto en pesos para el texto de las notificaciones.
+const fmtArs = (n: number) => `$${n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 
 const TABLE = 'registro_log'
 
@@ -163,6 +167,19 @@ async function registrarIngresoBestEffort(registroId: number | null, entry: LogE
   } catch (err) {
     console.error('[balance] no se pudo registrar el ingreso del movimiento:', err)
   }
+
+  // Avisarle a la tienda que le entró un pago. Acá pasan TODOS los flujos que
+  // acreditan una orden (auto-match, emparejado manual, pagos, órdenes manuales,
+  // reclamo), con el guardia de arriba ya aplicado. El saldo personalizado NO pasa
+  // por acá (usa insertRegistroEntry, sin hook): lo notifica agregarSaldoPersonalizado
+  // con su propio texto. notifyTienda es best-effort: nunca rompe el registro.
+  const monto = Number(entry.payment?.monto ?? entry.amount) || 0
+  const orden = entry.orderNumber || entry.order?.orderNumber || ''
+  await notifyTienda(entry.storeId, 'orden_emparejada', {
+    title: 'Nueva orden emparejada',
+    body: `Entró un pago de ${fmtArs(monto)}${orden ? ` · orden #${orden}` : ''}.`,
+    url: '/tienda',
+  })
 }
 
 // ─────────────────────────────────────────────

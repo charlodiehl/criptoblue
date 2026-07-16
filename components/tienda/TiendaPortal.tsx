@@ -1,12 +1,12 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback } from 'react'
+import Link from 'next/link'
 import { motion, AnimatePresence } from 'framer-motion'
 import BalanceTab from './BalanceTab'
 import SolicitarTab from './SolicitarTab'
 import BuscarPagosTab from './BuscarPagosTab'
 import SolicitarReembolsoTab from './SolicitarReembolsoTab'
-import NotificacionesToggle from '@/components/pwa/NotificacionesToggle'
 
 export type Toast = { id: number; msg: string; type: 'success' | 'error' | 'info' }
 
@@ -145,7 +145,15 @@ export default function TiendaPortal({ storeId, storeName, userEmail, admin = fa
                       <div className="truncate" style={{ color: 'rgba(226,232,240,0.9)' }}>{userEmail}</div>
                     </div>
                   )}
-                  <NotificacionesToggle />
+                  <Link
+                    href="/notificaciones"
+                    className="w-full text-left px-4 py-3 text-sm transition-all flex items-center gap-2"
+                    style={{ color: 'rgba(226,232,240,0.9)', borderBottom: '1px solid rgba(148,163,184,0.08)' }}
+                    onMouseEnter={e => (e.currentTarget.style.background = 'rgba(0,212,255,0.06)')}
+                    onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                  >
+                    <span>🔔</span> Notificaciones
+                  </Link>
                   <button
                     onClick={handleLogout}
                     className="w-full text-left px-4 py-3 text-sm transition-all flex items-center gap-2"

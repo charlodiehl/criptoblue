@@ -3,12 +3,14 @@
 import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import { usePushNotifications, useIsPWA, usePlatform } from '@/hooks/use-push-notifications'
-import { GRUPOS_NOTIFICACION, type EventoKey, type NotificationPrefs } from '@/lib/notificaciones'
+import { gruposPara, type EventoKey, type NotificationPrefs } from '@/lib/notificaciones'
 
-// Página de preferencias de notificaciones (solo admin). Un toggle global que
+// Página de preferencias de notificaciones (admin y tienda). Un toggle global que
 // activa/desactiva las push del dispositivo, y —una vez activo— un toggle por cada
-// grupo de eventos. Todo es sobre la PWA instalada (acceso directo desde el navegador).
-export default function NotificacionesPanel({ userEmail }: { userEmail: string }) {
+// grupo de eventos del rol. Todo es sobre la PWA instalada (acceso directo del navegador).
+export default function NotificacionesPanel({ userEmail, role }: { userEmail: string; role: 'admin' | 'tienda' }) {
+  const grupos = gruposPara(role)
+  const volverA = role === 'admin' ? '/finanzas' : '/tienda'
   const { isSupported, isSubscribed, isLoading, error, subscribe, unsubscribe } = usePushNotifications()
   const isPWA = useIsPWA()
   const platform = usePlatform()
@@ -71,7 +73,7 @@ export default function NotificacionesPanel({ userEmail }: { userEmail: string }
       {/* Header */}
       <header className="sticky top-0 z-40 backdrop-blur-xl" style={{ borderBottom: '1px solid rgba(0,212,255,0.08)', background: 'rgba(6,11,20,0.9)' }}>
         <div className="mx-auto max-w-[720px] px-4 sm:px-6 py-3 flex items-center justify-between gap-3">
-          <Link href="/finanzas" className="flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium transition-all whitespace-nowrap"
+          <Link href={volverA} className="flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium transition-all whitespace-nowrap"
             style={{ background: 'rgba(0,212,255,0.08)', border: '1px solid rgba(0,212,255,0.25)', color: '#00d4ff' }}>
             ← <span className="hidden sm:inline">Volver</span>
           </Link>
@@ -124,7 +126,7 @@ export default function NotificacionesPanel({ userEmail }: { userEmail: string }
             <p className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'rgba(0,212,255,0.7)' }}>¿Qué querés recibir?</p>
             {!isSubscribed && <p className="text-[12px] mt-1" style={{ color: 'rgba(148,163,184,0.5)' }}>Activá las notificaciones para elegir.</p>}
           </div>
-          {GRUPOS_NOTIFICACION.map((g, i) => {
+          {grupos.map((g, i) => {
             const activo = prefs[g.key] !== false
             const disabled = !isSubscribed || !prefsCargadas || guardando === g.key
             return (
@@ -148,7 +150,7 @@ export default function NotificacionesPanel({ userEmail }: { userEmail: string }
         </div>
 
         <p className="text-[11px] text-center px-2" style={{ color: 'rgba(148,163,184,0.4)' }}>
-          Sesión: {userEmail} · Las notificaciones se envían solo a administradores.
+          Sesión: {userEmail}
         </p>
       </main>
     </div>

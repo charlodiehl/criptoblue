@@ -6,6 +6,7 @@ import { registrarReembolso } from '@/lib/balance'
 import { resumenReembolsos, crearRefund, setRefundMovement, getRefundRequestById, marcarRefundRequestProcesada } from '@/lib/reembolsos'
 import { WALLETS } from '@/lib/config'
 import { fechaEgresoSaldo } from '@/lib/utils'
+import { notifyTienda } from '@/lib/push'
 import { audit } from '@/lib/audit'
 
 // POST /api/finanzas/reembolso
@@ -128,6 +129,16 @@ export async function POST(req: NextRequest) {
       orderNumber: order.orderNumber, amount: monto,
       message: `${descripcion} · ${store.storeName} · ${monto} ARS / ${usdt.toFixed(2)} USDT por ${auth.user.email}`,
     })
+
+    // Avisarle a la tienda que el reembolso ya se pagó (best-effort: ya está hecho).
+    try {
+      const montoTxt = `$${monto.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+      await notifyTienda(storeId, 'reembolso_completado', {
+        title: 'Reembolso completado',
+        body: `Se reembolsó ${montoTxt} de la orden #${order.orderNumber}${seq > 1 ? ` (parcial ${seq})` : ''}.`,
+        url: '/tienda',
+      })
+    } catch { /* best-effort */ }
 
     return NextResponse.json({
       success: true, seq, descripcion,

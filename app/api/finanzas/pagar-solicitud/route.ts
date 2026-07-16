@@ -3,6 +3,7 @@ import { requireUser } from '@/lib/auth/server'
 import { getSolicitudById, marcarPagada } from '@/lib/transferencias'
 import { calcularDescuento, registrarEgresoTransferencia } from '@/lib/balance'
 import { getStores, loadLogs, saveLogs, appendError, appendActivity } from '@/lib/storage'
+import { notifyTienda } from '@/lib/push'
 import { audit } from '@/lib/audit'
 import type { DescuentoMoneda } from '@/lib/types'
 
@@ -83,6 +84,20 @@ export async function POST(req: NextRequest) {
       amount: descuento.usdtDescontado,
       message: `Solicitud #${solicitud.id} (${solicitud.tipo}) pagada por ${auth.user.email} — descontó ${descuento.usdtDescontado} USDT`,
     })
+
+    // Avisarle a la tienda que ya le pagaron (best-effort: el pago ya está hecho).
+    try {
+      // El nombre del beneficiario vive en un campo distinto según el tipo, y en ARS
+      // es opcional: se cae al CBU (o a la wallet en USDT, que no lleva nombre).
+      const d = (solicitud.datos ?? {}) as Record<string, unknown>
+      const beneficiario = String(d.nombreBeneficiario || d.nombreCompleto || d.wallet || d.cbu || '').trim()
+      const montoTxt = descuento.monto.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      await notifyTienda(solicitud.storeId, 'transferencia_pagada', {
+        title: 'Transferencia pagada',
+        body: `Se pagó tu transferencia de ${montoTxt} ${descuento.moneda}${beneficiario ? ` a ${beneficiario}` : ''}.`,
+        url: '/tienda',
+      })
+    } catch { /* best-effort */ }
 
     return NextResponse.json({ success: true, descuento })
   } catch (err) {

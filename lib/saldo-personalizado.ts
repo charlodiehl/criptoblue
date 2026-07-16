@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto'
 import { insertRegistroEntry } from './registro'
 import { registrarIngresoManual } from './balance'
+import { notifyTienda } from './push'
 import { toUTCISO } from './utils'
 import type { LogEntry, Payment } from './types'
 
@@ -75,4 +76,14 @@ export async function agregarSaldoPersonalizado(input: SaldoPersonalizadoInput):
   const concepto = `${nombre || 'Saldo personalizado'}${motivo ? ` · ${motivo}` : ''}`
   await registrarIngresoManual(input.storeId, registroId, input.monto, usdt, input.tasa,
     concepto, input.fechaHoraISO)
+
+  // Avisarle a la tienda (mismo grupo que las órdenes: es plata que le entra al
+  // registro). Va acá y no en el hook de balance porque el saldo personalizado se
+  // inserta con insertRegistroEntry, que no dispara ese hook. Best-effort.
+  const montoTxt = `$${input.monto.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  await notifyTienda(input.storeId, 'orden_emparejada', {
+    title: 'Saldo agregado',
+    body: `Un administrador te agregó un saldo de ${montoTxt}${motivo ? ` · ${motivo}` : ''}.`,
+    url: '/tienda',
+  })
 }
