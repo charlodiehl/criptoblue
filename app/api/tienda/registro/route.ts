@@ -51,7 +51,8 @@ export async function GET(req: NextRequest) {
         nombre: entry.payment?.nombrePagador || entry.order?.customerName || entry.customerName || '',
         orderNumber: entry.orderNumber || entry.order?.orderNumber || '',
         billetera: billeteraLabel(entry.payment?.source),
-        hechoPor: entry.hechoPor ?? null,
+        // "hecho por" NO se devuelve: es trazabilidad interna (registro_log.hecho_por).
+        // No se muestra en la planilla ni viaja al cliente.
         enSaldo: !!mov,
         usdtRate: mov?.usdtRate ?? null,
         usdt: mov?.usdt != null ? mov.usdt - comisionTiendaSobre(mov.usdt, comisionPct) : null,

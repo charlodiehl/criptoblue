@@ -67,7 +67,8 @@ interface Row {
   nombre: string
   orderNumber: string
   billetera: string
-  hechoPor: string | null   // email del admin que lo cargó/editó a mano (null = automático / sin registrar)
+  // "hecho por" (quién cargó/marcó el pago) NO se expone: es trazabilidad interna,
+  // se guarda en registro_log.hecho_por y no viaja al cliente ni se muestra.
   enSaldo: boolean       // false = sin movimiento de balance → no aporta al saldo ("No suma")
   usdtRate: number | null
   usdt: number | null
@@ -353,13 +354,12 @@ export default function BalanceTab({ storeId, qs, notify, admin = false, refresh
                     </th>
                   )
                 })}
-                {admin && <th className="text-left px-3 py-3 text-[11px] font-semibold uppercase tracking-wider whitespace-nowrap" style={{ color: 'rgba(148,163,184,0.7)' }}>Hecho por</th>}
                 {admin && <th className="px-3 py-3" style={{ color: 'rgba(148,163,184,0.7)' }} />}
               </tr>
             </thead>
             <tbody>
               {loadingRows ? (
-                <tr><td colSpan={admin ? 11 : 9} className="px-3 py-8 text-center text-sm" style={{ color: 'rgba(148,163,184,0.5)' }}>Cargando…</td></tr>
+                <tr><td colSpan={admin ? 10 : 9} className="px-3 py-8 text-center text-sm" style={{ color: 'rgba(148,163,184,0.5)' }}>Cargando…</td></tr>
               ) : rows.length === 0 ? (
                 <tr><td colSpan={admin ? 11 : 9} className="px-3 py-8 text-center text-sm" style={{ color: 'rgba(148,163,184,0.5)' }}>
                   {searching ? `Sin resultados para "${debouncedSearch}"` : 'Sin órdenes acreditadas este día'}
@@ -381,11 +381,6 @@ export default function BalanceTab({ storeId, qs, notify, admin = false, refresh
                     <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: 'rgba(226,232,240,0.7)' }}>{r.cuit || '—'}</td>
                     <td className="px-3 py-2.5" style={{ color: 'rgba(226,232,240,0.85)' }}>{r.nombre || '—'}</td>
                     <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: 'rgba(226,232,240,0.7)' }}>{r.orderNumber ? `#${r.orderNumber}` : '—'}</td>
-                    {admin && (
-                      <td className="px-3 py-2.5 whitespace-nowrap text-[11px]" style={{ color: r.hechoPor ? 'rgba(226,232,240,0.65)' : 'rgba(148,163,184,0.35)' }} title={r.hechoPor || 'Sin registrar (pago automático o carga previa a la trazabilidad)'}>
-                        {r.hechoPor || '—'}
-                      </td>
-                    )}
                     {admin && (
                       <td className="px-3 py-2.5 whitespace-nowrap text-right">
                         <button
@@ -422,7 +417,6 @@ export default function BalanceTab({ storeId, qs, notify, admin = false, refresh
                         {col.label}
                       </th>
                     ))}
-                    {admin && <th className="text-left px-3 py-3 text-[11px] font-semibold uppercase tracking-wider whitespace-nowrap" style={{ color: 'rgba(148,163,184,0.7)' }}>Hecho por</th>}
                     {admin && <th className="px-3 py-3" />}
                   </tr>
                 </thead>
@@ -443,11 +437,6 @@ export default function BalanceTab({ storeId, qs, notify, admin = false, refresh
                       <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: 'rgba(226,232,240,0.7)' }}>{r.cuit || '—'}</td>
                       <td className="px-3 py-2.5" style={{ color: 'rgba(226,232,240,0.85)' }}>{r.nombre || '—'}</td>
                       <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: 'rgba(226,232,240,0.7)' }}>{r.orderNumber ? `#${r.orderNumber}` : '—'}</td>
-                      {admin && (
-                        <td className="px-3 py-2.5 whitespace-nowrap text-[11px]" style={{ color: r.hechoPor ? 'rgba(226,232,240,0.65)' : 'rgba(148,163,184,0.35)' }} title={r.hechoPor || 'Sin registrar'}>
-                          {r.hechoPor || '—'}
-                        </td>
-                      )}
                       {admin && (
                         <td className="px-3 py-2.5 whitespace-nowrap text-right">
                           {r.movId != null && (
