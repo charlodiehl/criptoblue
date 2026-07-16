@@ -337,6 +337,27 @@ export async function getDiasConMovimiento(storeId: string): Promise<string[]> {
   return [...dias].sort()
 }
 
+// Nombre del pagador, CUIT y N° de orden de los registros ligados a saldos
+// personalizados (para mostrarlos/editarlos desde su movimiento).
+async function getRegistrosMinimos(ids: number[]): Promise<Map<number, { nombre: string | null; cuit: string | null; orderNumber: string | null }>> {
+  const map = new Map<number, { nombre: string | null; cuit: string | null; orderNumber: string | null }>()
+  if (!ids.length) return map
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (getClient().from('registro_log') as any)
+    .select('id, order_number, cuit_pagador, customer_name, payment').in('id', ids)
+  if (error) throw new Error(`getRegistrosMinimos falló: ${error.message} [${error.code}]`)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const r of (data ?? []) as any[]) {
+    const p = r.payment ?? {}
+    map.set(r.id as number, {
+      nombre: p.nombrePagador || r.customer_name || null,
+      cuit: p.cuitPagador || r.cuit_pagador || null,
+      orderNumber: r.order_number || null,
+    })
+  }
+  return map
+}
+
 // Balance de UN día: la misma cuenta que getBalances (bruto − comisión sobre los
 // ingresos), pero acotada a los movimientos de ese día. Suma de los saldos diarios
 // = saldo total, porque cada movimiento cae en un único día.
@@ -351,6 +372,11 @@ export async function getDiasConMovimiento(storeId: string): Promise<string[]> {
 export interface MovimientoDetalle extends BalanceMovement {
   montoOriginal: number | null
   monedaOriginal: string | null
+  // Solo saldo personalizado (ingreso_manual): datos del registro ligado, para mostrarlos
+  // y editarlos (nombre del pagador, CUIT y N° de orden/motivo).
+  nombrePagador?: string | null
+  cuitPagador?: string | null
+  orderNumber?: string | null
   tieneComprobante: boolean
   refundId: number | null   // si es un reembolso con comprobante, su id (para descargarlo)
 }
@@ -359,6 +385,7 @@ export interface BalanceDia {
   ingresosArs: number
   ingresosUsdt: number
   cantidadIngresos: number
+  ingresoManualUsdt: number    // saldo personalizado del día (positivo); figura como su propia línea del desglose
   comisionArs: number
   comisionUsdt: number
   comisionPct: number
@@ -410,6 +437,7 @@ export async function getBalanceDia(storeId: string, diaART: string): Promise<Ba
   const esGravado = (m: BalanceMovement) => m.tipo === 'ingreso_orden' || m.tipo === 'ingreso_manual'
   const ingresosArs = suma(m => m.ars, esIngreso)
   const ingresosUsdt = suma(m => m.usdt ?? 0, esIngreso)
+  const ingresoManualUsdt = suma(m => m.usdt ?? 0, m => m.tipo === 'ingreso_manual')
   const comisionArs = comisionTiendaSobre(suma(m => m.ars, esGravado), pct)
   const comisionUsdt = comisionTiendaSobre(suma(m => m.usdt ?? 0, esGravado), pct)
 
@@ -429,19 +457,26 @@ export async function getBalanceDia(storeId: string, diaART: string): Promise<Ba
   // Los reembolsos guardan su comprobante en la tabla refunds (no en transfer_requests):
   // se cruzan por ref_movement_id = id del movimiento de balance.
   const reembolsoIds = noIngresos.filter(m => m.tipo === 'reembolso').map(m => m.id)
-  const [detalles, refundsPorMov] = await Promise.all([
+  // Saldo personalizado: nombre/CUIT/orden viven en el registro ligado (ref_registro_id).
+  const manualRegIds = noIngresos.filter(m => m.tipo === 'ingreso_manual' && m.refRegistroId != null).map(m => m.refRegistroId as number)
+  const [detalles, refundsPorMov, regsManual] = await Promise.all([
     getDetalleTransferencias(transferIds),
     getRefundsByMovementIds(reembolsoIds),
+    getRegistrosMinimos(manualRegIds),
   ])
 
   const movimientos: MovimientoDetalle[] = noIngresos.map(m => {
     const d = m.refTransferId != null ? detalles.get(m.refTransferId) : undefined
     const refund = m.tipo === 'reembolso' ? refundsPorMov.get(m.id) : undefined
     const refundConComp = refund?.comprobantePath ? refund : undefined
+    const reg = m.tipo === 'ingreso_manual' && m.refRegistroId != null ? regsManual.get(m.refRegistroId) : undefined
     return {
       ...m,
       montoOriginal: d?.monto ?? null,
       monedaOriginal: d?.moneda ?? null,
+      nombrePagador: reg?.nombre ?? null,
+      cuitPagador: reg?.cuit ?? null,
+      orderNumber: reg?.orderNumber ?? null,
       tieneComprobante: !!d?.comprobante || !!refundConComp,
       refundId: refundConComp ? refundConComp.id : null,
     }
@@ -449,6 +484,7 @@ export async function getBalanceDia(storeId: string, diaART: string): Promise<Ba
 
   return {
     ingresosArs, ingresosUsdt, cantidadIngresos: movs.filter(esIngreso).length,
+    ingresoManualUsdt,
     comisionArs, comisionUsdt, comisionPct: pct,
     transferenciasUsdt, reembolsosArs, reembolsosUsdt, ajustesUsdt,
     saldoUsdt: brutoUsdt - comisionUsdt,

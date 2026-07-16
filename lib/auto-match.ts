@@ -128,8 +128,8 @@ function computeSignals(payment: Payment, order: Order, sameMontoCount: number):
     {
       label: 'Fecha / Hora',
       value: minDiff < 0 ? 'No disponible' : minDiff < 60 ? `${minDiff} min` : `${Math.round(minDiff / 60)}h`,
-      match: minDiff >= 0 && minDiff <= 15,
-      partial: minDiff > 15 && minDiff <= 180,
+      match: minDiff >= 0 && minDiff <= 30,
+      partial: minDiff > 30 && minDiff <= 180,
       unavailable: minDiff < 0,
       timeMinutes: minDiff >= 0 ? minDiff : undefined,
     },
@@ -173,8 +173,8 @@ function meetsAutoCriteria(signals: Signal[]): boolean {
   // (findAutoMatchCandidates descarta órdenes creadas después del pago).
   if (monto?.value === 'Exacto' && nombre?.value === 'Exacto') return true
 
-  // Tiempo normal (≤15 min) o extendido (≤60 min) cuando hay identificador fuerte: CUIT o email exacto
-  const fechaOk = minDiff <= 15 || (minDiff <= 60 && (cuitOk || emailExact))
+  // Tiempo normal (≤30 min) o extendido (≤60 min) cuando hay identificador fuerte: CUIT o email exacto
+  const fechaOk = minDiff <= 30 || (minDiff <= 60 && (cuitOk || emailExact))
   if (!fechaOk) return false
 
   return cuitOk || emailOk || nombreOk || (!!allUnavailable && unica?.match === true)

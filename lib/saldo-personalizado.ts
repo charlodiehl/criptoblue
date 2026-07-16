@@ -69,6 +69,10 @@ export async function agregarSaldoPersonalizado(input: SaldoPersonalizadoInput):
   const registroId = await insertRegistroEntry(entry)
 
   const usdt = input.monto / input.tasa
+  // Concepto del movimiento = nombre del pagador + motivo (el tipo "Saldo personalizado"
+  // ya se ve en su columna). Sin nombre, cae a "Saldo personalizado".
+  const nombre = (input.nombre || '').trim()
+  const concepto = `${nombre || 'Saldo personalizado'}${motivo ? ` · ${motivo}` : ''}`
   await registrarIngresoManual(input.storeId, registroId, input.monto, usdt, input.tasa,
-    `Saldo personalizado${motivo ? ` · ${motivo}` : ''}`, input.fechaHoraISO)
+    concepto, input.fechaHoraISO)
 }

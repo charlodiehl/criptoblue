@@ -194,8 +194,8 @@ function computeSignals(payment: Payment, order: Order): Signal[] {
     {
       label: 'Fecha / Hora',
       value: timeValue,
-      match: minDiff >= 0 && minDiff <= 15,
-      partial: minDiff > 15 && minDiff <= 180,
+      match: minDiff >= 0 && minDiff <= 30,
+      partial: minDiff > 30 && minDiff <= 180,
       unavailable: minDiff < 0,
       timeMinutes: minDiff >= 0 ? minDiff : undefined,
     },
@@ -225,7 +225,7 @@ function meetsAutoCriteria(signals: Signal[]): boolean {
   const minDiff    = fecha?.timeMinutes ?? Infinity
   // Nombre y monto EXACTOS → auto-marca sin importar el tiempo (pago posterior a la orden ya garantizado).
   if (monto?.value === 'Exacto' && nombre?.value === 'Exacto') return true
-  const fechaOk    = minDiff <= 15 || (minDiff <= 60 && (cuitOk || emailExact))
+  const fechaOk    = minDiff <= 30 || (minDiff <= 60 && (cuitOk || emailExact))
   if (!fechaOk) return false
   return cuitOk || emailOk || nombreOk || (!!allUnavailable && unica?.match === true)
 }

@@ -156,6 +156,7 @@ export async function POST(req: NextRequest) {
       customerName: order.customerName,
       paymentReceivedAt: toUTCISO(payment.fechaPago),
       orderCreatedAt: order.createdAt,
+      hechoPor: user.email,   // usuario de la tienda que reclamó el pago
     }
     await appendRegistroEntry(logEntry)
 

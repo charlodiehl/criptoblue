@@ -52,6 +52,9 @@ export async function POST(req: NextRequest) {
       fuente, id, fecha,
       concepto: body?.concepto !== undefined ? String(body.concepto) : undefined,
       montoArs, tasa,
+      nombre: body?.nombre !== undefined ? String(body.nombre).trim() : undefined,
+      cuit: body?.cuit !== undefined ? String(body.cuit).trim() : undefined,
+      orderNumber: body?.orderNumber !== undefined ? String(body.orderNumber).trim() : undefined,
     })
 
     return NextResponse.json({

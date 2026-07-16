@@ -30,6 +30,9 @@ interface Movimiento {
   // Detalle de la transferencia: monto que ingresó el admin (en su moneda) y comprobante.
   montoOriginal: number | null
   monedaOriginal: string | null
+  nombrePagador: string | null   // saldo personalizado: datos del registro ligado
+  cuitPagador: string | null
+  orderNumber: string | null
   tieneComprobante: boolean
   refTransferId: number | null
   refundId: number | null   // reembolso con comprobante → id para descargarlo
@@ -38,6 +41,7 @@ interface BalanceDia {
   ingresosArs: number
   ingresosUsdt: number
   cantidadIngresos: number
+  ingresoManualUsdt: number
   comisionArs: number
   comisionUsdt: number
   comisionPct: number
@@ -297,6 +301,9 @@ export default function BalanceTab({ storeId, qs, notify, admin = false, refresh
               label={`Ingresos (${balance?.dia?.cantidadIngresos ?? 0} orden${(balance?.dia?.cantidadIngresos ?? 0) === 1 ? '' : 'es'})`}
               valor={fmtUsdt(balance?.dia?.ingresosUsdt ?? 0)}
               color="#00ff88" signo="+" />
+            {(balance?.dia?.ingresoManualUsdt ?? 0) > 0 && (
+              <Linea label="Saldo personalizado" valor={fmtUsdt(balance!.dia!.ingresoManualUsdt)} color="#00ff88" signo="+" />
+            )}
             {(balance?.dia?.comisionUsdt ?? 0) > 0 && (
               <Linea label={`Comisión ${fmtPct(balance?.dia?.comisionPct ?? 0)}%`}
                 valor={fmtUsdt(balance!.dia!.comisionUsdt)} color="#f87171" signo="−" />
@@ -460,6 +467,8 @@ export default function BalanceTab({ storeId, qs, notify, admin = false, refresh
                             fuente: 'balance', id: m.id, fechaISO: m.fecha, concepto: m.descripcion || '',
                             montoArs: Math.abs(m.ars) || 0, tasa: m.usdtRate,
                             puedeMontoTasa: m.tipo !== 'egreso_transferencia', tasaLabel: 'ARS/USDT',
+                            esSaldoPersonalizado: m.tipo === 'ingreso_manual',
+                            nombre: m.nombrePagador ?? '', cuit: m.cuitPagador ?? '', orderNumber: m.orderNumber ?? '',
                           })}
                             className="rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-all"
                             style={{ background: 'rgba(0,212,255,0.08)', border: '1px solid rgba(0,212,255,0.3)', color: '#00d4ff' }}>

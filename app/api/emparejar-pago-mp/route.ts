@@ -5,6 +5,7 @@ import { markOrderAsPaid as markTNOrderAsPaid } from '@/lib/tiendanube'
 import { markOrderAsPaid as markShopifyOrderAsPaid } from '@/lib/shopify'
 import type { LogEntry, Order, Payment } from '@/lib/types'
 import { auditMatch } from '@/lib/audit'
+import { requireUser } from '@/lib/auth/server'
 import { nowART, toUTCISO } from '@/lib/utils'
 
 const LOCK_HOLDER = 'emparejar-pago-mp'
@@ -20,6 +21,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'El sistema está procesando otra operación. Esperá unos segundos.' }, { status: 409 })
     }
 
+    // Quién empareja (trazabilidad): el proxy ya exige sesión; acá tomamos el email.
+    const auth = await requireUser('admin')
+    if ('error' in auth) return auth.error
     const { payment, order } = await req.json() as { payment: Payment; order: Order }
     if (!payment?.mpPaymentId) return NextResponse.json({ error: 'payment.mpPaymentId requerido' }, { status: 400 })
     if (!order?.orderId || !order?.storeId) return NextResponse.json({ error: 'order.orderId y order.storeId requeridos' }, { status: 400 })
@@ -109,6 +113,7 @@ export async function POST(req: NextRequest) {
       customerName: order.customerName,
       paymentReceivedAt: toUTCISO(payment.fechaPago),
       orderCreatedAt: order.createdAt,
+      hechoPor: auth.user.email,
     }
     await appendRegistroEntry(logEntry)
 

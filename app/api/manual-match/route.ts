@@ -6,6 +6,7 @@ import { markOrderAsPaid as markShopifyOrderAsPaid, getPendingOrders as getShopi
 import { HARD_CUTOFF_ORDERS } from '@/lib/config'
 import type { LogEntry } from '@/lib/types'
 import { audit, auditMatch } from '@/lib/audit'
+import { requireUser } from '@/lib/auth/server'
 import { nowART, toUTCISO } from '@/lib/utils'
 
 const LOCK_HOLDER = 'manual-match'
@@ -16,6 +17,9 @@ export async function POST(req: NextRequest) {
     if (!locked) {
       return NextResponse.json({ error: 'El sistema está procesando otra operación. Esperá unos segundos.' }, { status: 409 })
     }
+    // Quién empareja (trazabilidad): el proxy ya exige sesión; acá tomamos el email.
+    const auth = await requireUser('admin')
+    if ('error' in auth) return auth.error
     const { mpPaymentId, orderId, storeId, order: orderFromClient } = await req.json()
     if (!mpPaymentId || !orderId || !storeId) {
       return NextResponse.json({ error: 'mpPaymentId, orderId, storeId required' }, { status: 400 })
@@ -118,6 +122,7 @@ export async function POST(req: NextRequest) {
       customerName: order?.customerName,
       paymentReceivedAt: toUTCISO(payment.fechaPago),
       orderCreatedAt: order?.createdAt,
+      hechoPor: auth.user.email,
     }
     await appendRegistroEntry(logEntry)
 

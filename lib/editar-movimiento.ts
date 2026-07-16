@@ -22,6 +22,11 @@ export interface EdicionMovimiento {
   concepto?: string
   montoArs?: number     // valor mostrado (positivo); el signo lo pone el tipo del movimiento
   tasa?: number         // cotización ARS/USDT (balance) o ARS/moneda (wallet)
+  // Solo saldo personalizado (ingreso_manual): actualizan el registro ligado. El nombre
+  // y el N° de orden recomponen el concepto del movimiento (nombre · orden).
+  nombre?: string
+  cuit?: string
+  orderNumber?: string
 }
 
 const EPS = 1e-9
@@ -90,12 +95,23 @@ async function editarBalance(e: EdicionMovimiento): Promise<{ avisoTransferencia
     }
   } else if (m.tipo === 'ingreso_manual' && m.ref_registro_id != null) {
     // El saldo personalizado vive también en registro_log (para la billetera de origen).
-    const { data: rl } = await sb.from('registro_log').select('payment').eq('id', m.ref_registro_id).maybeSingle()
+    const { data: rl } = await sb.from('registro_log').select('payment, customer_name, order_number').eq('id', m.ref_registro_id).maybeSingle()
     const payment = { ...((rl?.payment as Record<string, unknown>) ?? {}) }
     const rlPatch: Record<string, unknown> = {}
-    if (cambiaMonto && !avisoTransferencia) { payment.monto = absArs; rlPatch.amount = absArs }
-    if (e.fecha) { payment.fechaPago = e.fecha; rlPatch.ts = e.fecha; rlPatch.payment_received_at = e.fecha }
-    if (Object.keys(rlPatch).length || cambiaMonto) { rlPatch.payment = payment }
+    let tocaPayment = false
+    if (cambiaMonto && !avisoTransferencia) { payment.monto = absArs; rlPatch.amount = absArs; tocaPayment = true }
+    if (e.fecha) { payment.fechaPago = e.fecha; rlPatch.ts = e.fecha; rlPatch.payment_received_at = e.fecha; tocaPayment = true }
+    if (e.nombre !== undefined) { payment.nombrePagador = e.nombre; rlPatch.customer_name = e.nombre; tocaPayment = true }
+    if (e.cuit !== undefined) { payment.cuitPagador = e.cuit; rlPatch.cuit_pagador = e.cuit || null; tocaPayment = true }
+    if (e.orderNumber !== undefined) rlPatch.order_number = e.orderNumber || null
+    // Recomponer el concepto del movimiento (nombre · orden) si cambió el nombre o la orden.
+    if (e.nombre !== undefined || e.orderNumber !== undefined) {
+      const nombreFinal = (e.nombre !== undefined ? e.nombre : ((rl?.customer_name as string) || '')).trim()
+      const ordenFinal = (e.orderNumber !== undefined ? e.orderNumber : ((rl?.order_number as string) || '')).trim()
+      const concepto = `${nombreFinal || 'Saldo personalizado'}${ordenFinal ? ` · ${ordenFinal}` : ''}`
+      await sb.from('balance_movements').update({ descripcion: concepto }).eq('id', m.id)
+    }
+    if (tocaPayment) rlPatch.payment = payment
     if (Object.keys(rlPatch).length) {
       const { error: rlErr } = await sb.from('registro_log').update(rlPatch).eq('id', m.ref_registro_id)
       if (rlErr) throw new Error(`editarBalance(registro_log) falló: ${rlErr.message} [${rlErr.code}]`)

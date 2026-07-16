@@ -5,6 +5,7 @@ import { markOrderAsPaid as markTNOrderAsPaid } from '@/lib/tiendanube'
 import { markOrderAsPaid as markShopifyOrderAsPaid } from '@/lib/shopify'
 import type { LogEntry, RecentMatch } from '@/lib/types'
 import { auditMatch } from '@/lib/audit'
+import { requireUser } from '@/lib/auth/server'
 import { nowART } from '@/lib/utils'
 
 const LOCK_HOLDER = 'mark-order-paid'
@@ -15,6 +16,9 @@ export async function POST(req: NextRequest) {
     if (!locked) {
       return NextResponse.json({ error: 'El sistema está procesando otra operación. Esperá unos segundos.' }, { status: 409 })
     }
+    // Quién marca (trazabilidad): el proxy ya exige sesión; acá tomamos el email.
+    const auth = await requireUser('admin')
+    if ('error' in auth) return auth.error
     const { storeId, orderId, total } = await req.json()
     if (!storeId || !orderId) {
       return NextResponse.json({ error: 'storeId and orderId required' }, { status: 400 })
@@ -71,6 +75,7 @@ export async function POST(req: NextRequest) {
       storeName: store.storeName,
       amount: total ?? undefined,
       orderTotal: total ?? undefined,
+      hechoPor: auth.user.email,
     }
     await appendRegistroEntry(logEntry)
     if (total != null) incrementPersistedMonthStats(hot, total, 'manual_ordenes')

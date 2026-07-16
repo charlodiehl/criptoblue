@@ -15,6 +15,11 @@ export interface MovimientoEditable {
   tasa: number | null       // cotización actual (usdt_rate / cotización)
   puedeMontoTasa: boolean   // false para transferencias (multi-moneda): solo fecha/concepto
   tasaLabel?: string        // ej. "ARS/USDT" o "ARS por 1 USD"
+  // Saldo personalizado: en vez del concepto libre, se editan nombre / N° de orden / CUIT.
+  esSaldoPersonalizado?: boolean
+  nombre?: string
+  cuit?: string
+  orderNumber?: string
 }
 
 const inputStyle: React.CSSProperties = {
@@ -44,6 +49,9 @@ export default function EditarMovimientoModal({
   const [concepto, setConcepto] = useState(mov.concepto)
   const [monto, setMonto] = useState(String(mov.montoArs))
   const [tasa, setTasa] = useState(mov.tasa != null ? String(mov.tasa) : '')
+  const [nombre, setNombre] = useState(mov.nombre ?? '')
+  const [cuit, setCuit] = useState(mov.cuit ?? '')
+  const [orderNumber, setOrderNumber] = useState(mov.orderNumber ?? '')
   const [guardando, setGuardando] = useState(false)
 
   const fechaOriginal = artLocal(mov.fechaISO)
@@ -55,7 +63,13 @@ export default function EditarMovimientoModal({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const body: Record<string, any> = { fuente: mov.fuente, id: mov.id }
     if (fecha && fecha !== fechaOriginal) body.fecha = fecha
-    if (concepto !== mov.concepto) body.concepto = concepto
+    if (mov.esSaldoPersonalizado) {
+      if (nombre !== (mov.nombre ?? '')) body.nombre = nombre
+      if (orderNumber !== (mov.orderNumber ?? '')) body.orderNumber = orderNumber
+      if (cuit !== (mov.cuit ?? '')) body.cuit = cuit
+    } else if (concepto !== mov.concepto) {
+      body.concepto = concepto
+    }
     if (mov.puedeMontoTasa) {
       const m = Number(monto.replace(',', '.'))
       if (!Number.isFinite(m) || m <= 0) { notify('El monto debe ser mayor a 0', 'error'); return }
@@ -101,10 +115,27 @@ export default function EditarMovimientoModal({
           <input type="datetime-local" style={{ ...inputStyle, colorScheme: 'dark' }} value={fecha} onChange={e => setFecha(e.target.value)} />
         </div>
 
-        <div>
-          <label style={labelStyle}>Concepto</label>
-          <input style={inputStyle} value={concepto} onChange={e => setConcepto(e.target.value)} />
-        </div>
+        {mov.esSaldoPersonalizado ? (
+          <>
+            <div>
+              <label style={labelStyle}>Nombre del pagador</label>
+              <input style={inputStyle} value={nombre} onChange={e => setNombre(e.target.value)} placeholder="Nombre" />
+            </div>
+            <div>
+              <label style={labelStyle}>N° de orden o motivo</label>
+              <input style={inputStyle} value={orderNumber} onChange={e => setOrderNumber(e.target.value)} placeholder="Opcional" />
+            </div>
+            <div>
+              <label style={labelStyle}>CUIT / CUIL / DNI</label>
+              <input style={inputStyle} value={cuit} onChange={e => setCuit(e.target.value)} placeholder="Opcional" />
+            </div>
+          </>
+        ) : (
+          <div>
+            <label style={labelStyle}>Concepto</label>
+            <input style={inputStyle} value={concepto} onChange={e => setConcepto(e.target.value)} />
+          </div>
+        )}
 
         {mov.puedeMontoTasa ? (
           <>
