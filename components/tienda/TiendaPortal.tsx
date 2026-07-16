@@ -173,7 +173,9 @@ export default function TiendaPortal({ storeId, storeName, userEmail, admin = fa
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/logo.png" alt="CriptoBlue" className="h-11 w-11 sm:h-16 sm:w-16 rounded-full object-cover"
               style={{ boxShadow: '0 0 24px rgba(0,212,255,0.5), 0 0 48px rgba(0,212,255,0.15)' }} />
-            <span className="text-[9px] sm:text-xs font-semibold whitespace-nowrap"
+            {/* En móvil se oculta: al ir en la columna `auto` del grid se llevaba 181px
+                de los 343 y le dejaba solo 73px al nombre de la tienda, que se cortaba. */}
+            <span className="hidden sm:inline text-[9px] sm:text-xs font-semibold whitespace-nowrap"
               style={{ color: 'rgba(0,212,255,0.8)', letterSpacing: '0.12em', textTransform: 'uppercase', textShadow: '0 0 12px rgba(0,212,255,0.4)' }}>
               Automatización de Procesos
             </span>

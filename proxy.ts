@@ -99,11 +99,16 @@ export async function proxy(req: NextRequest) {
     return isApi ? deny(401, 'Se requiere completar el 2FA') : redirect('/auth/mfa')
   }
 
-  // Gate por rol: una tienda solo ve su portal y sus APIs.
+  // Gate por rol: una tienda solo ve su portal y sus APIs. Las notificaciones son
+  // de los dos roles: su página y las rutas /api/push/** (suscripción del dispositivo
+  // y preferencias) operan SIEMPRE sobre el propio usuario de la sesión, y la página
+  // solo muestra los grupos de su rol — no hay nada de otra tienda ahí.
   if (role === 'tienda') {
     const permitido = pathname === '/tienda'
       || pathname.startsWith('/tienda/')
       || pathname.startsWith('/api/tienda/')
+      || pathname === '/notificaciones'
+      || pathname.startsWith('/api/push/')
     if (!permitido) return isApi ? deny(403, 'Solo administradores') : redirect('/tienda')
   }
 
