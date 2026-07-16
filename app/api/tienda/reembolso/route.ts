@@ -3,6 +3,7 @@ import { requireUser, resolveStoreScope } from '@/lib/auth/server'
 import { getStores, loadLogs, saveLogs, appendActivity } from '@/lib/storage'
 import { buscarOrdenEnTienda } from '@/lib/buscar-orden'
 import { resumenReembolsos, crearRefundRequest, listarRefundRequestsTienda } from '@/lib/reembolsos'
+import { notifyAdmins } from '@/lib/push'
 
 // POST /api/tienda/reembolso  { orderNumber, monto, storeId? }
 // La tienda solicita un reembolso: valida que la orden exista y que NO esté
@@ -65,6 +66,16 @@ export async function POST(req: NextRequest) {
       })
       await saveLogs(logs)
     } catch { /* ignore */ }
+
+    // Notificar a los administradores (best-effort).
+    try {
+      const montoTxt = monto.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      await notifyAdmins('reembolso_solicitado', {
+        title: 'Reembolso solicitado',
+        body: `${store.storeName} pidió un reembolso de ${montoTxt} ARS sobre la orden #${order.orderNumber}.`,
+        url: '/finanzas',
+      })
+    } catch { /* best-effort */ }
 
     return NextResponse.json({ success: true, id: solicitud.id, orderNumber: order.orderNumber })
   } catch (err) {

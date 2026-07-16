@@ -12,8 +12,10 @@
 
 import webpush from 'web-push'
 import { getClient } from './storage'
+import { quiereEvento, type EventoKey, type NotificationPrefs } from './notificaciones'
 
 const TABLE = 'push_subscriptions'
+const PREFS_TABLE = 'notification_prefs'
 
 const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
 const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY
@@ -157,4 +159,61 @@ export async function sendPushNotificationToEmails(emails: string[], payload: Pu
     results.failed += r.failed
   }
   return results
+}
+
+// ─── Administradores + preferencias por grupo ─────────────────────────────────
+
+// Emails (lowercase) de todos los administradores.
+export async function getAdminEmails(): Promise<string[]> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (getClient().from('app_users') as any)
+    .select('email').eq('role', 'admin')
+  if (error) throw new Error(`getAdminEmails falló: ${error.message} [${error.code}]`)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return ((data ?? []) as any[]).map(r => String(r.email).toLowerCase())
+}
+
+export async function getNotificationPrefs(email: string): Promise<NotificationPrefs> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (getClient().from(PREFS_TABLE) as any)
+    .select('prefs').eq('user_email', email.toLowerCase()).maybeSingle()
+  if (error) throw new Error(`getNotificationPrefs falló: ${error.message} [${error.code}]`)
+  return (data?.prefs ?? {}) as NotificationPrefs
+}
+
+export async function setNotificationPrefs(email: string, prefs: NotificationPrefs): Promise<void> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error } = await (getClient().from(PREFS_TABLE) as any).upsert(
+    { user_email: email.toLowerCase(), prefs, updated_at: new Date().toISOString() },
+    { onConflict: 'user_email' },
+  )
+  if (error) throw new Error(`setNotificationPrefs falló: ${error.message} [${error.code}]`)
+}
+
+// Preferencias de varios usuarios de una (email lowercase → prefs).
+async function getPrefsForEmails(emails: string[]): Promise<Record<string, NotificationPrefs>> {
+  const map: Record<string, NotificationPrefs> = {}
+  if (!emails.length) return map
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (getClient().from(PREFS_TABLE) as any)
+    .select('user_email, prefs').in('user_email', emails)
+  if (error) throw new Error(`getPrefsForEmails falló: ${error.message} [${error.code}]`)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const r of (data ?? []) as any[]) map[String(r.user_email).toLowerCase()] = (r.prefs ?? {}) as NotificationPrefs
+  return map
+}
+
+// Notifica a TODOS los administradores que tengan ESE grupo activado (default: sí).
+// Best-effort: nunca lanza — si el push falla, el evento de negocio igual se completa.
+export async function notifyAdmins(evento: EventoKey, payload: PushNotificationPayload): Promise<void> {
+  try {
+    const emails = await getAdminEmails()
+    if (!emails.length) return
+    const prefs = await getPrefsForEmails(emails)
+    const destinatarios = emails.filter(e => quiereEvento(prefs[e], evento))
+    if (!destinatarios.length) return
+    await sendPushNotificationToEmails(destinatarios, payload)
+  } catch (err) {
+    console.error('[Push] notifyAdmins error:', err)
+  }
 }

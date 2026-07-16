@@ -7,6 +7,7 @@ import { markOrderAsPaid as markShopifyOrderAsPaid } from '@/lib/shopify'
 import { buscarOrdenEnTienda } from '@/lib/buscar-orden'
 import type { LogEntry } from '@/lib/types'
 import { auditMatch } from '@/lib/audit'
+import { notifyAdmins } from '@/lib/push'
 import { nowART, toUTCISO } from '@/lib/utils'
 
 const LOCK_HOLDER = 'tienda-reclamar'
@@ -171,6 +172,17 @@ export async function POST(req: NextRequest) {
 
     await saveLogs(logs)
     await saveHotState(hot)
+
+    // Notificar a los administradores para que corroboren el emparejamiento (best-effort).
+    try {
+      const montoTxt = Number(payment.monto).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      const pagador = payment.nombrePagador ? ` de ${payment.nombrePagador}` : ''
+      await notifyAdmins('pago_adjudicado', {
+        title: 'Pago adjudicado por una tienda',
+        body: `${store.storeName} adjudicó un pago${pagador} de ${montoTxt} ARS a la orden #${order.orderNumber}. Corroborá el emparejamiento.`,
+        url: '/finanzas',
+      })
+    } catch { /* best-effort */ }
 
     return NextResponse.json({ success: true, orderNumber: order.orderNumber, storeName: store.storeName, monto: payment.monto })
   } catch (err) {

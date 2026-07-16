@@ -9,7 +9,6 @@ import OrdersListTab from '@/components/OrdersListTab'
 import PaymentsListTab from '@/components/PaymentsListTab'
 import RegistroTab from '@/components/RegistroTab'
 import { useRealtimeSync } from '@/hooks/useRealtimeSync'
-import NotificacionesToggle from '@/components/pwa/NotificacionesToggle'
 import type { Order, UnmatchedPayment, Store, LogEntry, Payment, RecentMatch, ErrorEntry } from '@/lib/types'
 import { HARD_CUTOFF_PAYMENTS, HARD_CUTOFF_ORDERS, WALLETS_SIN_VENCIMIENTO } from '@/lib/config'
 import { paymentWalletId } from '@/lib/utils'
@@ -847,7 +846,15 @@ export default function Dashboard() {
                   boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
                 }}
               >
-                <NotificacionesToggle />
+                <Link
+                  href="/notificaciones"
+                  className="w-full text-left px-4 py-3 text-sm transition-all flex items-center gap-2"
+                  style={{ color: 'rgba(226,232,240,0.9)', borderBottom: '1px solid rgba(148,163,184,0.08)' }}
+                  onMouseEnter={e => (e.currentTarget.style.background = 'rgba(0,212,255,0.06)')}
+                  onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                >
+                  <span>🔔</span> Notificaciones
+                </Link>
                 <button
                   onClick={handleLogout}
                   className="w-full text-left px-4 py-3 text-sm transition-all flex items-center gap-2"

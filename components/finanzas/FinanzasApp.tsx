@@ -7,7 +7,6 @@ import TiendaPortal from '@/components/tienda/TiendaPortal'
 import AdminGeneralTab from './AdminGeneralTab'
 import MetricasTab from './MetricasTab'
 import BilleteraTab from './BilleteraTab'
-import NotificacionesToggle from '@/components/pwa/NotificacionesToggle'
 import AnimatedNumber, { NumberSkeleton } from '@/components/AnimatedNumber'
 import { useRealtimeSync } from '@/hooks/useRealtimeSync'
 import { ARS } from '@/lib/utils'
@@ -130,7 +129,11 @@ export default function FinanzasApp({ userEmail }: { userEmail?: string }) {
                       <div className="truncate" style={{ color: 'rgba(226,232,240,0.9)' }}>{userEmail}</div>
                     </div>
                   )}
-                  <NotificacionesToggle />
+                  <Link href="/notificaciones" className="w-full text-left px-4 py-3 text-sm transition-all flex items-center gap-2" style={{ color: 'rgba(226,232,240,0.9)', borderBottom: '1px solid rgba(148,163,184,0.08)' }}
+                    onMouseEnter={e => (e.currentTarget.style.background = 'rgba(0,212,255,0.06)')}
+                    onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+                    <span>🔔</span> Notificaciones
+                  </Link>
                   <button onClick={handleLogout} className="w-full text-left px-4 py-3 text-sm transition-all flex items-center gap-2" style={{ color: '#f87171' }}
                     onMouseEnter={e => (e.currentTarget.style.background = 'rgba(248,113,113,0.07)')}
                     onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
