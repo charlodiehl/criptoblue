@@ -69,7 +69,7 @@ function ShopifySuccessContent() {
   }
 
   return (
-    <div className="text-center space-y-6 p-8" style={{ maxWidth: 360, margin: '0 auto' }}>
+    <div className="text-center space-y-6 p-6 sm:p-8" style={{ maxWidth: 360, margin: '0 auto' }}>
       <div className="text-5xl">🛍️</div>
       <div>
         <p className="text-xl font-semibold" style={{ color: '#96BF48' }}>

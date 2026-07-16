@@ -452,8 +452,8 @@ const filteredPairs = useMemo(() => {
           <button onClick={() => { setSearch(''); setVisibleCount(PAGE_SIZE) }} style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: 'rgba(148,163,184,0.4)', cursor: 'pointer', fontSize: '16px', lineHeight: 1 }}>×</button>
         )}
       </div>
-      {/* Column labels */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px 1fr', gap: '8px', padding: '0 20px' }}>
+      {/* Column labels — ocultas en móvil (las filas apilan y las etiquetas no aplican) */}
+      <div className="hidden md:grid md:grid-cols-[1fr_320px_1fr] gap-2 px-5">
         {[
           { label: 'PAGOS', align: 'left' as const },
           { label: 'COINCIDENCIAS', align: 'center' as const },
@@ -553,8 +553,8 @@ function PairRow({
     >
       {/* PAGO */}
       <div className="p-6 sm:p-7 border-b md:border-b-0 md:border-r border-[rgba(255,255,255,0.05)]">
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px', marginBottom: '12px' }}>
-          <p style={{ fontSize: '38px', fontWeight: 800, color: 'white', letterSpacing: '-0.03em', lineHeight: 1, margin: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px', marginBottom: '12px', flexWrap: 'wrap' }}>
+          <p className="text-[30px] sm:text-[38px]" style={{ fontWeight: 800, color: 'white', letterSpacing: '-0.03em', lineHeight: 1, margin: 0 }}>
             {ARS.format(p.monto)}
           </p>
           <span style={{ fontSize: '11px', fontWeight: 700, color: 'rgba(168,130,247,0.85)', letterSpacing: '0.05em', padding: '3px 8px', borderRadius: '6px', border: '1px solid rgba(168,130,247,0.3)', background: 'rgba(168,130,247,0.08)' }}>
@@ -659,10 +659,10 @@ function PairRow({
       </div>
 
       {/* ORDEN */}
-      <div style={{ padding: '28px 32px' }}>
+      <div className="p-6 sm:p-7">
         {current ? (
           <>
-            <p style={{ fontSize: '38px', fontWeight: 800, color: 'white', marginBottom: '12px', letterSpacing: '-0.03em', lineHeight: 1 }}>
+            <p className="text-[30px] sm:text-[38px]" style={{ fontWeight: 800, color: 'white', marginBottom: '12px', letterSpacing: '-0.03em', lineHeight: 1 }}>
               {ARS.format(current.order.total)}
             </p>
             {current.order.customerCuit && (

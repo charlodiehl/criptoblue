@@ -69,7 +69,7 @@ export default function StoresTab({ onToast }: Props) {
       {/* Modal: nombre de la tienda */}
       {modalOpen && (
         <div
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}
           onClick={e => { if (e.target === e.currentTarget) { setModalOpen(false); setNewStoreName('') } }}
         >
           <div style={{ background: 'white', borderRadius: '16px', padding: '28px 24px', width: '100%', maxWidth: '400px', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>

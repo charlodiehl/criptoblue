@@ -65,7 +65,7 @@ function StatCard({ label, sublabel, value, format, color, glow, borderColor, ic
           <p className="text-xs mb-3 leading-tight" style={{ color: 'rgba(148,163,184,0.4)' }}>
             {sublabel}
           </p>
-          <p className="text-4xl font-black" style={{ color, textShadow: `0 0 20px ${color}60` }}>
+          <p className="text-3xl sm:text-4xl font-black" style={{ color, textShadow: `0 0 20px ${color}60` }}>
             <AnimatedNumber value={value} format={format} />
           </p>
         </div>

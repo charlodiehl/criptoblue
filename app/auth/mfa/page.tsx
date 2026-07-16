@@ -112,7 +112,7 @@ export default function MfaPage() {
           </p>
         </div>
 
-        <div className="p-6 rounded-2xl space-y-4"
+        <div className="p-5 sm:p-6 rounded-2xl space-y-4"
           style={{
             background: 'linear-gradient(135deg, #0d1117, #111827)',
             border: '1px solid rgba(0,212,255,0.15)',
@@ -155,7 +155,7 @@ export default function MfaPage() {
                 onChange={e => setCode(e.target.value.replace(/\D/g, ''))}
                 autoFocus
                 placeholder="000000"
-                className="w-full rounded-xl px-4 py-3 text-center text-2xl tracking-[0.5em] font-mono text-white outline-none"
+                className="w-full rounded-xl px-4 py-3 text-center text-xl sm:text-2xl tracking-[0.4em] sm:tracking-[0.5em] font-mono text-white outline-none"
                 style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(0,212,255,0.2)' }}
               />
               {error && (

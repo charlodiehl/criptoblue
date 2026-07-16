@@ -1162,11 +1162,11 @@ export default function Dashboard() {
         {/* Modal de cierre obligatorio: pago registrado pero NO marcado en la tienda */}
         {markFailModal && (
           <div
-            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}
           >
             <div
               onClick={e => e.stopPropagation()}
-              style={{ background: '#0f1923', border: '1px solid rgba(255,70,70,0.35)', borderRadius: '16px', padding: '32px', width: '440px', maxWidth: '90vw', boxShadow: '0 24px 64px rgba(0,0,0,0.6)' }}
+              style={{ background: '#0f1923', border: '1px solid rgba(255,70,70,0.35)', borderRadius: '16px', padding: 'clamp(20px, 5vw, 32px)', width: '440px', maxWidth: '100%', boxShadow: '0 24px 64px rgba(0,0,0,0.6)' }}
             >
               <div style={{ fontSize: '40px', textAlign: 'center', marginBottom: '10px' }}>⚠️</div>
               <h2 style={{ color: '#ff7070', fontSize: '18px', fontWeight: 700, marginBottom: '12px', textAlign: 'center' }}>
@@ -1194,11 +1194,11 @@ export default function Dashboard() {
         {platformModalOpen && (
           <div
             onClick={() => { setPlatformModalOpen(false); setShopifyDomainStep(false); setShopifyDomain('') }}
-            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}
           >
             <div
               onClick={e => e.stopPropagation()}
-              style={{ background: '#0f1923', border: '1px solid rgba(0,212,255,0.15)', borderRadius: '16px', padding: '32px', width: '360px', boxShadow: '0 24px 64px rgba(0,0,0,0.5)' }}
+              style={{ background: '#0f1923', border: '1px solid rgba(0,212,255,0.15)', borderRadius: '16px', padding: 'clamp(20px, 5vw, 32px)', width: 'min(360px, 100%)', boxShadow: '0 24px 64px rgba(0,0,0,0.5)' }}
             >
               {!shopifyDomainStep ? (
                 <>

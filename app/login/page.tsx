@@ -68,7 +68,7 @@ function LoginInner() {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.2, duration: 0.5 }}
-          className="p-8 rounded-2xl relative"
+          className="p-6 sm:p-8 rounded-2xl relative"
           style={{
             background: 'linear-gradient(135deg, #0d1117, #111827)',
             border: '1px solid rgba(0,212,255,0.15)',

@@ -72,6 +72,11 @@ interface Row {
   usdtRate: number | null
   usdt: number | null
 }
+// Saldo personalizado con formato de orden: igual que Row + el id de su movimiento
+// (se edita como movimiento, no como orden).
+interface SaldoPersonalizado extends Row {
+  movId: number | null
+}
 
 // Hoy en horario Argentina (UTC-3) como 'YYYY-MM-DD'
 function hoyART(): string {
@@ -93,6 +98,7 @@ export default function BalanceTab({ storeId, qs, notify, admin = false, refresh
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [rows, setRows] = useState<Row[]>([])
+  const [saldosPers, setSaldosPers] = useState<SaldoPersonalizado[]>([])
   const [loadingBalance, setLoadingBalance] = useState(true)
   const [loadingRows, setLoadingRows] = useState(true)
   // Cotización para mostrar el saldo también en pesos: precio de venta Binance P2P
@@ -176,9 +182,11 @@ export default function BalanceTab({ storeId, qs, notify, admin = false, refresh
       if (!res.ok) throw new Error((await res.json()).error || 'Error')
       const data = await res.json()
       setRows(data.rows || [])
+      setSaldosPers(data.saldosPersonalizados || [])
     } catch (e) {
       notify(`No se pudieron cargar las órdenes: ${e instanceof Error ? e.message : e}`, 'error')
       setRows([])
+      setSaldosPers([])
     } finally {
       setLoadingRows(false)
     }
@@ -396,6 +404,77 @@ export default function BalanceTab({ storeId, qs, notify, admin = false, refresh
         </div>
       </div>
 
+      {/* Saldo personalizado del día: ingresos manuales del admin con formato de orden
+          (comisión, cotización y USDT neto). Se editan como movimiento. */}
+      {!searching && saldosPers.length > 0 && (
+        <div className="space-y-2">
+          <h3 className="text-xs font-semibold uppercase tracking-widest px-1" style={{ color: 'rgba(0,255,136,0.8)' }}>
+            Saldo personalizado
+          </h3>
+          <div className="rounded-2xl overflow-hidden" style={{ border: '1px solid rgba(0,255,136,0.18)', background: 'linear-gradient(135deg, #0d1117, #111827)' }}>
+            <div style={{ overflowX: 'auto' }}>
+              <table className="w-full text-sm" style={{ borderCollapse: 'collapse', minWidth: '900px' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid rgba(0,255,136,0.15)' }}>
+                    <th className="text-left px-3 py-3 text-[11px] font-semibold uppercase tracking-wider" style={{ color: 'rgba(148,163,184,0.6)' }}>#</th>
+                    {columnas.map(col => (
+                      <th key={col.key} className="text-left px-3 py-3 text-[11px] font-semibold uppercase tracking-wider whitespace-nowrap" style={{ color: 'rgba(148,163,184,0.7)' }}>
+                        {col.label}
+                      </th>
+                    ))}
+                    {admin && <th className="text-left px-3 py-3 text-[11px] font-semibold uppercase tracking-wider whitespace-nowrap" style={{ color: 'rgba(148,163,184,0.7)' }}>Hecho por</th>}
+                    {admin && <th className="px-3 py-3" />}
+                  </tr>
+                </thead>
+                <tbody>
+                  {saldosPers.map((r, i) => (
+                    <motion.tr key={r.registroId} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3, delay: Math.min(i * 0.03, 0.3) }}
+                      style={{ borderBottom: '1px solid rgba(148,163,184,0.05)' }}>
+                      <td className="px-3 py-2.5 whitespace-nowrap tabular-nums" style={{ color: 'rgba(148,163,184,0.55)' }}>{i + 1}</td>
+                      <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: 'rgba(226,232,240,0.85)' }}>{fmtDate(r.fecha)}</td>
+                      <td className="px-3 py-2.5 whitespace-nowrap font-medium" style={{ color: '#00ff88' }}>{ARS.format(r.monto)}</td>
+                      <td className="px-3 py-2.5 whitespace-nowrap font-medium" style={{ color: '#f87171' }}>−{ARS.format(r.comision)}</td>
+                      <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: r.usdtRate == null ? 'rgba(245,158,11,0.9)' : 'rgba(226,232,240,0.7)' }}>
+                        {r.usdtRate == null ? 'Pendiente' : ARS.format(r.usdtRate)}
+                      </td>
+                      <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: r.usdt == null ? 'rgba(148,163,184,0.4)' : '#00d4ff' }}>
+                        {r.usdt == null ? '—' : fmtUsdt(r.usdt)}
+                      </td>
+                      <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: 'rgba(226,232,240,0.7)' }}>{r.cuit || '—'}</td>
+                      <td className="px-3 py-2.5" style={{ color: 'rgba(226,232,240,0.85)' }}>{r.nombre || '—'}</td>
+                      <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: 'rgba(226,232,240,0.7)' }}>{r.orderNumber ? `#${r.orderNumber}` : '—'}</td>
+                      {admin && (
+                        <td className="px-3 py-2.5 whitespace-nowrap text-[11px]" style={{ color: r.hechoPor ? 'rgba(226,232,240,0.65)' : 'rgba(148,163,184,0.35)' }} title={r.hechoPor || 'Sin registrar'}>
+                          {r.hechoPor || '—'}
+                        </td>
+                      )}
+                      {admin && (
+                        <td className="px-3 py-2.5 whitespace-nowrap text-right">
+                          {r.movId != null && (
+                            <button
+                              onClick={() => setEditandoMov({
+                                fuente: 'balance', id: r.movId!, fechaISO: r.fecha, concepto: '',
+                                montoArs: r.monto, tasa: r.usdtRate,
+                                puedeMontoTasa: true, tasaLabel: 'ARS/USDT',
+                                esSaldoPersonalizado: true,
+                                nombre: r.nombre, cuit: r.cuit, orderNumber: r.orderNumber,
+                              })}
+                              className="rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-all"
+                              style={{ background: 'rgba(0,212,255,0.08)', border: '1px solid rgba(0,212,255,0.3)', color: '#00d4ff' }}>
+                              Editar
+                            </button>
+                          )}
+                        </td>
+                      )}
+                    </motion.tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Transferencias, reembolsos y ajustes del día: a continuación de las órdenes,
           con sus propias columnas, porque no son ingresos sino plata que sale. */}
       {!searching && (balance?.dia?.movimientos.length ?? 0) > 0 && (
@@ -536,13 +615,13 @@ function BalanceCard({ label, value, format, suffix, color, delay, loading, arsV
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5, delay, ease: 'easeOut' }}
-      className="relative rounded-2xl p-6 overflow-hidden"
+      className="relative rounded-2xl p-5 sm:p-6 overflow-hidden"
       style={{ background: 'linear-gradient(135deg, #0d1117 0%, #111827 100%)', border: `1px solid ${color}33`, boxShadow: `0 0 20px ${color}14` }}
     >
       <div className="absolute top-0 right-0 w-28 h-28 opacity-10 rounded-full pointer-events-none"
         style={{ background: color, filter: 'blur(32px)', transform: 'translate(30%, -30%)' }} />
       <p className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: 'rgba(148,163,184,0.7)' }}>{label}</p>
-      <p className="text-4xl font-black" style={{ color, textShadow: `0 0 20px ${color}60` }}>
+      <p className="text-3xl sm:text-4xl font-black" style={{ color, textShadow: `0 0 20px ${color}60` }}>
         {loading
           ? <NumberSkeleton width={170} height={40} />
           : <AnimatedNumber value={value} format={format} />}

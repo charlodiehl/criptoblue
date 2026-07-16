@@ -337,27 +337,6 @@ export async function getDiasConMovimiento(storeId: string): Promise<string[]> {
   return [...dias].sort()
 }
 
-// Nombre del pagador, CUIT y N° de orden de los registros ligados a saldos
-// personalizados (para mostrarlos/editarlos desde su movimiento).
-async function getRegistrosMinimos(ids: number[]): Promise<Map<number, { nombre: string | null; cuit: string | null; orderNumber: string | null }>> {
-  const map = new Map<number, { nombre: string | null; cuit: string | null; orderNumber: string | null }>()
-  if (!ids.length) return map
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data, error } = await (getClient().from('registro_log') as any)
-    .select('id, order_number, cuit_pagador, customer_name, payment').in('id', ids)
-  if (error) throw new Error(`getRegistrosMinimos falló: ${error.message} [${error.code}]`)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  for (const r of (data ?? []) as any[]) {
-    const p = r.payment ?? {}
-    map.set(r.id as number, {
-      nombre: p.nombrePagador || r.customer_name || null,
-      cuit: p.cuitPagador || r.cuit_pagador || null,
-      orderNumber: r.order_number || null,
-    })
-  }
-  return map
-}
-
 // Balance de UN día: la misma cuenta que getBalances (bruto − comisión sobre los
 // ingresos), pero acotada a los movimientos de ese día. Suma de los saldos diarios
 // = saldo total, porque cada movimiento cae en un único día.
@@ -450,33 +429,32 @@ export async function getBalanceDia(storeId: string, diaART: string): Promise<Ba
 
   // Egresos, reembolsos y ajustes. Se enriquecen con el detalle de la transferencia
   // (monto que ingresó el admin + comprobante) para la tabla del día.
-  const noIngresos = movs.filter(m => !esIngreso(m))
+  // Solo egresos/reembolsos/ajustes. El saldo personalizado (ingreso_manual) NO va acá:
+  // tiene su propia tabla con formato de orden (/api/tienda/registro → saldosPersonalizados).
+  const noIngresos = movs.filter(m =>
+    m.tipo === 'egreso_transferencia' || m.tipo === 'reembolso' || m.tipo === 'ajuste')
   const transferIds = noIngresos
     .filter(m => m.tipo === 'egreso_transferencia' && m.refTransferId != null)
     .map(m => m.refTransferId as number)
   // Los reembolsos guardan su comprobante en la tabla refunds (no en transfer_requests):
   // se cruzan por ref_movement_id = id del movimiento de balance.
   const reembolsoIds = noIngresos.filter(m => m.tipo === 'reembolso').map(m => m.id)
-  // Saldo personalizado: nombre/CUIT/orden viven en el registro ligado (ref_registro_id).
-  const manualRegIds = noIngresos.filter(m => m.tipo === 'ingreso_manual' && m.refRegistroId != null).map(m => m.refRegistroId as number)
-  const [detalles, refundsPorMov, regsManual] = await Promise.all([
+  const [detalles, refundsPorMov] = await Promise.all([
     getDetalleTransferencias(transferIds),
     getRefundsByMovementIds(reembolsoIds),
-    getRegistrosMinimos(manualRegIds),
   ])
 
   const movimientos: MovimientoDetalle[] = noIngresos.map(m => {
     const d = m.refTransferId != null ? detalles.get(m.refTransferId) : undefined
     const refund = m.tipo === 'reembolso' ? refundsPorMov.get(m.id) : undefined
     const refundConComp = refund?.comprobantePath ? refund : undefined
-    const reg = m.tipo === 'ingreso_manual' && m.refRegistroId != null ? regsManual.get(m.refRegistroId) : undefined
     return {
       ...m,
       montoOriginal: d?.monto ?? null,
       monedaOriginal: d?.moneda ?? null,
-      nombrePagador: reg?.nombre ?? null,
-      cuitPagador: reg?.cuit ?? null,
-      orderNumber: reg?.orderNumber ?? null,
+      nombrePagador: null,
+      cuitPagador: null,
+      orderNumber: null,
       tieneComprobante: !!d?.comprobante || !!refundConComp,
       refundId: refundConComp ? refundConComp.id : null,
     }

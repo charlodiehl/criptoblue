@@ -98,7 +98,7 @@ export default function MetricasTab({ notify }: { notify: (msg: string, type?: T
           </div>
 
           {/* Gráficos */}
-          <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))' }}>
+          <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(340px, 100%), 1fr))' }}>
             <Panel titulo="Saldo adeudado a cada tienda">
               <BarrasHorizontales items={data.tiendas.map((t, i) => ({ label: t.storeName, value: t.netoUsdt, color: PALETA[i % PALETA.length] }))}
                 fmt={fmtUsdt} />
@@ -138,7 +138,7 @@ function Tarjeta({ titulo, valor, detalle, color, estimado }: { titulo: string; 
     <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}
       className="rounded-2xl p-5" style={{ background: 'linear-gradient(135deg, #0d1117, #111827)', border: `1px solid ${color}33` }}>
       <p className="text-[11px] font-semibold uppercase tracking-widest mb-2" style={{ color: 'rgba(148,163,184,0.7)' }}>{titulo}</p>
-      <p className="text-2xl font-black" style={{ color }}>{valor}</p>
+      <p className="text-xl sm:text-2xl font-black break-words" style={{ color }}>{valor}</p>
       {estimado && <p className="text-sm font-bold mt-0.5" style={{ color: 'rgba(226,232,240,0.75)' }}>{estimado}</p>}
       <p className="text-[11px] mt-1.5" style={{ color: 'rgba(148,163,184,0.5)' }}>{detalle}</p>
     </motion.div>

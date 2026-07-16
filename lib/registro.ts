@@ -574,6 +574,29 @@ export async function queryRegistroByStoreDay(
   return (data ?? []).map((r: Row) => ({ registroId: r.id as number, entry: rowToEntry(r) }))
 }
 
+// Saldos personalizados (ingresos manuales del admin) acreditados en un día. Mismo
+// rango y corte que queryRegistroByStoreDay, pero solo los source='saldo_personalizado'
+// (que aquélla excluye). Se muestran en su propia tabla —con formato de orden— en el portal.
+export async function querySaldosPersonalizadosByStoreDay(
+  storeId: string, diaART: string,
+): Promise<Array<{ registroId: number; entry: LogEntry }>> {
+  const supabase = getClient()
+  const diaDesde = new Date(`${diaART}T00:00:00-03:00`).getTime()
+  const hasta = new Date(diaDesde + 24 * 60 * 60 * 1000).toISOString()
+  const desde = new Date(Math.max(diaDesde, BALANCE_CUTOFF.getTime())).toISOString()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (supabase.from(TABLE) as any)
+    .select('*')
+    .eq('store_id', storeId)
+    .eq('hidden', false)
+    .eq('source', 'saldo_personalizado')
+    .gte('ts', desde)
+    .lt('ts', hasta)
+    .order('ts', { ascending: false })
+  if (error) throw new Error(`querySaldosPersonalizadosByStoreDay falló: ${error.message} [${error.code}]`)
+  return (data ?? []).map((r: Row) => ({ registroId: r.id as number, entry: rowToEntry(r) }))
+}
+
 // Búsqueda de órdenes de una tienda en TODO su registro desde el corte (no por día),
 // por N° de orden, nombre, CUIT o monto. Para la barra buscadora del portal.
 export async function searchRegistroByStore(

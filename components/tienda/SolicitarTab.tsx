@@ -112,7 +112,7 @@ export default function SolicitarTab({ qs, notify }: Props) {
   return (
     <div className="space-y-6">
       {/* Formulario */}
-      <form onSubmit={handleSubmit} className="rounded-2xl p-6 space-y-4"
+      <form onSubmit={handleSubmit} className="rounded-2xl p-4 sm:p-6 space-y-4"
         style={{ background: 'linear-gradient(135deg, #0d1117, #111827)', border: '1px solid rgba(0,212,255,0.12)' }}>
         <div>
           <label style={labelStyle}>Tipo de transferencia</label>

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireUser, resolveStoreScope } from '@/lib/auth/server'
-import { queryRegistroByStoreDay, searchRegistroByStore } from '@/lib/registro'
+import { queryRegistroByStoreDay, searchRegistroByStore, querySaldosPersonalizadosByStoreDay } from '@/lib/registro'
 import { getMovimientosPorRegistroIds } from '@/lib/balance'
 import { getComisiones, comisionTienda, comisionTiendaSobre } from '@/lib/comisiones'
 import { billeteraLabel } from '@/lib/utils'
@@ -27,39 +27,49 @@ export async function GET(req: NextRequest) {
     const entradas = q
       ? await searchRegistroByStore(storeId, q)
       : await queryRegistroByStoreDay(storeId, fecha)
-    const movimientos = await getMovimientosPorRegistroIds(entradas.map(e => e.registroId))
+    // Saldos personalizados del día (solo en la vista por día, no en la búsqueda):
+    // van en su propia tabla con formato de orden.
+    const entradasSP = q ? [] : await querySaldosPersonalizadosByStoreDay(storeId, fecha)
+    const movimientos = await getMovimientosPorRegistroIds(
+      [...entradas, ...entradasSP].map(e => e.registroId),
+    )
     const comisionPct = comisionTienda(await getComisiones(), storeId)
 
-    const rows = entradas.map(({ registroId, entry }) => {
+    // Arma una fila con formato de orden (monto, comisión grossed-up, cotización y
+    // USDT neto) a partir de una entrada del registro cruzada con su movimiento.
+    const filaOrden = ({ registroId, entry }: { registroId: number; entry: typeof entradas[number]['entry'] }) => {
       const mov = movimientos.get(registroId)
       const monto = entry.amount ?? entry.payment?.monto ?? 0
       return {
-        registroId,   // lo necesita el admin para editar la entrada
-        // Fecha y hora del PAGO (la que trajo la planilla), no la del emparejamiento.
+        registroId,
+        // id del movimiento de balance: el saldo personalizado se edita como movimiento.
+        movId: mov?.id ?? null,
         fecha: entry.paymentReceivedAt || entry.payment?.fechaPago || entry.timestamp,
         monto,
-        comision: comisionTiendaSobre(monto, comisionPct),   // comisión ARS de esta orden (grossed-up)
+        comision: comisionTiendaSobre(monto, comisionPct),
         cuit: entry.payment?.cuitPagador || entry.cuitPagador || '',
         nombre: entry.payment?.nombrePagador || entry.order?.customerName || entry.customerName || '',
         orderNumber: entry.orderNumber || entry.order?.orderNumber || '',
         billetera: billeteraLabel(entry.payment?.source),
-        hechoPor: entry.hechoPor ?? null,   // email del admin que lo cargó/editó a mano (null = automático)
-        // false = la orden no tiene movimiento de balance (se le quitó a propósito para
-        // que no duplique el saldo inicial). La UI muestra "No suma", no "Pendiente".
+        hechoPor: entry.hechoPor ?? null,
         enSaldo: !!mov,
-        usdtRate: mov?.usdtRate ?? null,   // null = cotización pendiente
-        // Equivalente USDT NETO de esta orden: el bruto (mov.usdt) menos la comisión
-        // en USDT, con la MISMA fórmula grossed-up que usa el saldo (lib/balance.ts).
-        // Así la suma de la columna cuadra con el "Saldo en USDT". null si la
-        // cotización está pendiente. mov.usdt viene SIGNADO (ingreso → positivo).
+        usdtRate: mov?.usdtRate ?? null,
         usdt: mov?.usdt != null ? mov.usdt - comisionTiendaSobre(mov.usdt, comisionPct) : null,
       }
-    })
+    }
+
+    const rows = entradas.map(filaOrden)
+    // Saldos personalizados con el mismo formato de orden (comisión, USDT neto). Llevan
+    // además movId, porque se editan como movimiento (sincroniza saldo + billetera).
+    const saldosPersonalizados = entradasSP.map(filaOrden)
 
     // Ordenadas por fecha de pago (la consulta viene por ts de emparejamiento).
-    rows.sort((a, b) => (new Date(b.fecha).getTime() || 0) - (new Date(a.fecha).getTime() || 0))
+    const porFecha = (a: { fecha: string }, b: { fecha: string }) =>
+      (new Date(b.fecha).getTime() || 0) - (new Date(a.fecha).getTime() || 0)
+    rows.sort(porFecha)
+    saldosPersonalizados.sort(porFecha)
 
-    return NextResponse.json({ fecha, comisionPct, rows })
+    return NextResponse.json({ fecha, comisionPct, rows, saldosPersonalizados })
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 })
   }

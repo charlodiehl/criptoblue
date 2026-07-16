@@ -55,7 +55,7 @@ function TiendasContent() {
 
       {/* Header */}
       <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/90 backdrop-blur-sm">
-        <div className="mx-auto max-w-[1400px] px-6 py-4 flex items-center justify-between">
+        <div className="mx-auto max-w-[1400px] px-4 sm:px-6 py-4 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <a href="/" className="flex items-center gap-3 hover:opacity-80 transition">
               <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-600 text-white font-bold text-sm">
@@ -76,7 +76,7 @@ function TiendasContent() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-[1400px] px-6 py-8">
+      <main className="mx-auto max-w-[1400px] px-4 sm:px-6 py-6 sm:py-8">
         <StoresTab onToast={addToast} />
       </main>
     </div>

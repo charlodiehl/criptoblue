@@ -100,7 +100,7 @@ export default function BuscarPagosTab({ qs, notify }: Props) {
   return (
     <div className="space-y-6">
       {/* Formulario de búsqueda */}
-      <form onSubmit={handleBuscar} className="rounded-2xl p-6"
+      <form onSubmit={handleBuscar} className="rounded-2xl p-4 sm:p-6"
         style={{ background: 'linear-gradient(135deg, #0d1117, #111827)', border: '1px solid rgba(0,212,255,0.12)' }}>
         <p className="text-xs mb-4" style={{ color: 'rgba(148,163,184,0.6)' }}>
           Buscá un pago que hayas recibido para reclamarlo. Los 3 datos son obligatorios: el monto debe coincidir exacto, el nombre puede ser parcial, y la fecha/hora puede diferir hasta 24 horas.

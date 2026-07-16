@@ -187,13 +187,13 @@ export default function BilleteraTab({ wallet, notify, refreshKey = 0 }: { walle
       {/* Tarjeta de total acumulado (no cambia con el día) */}
       <motion.div
         initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, ease: 'easeOut' }}
-        className="relative rounded-2xl p-6 overflow-hidden max-w-sm"
+        className="relative rounded-2xl p-5 sm:p-6 overflow-hidden max-w-sm"
         style={{ background: 'linear-gradient(135deg, #0d1117 0%, #111827 100%)', border: '1px solid #00ff8833', boxShadow: '0 0 20px #00ff8814' }}
       >
         <div className="absolute top-0 right-0 w-28 h-28 opacity-10 rounded-full pointer-events-none"
           style={{ background: '#00ff88', filter: 'blur(32px)', transform: 'translate(30%, -30%)' }} />
         <p className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: 'rgba(148,163,184,0.7)' }}>Saldo</p>
-        <p className="text-4xl font-black" style={{ color: '#00ff88', textShadow: '0 0 20px #00ff8860' }}>
+        <p className="text-3xl sm:text-4xl font-black" style={{ color: '#00ff88', textShadow: '0 0 20px #00ff8860' }}>
           {loading && !data
             ? <NumberSkeleton width={200} height={40} />
             : <AnimatedNumber value={data?.totalArs ?? 0} format={fmtArs} />}
