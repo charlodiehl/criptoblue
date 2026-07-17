@@ -40,13 +40,16 @@ export async function GET(req: NextRequest) {
     const filaOrden = ({ registroId, entry }: { registroId: number; entry: typeof entradas[number]['entry'] }) => {
       const mov = movimientos.get(registroId)
       const monto = entry.amount ?? entry.payment?.monto ?? 0
+      // Saldo personalizado marcado "sin comisión": no descuenta nada (las órdenes
+      // normales nunca lo tienen, así que esto no las afecta).
+      const sinCom = mov?.sinComision === true
       return {
         registroId,
         // id del movimiento de balance: el saldo personalizado se edita como movimiento.
         movId: mov?.id ?? null,
         fecha: entry.paymentReceivedAt || entry.payment?.fechaPago || entry.timestamp,
         monto,
-        comision: comisionTiendaSobre(monto, comisionPct),
+        comision: sinCom ? 0 : comisionTiendaSobre(monto, comisionPct),
         cuit: entry.payment?.cuitPagador || entry.cuitPagador || '',
         nombre: entry.payment?.nombrePagador || entry.order?.customerName || entry.customerName || '',
         orderNumber: entry.orderNumber || entry.order?.orderNumber || '',
@@ -55,7 +58,7 @@ export async function GET(req: NextRequest) {
         // No se muestra en la planilla ni viaja al cliente.
         enSaldo: !!mov,
         usdtRate: mov?.usdtRate ?? null,
-        usdt: mov?.usdt != null ? mov.usdt - comisionTiendaSobre(mov.usdt, comisionPct) : null,
+        usdt: mov?.usdt == null ? null : sinCom ? mov.usdt : mov.usdt - comisionTiendaSobre(mov.usdt, comisionPct),
       }
     }
 

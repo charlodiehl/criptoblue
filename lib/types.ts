@@ -231,6 +231,7 @@ export interface BalanceMovement {
   refRegistroId?: number | null
   refTransferId?: number | null
   descripcion?: string | null
+  sinComision?: boolean          // saldo personalizado marcado "no cobra comisión"
 }
 
 // Balance agregado de una tienda

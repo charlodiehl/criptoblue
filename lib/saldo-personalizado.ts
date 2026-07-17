@@ -28,6 +28,7 @@ export interface SaldoPersonalizadoInput {
   cuit?: string
   nombre?: string
   motivo?: string         // número de orden o motivo → columna "N° orden"
+  sinComision?: boolean   // true = no se cobra comisión de tienda sobre este saldo
   createdBy: string       // email del admin (trazabilidad)
 }
 
@@ -75,7 +76,7 @@ export async function agregarSaldoPersonalizado(input: SaldoPersonalizadoInput):
   const nombre = (input.nombre || '').trim()
   const concepto = `${nombre || 'Saldo personalizado'}${motivo ? ` · ${motivo}` : ''}`
   await registrarIngresoManual(input.storeId, registroId, input.monto, usdt, input.tasa,
-    concepto, input.fechaHoraISO)
+    concepto, input.fechaHoraISO, input.sinComision === true)
 
   // Avisarle a la tienda (mismo grupo que las órdenes: es plata que le entra al
   // registro). Va acá y no en el hook de balance porque el saldo personalizado se

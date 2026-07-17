@@ -171,7 +171,7 @@ export async function registrarReembolso(
 // del pago ingresada por el admin (default: ahora).
 export async function registrarIngresoManual(
   storeId: string, registroId: number | null, ars: number, usdt: number, tasa: number, descripcion: string,
-  fecha?: string,
+  fecha?: string, sinComision = false,
 ): Promise<void> {
   const { error } = await getClient().from(TABLE).insert({
     store_id: storeId,
@@ -183,6 +183,7 @@ export async function registrarIngresoManual(
     rate_source: 'manual',
     ref_registro_id: registroId,
     descripcion,
+    sin_comision: sinComision,   // true = no cobra comisión (entra la plata igual)
   })
   if (error) throw new Error(`registrarIngresoManual falló: ${error.message} [${error.code}]`)
 }
@@ -250,6 +251,7 @@ function rowToMovement(r: any): BalanceMovement {
     refRegistroId: r.ref_registro_id,
     refTransferId: r.ref_transfer_id,
     descripcion: r.descripcion,
+    sinComision: r.sin_comision === true,
   }
 }
 
@@ -415,8 +417,9 @@ export async function getBalanceDia(storeId: string, diaART: string): Promise<Ba
   // "Ingresos por órdenes" = solo ingreso_orden (lo que se ve en la tabla de órdenes).
   // El saldo personalizado (ingreso_manual) NO va en esa línea: figura en movimientos.
   const esIngreso = (m: BalanceMovement) => m.tipo === 'ingreso_orden'
+  // Base de comisión: órdenes + saldo personalizado, EXCEPTO el marcado "sin comisión".
   // Gravado por la comisión de tienda: órdenes + saldo personalizado.
-  const esGravado = (m: BalanceMovement) => m.tipo === 'ingreso_orden' || m.tipo === 'ingreso_manual'
+  const esGravado = (m: BalanceMovement) => (m.tipo === 'ingreso_orden' || m.tipo === 'ingreso_manual') && !m.sinComision
   const ingresosArs = suma(m => m.ars, esIngreso)
   const ingresosUsdt = suma(m => m.usdt ?? 0, esIngreso)
   const ingresoManualUsdt = suma(m => m.usdt ?? 0, m => m.tipo === 'ingreso_manual')

@@ -55,6 +55,7 @@ export async function POST(req: NextRequest) {
       cuit: body?.cuit ? String(body.cuit).trim() : undefined,
       nombre: body?.nombre ? String(body.nombre).trim() : undefined,
       motivo: body?.motivo ? String(body.motivo).trim() : undefined,
+      sinComision: body?.sinComision === true,
       createdBy: auth.user.email,
     })
 

@@ -38,6 +38,7 @@ export default function SaldoPersonalizado({ notify, onSaldoAgregado }: Props) {
   const [cuit, setCuit] = useState('')
   const [nombre, setNombre] = useState('')
   const [motivo, setMotivo] = useState('')
+  const [sinComision, setSinComision] = useState(false)
   const [guardando, setGuardando] = useState(false)
   const [formKey, setFormKey] = useState(0)   // remonta el TasaInput al resetear
 
@@ -55,7 +56,7 @@ export default function SaldoPersonalizado({ notify, onSaldoAgregado }: Props) {
 
   function resetForm() {
     setStoreId(''); setFechaHora(nowARTLocal()); setMonto(''); setTasa('')
-    setBilletera(''); setBilleteraOtra(''); setCuit(''); setNombre(''); setMotivo('')
+    setBilletera(''); setBilleteraOtra(''); setCuit(''); setNombre(''); setMotivo(''); setSinComision(false)
     setFormKey(k => k + 1)
   }
 
@@ -73,7 +74,7 @@ export default function SaldoPersonalizado({ notify, onSaldoAgregado }: Props) {
     try {
       const res = await fetch('/api/finanzas/saldo-personalizado', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ storeId, fechaHora, monto: m, tasa: tasaNum, billetera, billeteraOtra: billeteraOtra.trim(), cuit, nombre, motivo }),
+        body: JSON.stringify({ storeId, fechaHora, monto: m, tasa: tasaNum, billetera, billeteraOtra: billeteraOtra.trim(), cuit, nombre, motivo, sinComision }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Error')
@@ -123,6 +124,13 @@ export default function SaldoPersonalizado({ notify, onSaldoAgregado }: Props) {
                 <div>
                   <label style={labelStyle}>Monto a agregar (ARS) *</label>
                   <MontoInput value={monto} onChange={setMonto} placeholder="0,00" style={inputStyle} />
+                  <label className="flex items-center gap-2 mt-2 cursor-pointer select-none">
+                    <input type="checkbox" checked={sinComision} onChange={e => setSinComision(e.target.checked)}
+                      style={{ width: 15, height: 15, accentColor: '#00d4ff', cursor: 'pointer' }} />
+                    <span className="text-[12px]" style={{ color: sinComision ? '#00d4ff' : 'rgba(148,163,184,0.85)' }}>
+                      No se cobra comisión
+                    </span>
+                  </label>
                 </div>
                 <TasaInput key={formKey} label="Tasa ARS/USDT *" value={tasa} onChange={setTasa} notify={notify} />
                 <div>
@@ -154,7 +162,7 @@ export default function SaldoPersonalizado({ notify, onSaldoAgregado }: Props) {
               </div>
 
               <p className="text-[11px]" style={{ color: 'rgba(148,163,184,0.55)' }}>
-                Se suma al saldo de la tienda en USDT (monto ÷ tasa), con su comisión. Se anota en la sección de movimientos con la fecha del pago y se atribuye a la billetera elegida.
+                Se suma al saldo de la tienda en USDT (monto ÷ tasa), {sinComision ? 'sin cobrar comisión' : 'con su comisión'}. Se anota en la sección de movimientos con la fecha del pago y se atribuye a la billetera elegida.
               </p>
 
               <button onClick={guardar} disabled={guardando}
