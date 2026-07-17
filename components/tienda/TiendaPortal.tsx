@@ -117,7 +117,7 @@ export default function TiendaPortal({ storeId, userEmail, admin = false, refres
   return (
     <div className="min-h-screen" style={{ background: 'radial-gradient(ellipse at 50% -10%, #0a1628 0%, #060b14 55%)' }}>
       {/* Header (grid 3 columnas, igual estética que la app principal) */}
-      <header className="sticky top-0 z-40 backdrop-blur-xl"
+      <header className="sticky top-0 z-40 backdrop-blur-xl safe-top"
         style={{ borderBottom: '1px solid rgba(0,212,255,0.08)', background: 'rgba(6,11,20,0.9)' }}>
         <div className="mx-auto max-w-[1400px] px-4 sm:px-6 py-3 items-center gap-2 sm:gap-4"
           style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr' }}>

@@ -813,7 +813,7 @@ export default function Dashboard() {
       </div>
 
       {/* Header */}
-      <header className="sticky top-0 z-40 backdrop-blur-xl"
+      <header className="sticky top-0 z-40 backdrop-blur-xl safe-top"
         style={{ borderBottom: '1px solid rgba(0,212,255,0.08)', background: 'rgba(6,11,20,0.9)' }}>
         <div
           className="mx-auto max-w-[1400px] px-3 sm:px-6 py-3 items-center gap-2 sm:gap-4"

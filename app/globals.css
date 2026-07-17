@@ -14,6 +14,16 @@
 
 * { box-sizing: border-box; }
 
+/* PWA instalada en iPhone: el layout usa viewportFit:'cover' + barra de estado
+   translúcida, así que el contenido se dibuja DEBAJO del reloj/señal/batería.
+   Los headers fijos suman este padding para que su contenido arranque por debajo
+   de esa franja (y el fondo del header la cubra). En web/escritorio el valor de
+   env() es 0, así que no cambia nada. */
+.safe-top { padding-top: env(safe-area-inset-top, 0px); }
+
+/* Ídem abajo: en iPhone hay una barra/indicador que puede tapar contenido fijo. */
+.safe-bottom { padding-bottom: env(safe-area-inset-bottom, 0px); }
+
 button:not(:disabled), a[href] {
   cursor: pointer;
 }

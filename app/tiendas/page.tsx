@@ -54,7 +54,7 @@ function TiendasContent() {
       </div>
 
       {/* Header */}
-      <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/90 backdrop-blur-sm">
+      <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/90 backdrop-blur-sm safe-top">
         <div className="mx-auto max-w-[1400px] px-4 sm:px-6 py-4 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <a href="/" className="flex items-center gap-3 hover:opacity-80 transition">

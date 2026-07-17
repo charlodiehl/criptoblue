@@ -71,7 +71,7 @@ export default function NotificacionesPanel({ userEmail, role }: { userEmail: st
   return (
     <div className="min-h-screen" style={{ background: 'radial-gradient(ellipse at 50% -10%, #0a1628 0%, #060b14 55%)' }}>
       {/* Header */}
-      <header className="sticky top-0 z-40 backdrop-blur-xl" style={{ borderBottom: '1px solid rgba(0,212,255,0.08)', background: 'rgba(6,11,20,0.9)' }}>
+      <header className="sticky top-0 z-40 backdrop-blur-xl safe-top" style={{ borderBottom: '1px solid rgba(0,212,255,0.08)', background: 'rgba(6,11,20,0.9)' }}>
         <div className="mx-auto max-w-[720px] px-4 sm:px-6 py-3 flex items-center justify-between gap-3">
           <Link href={volverA} className="flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium transition-all whitespace-nowrap"
             style={{ background: 'rgba(0,212,255,0.08)', border: '1px solid rgba(0,212,255,0.25)', color: '#00d4ff' }}>
