@@ -67,6 +67,24 @@ export const WALLETS = ['MF', 'Lacar', 'MS', 'Montemar', 'Otras'] as const
 // Ningún pago del registro puede quedar sin billetera.
 export const SOURCE_SIN_BILLETERA = 'otras:Sin identificar'
 
+// Tolerancia general de monto para dar la señal en verde (pago vs total de la orden).
+export const MONTO_TOLERANCIA_ARS = 10
+
+// Tiendas que aplican un descuento que NO se refleja en el total de la orden: el pago
+// llega POR DEBAJO del total, siempre en el mismo %. Para esas, el monto cuenta como
+// coincidente si la diferencia hacia abajo cae DENTRO DE LA BANDA del descuento.
+//
+// Es una banda estrecha y no un rango abierto (0…max) a propósito: si se aceptara
+// cualquier diferencia menor al tope, un pago 5% o 10% más chico —que NO se explica
+// por el descuento y probablemente sea un error— pasaría como válido.
+// El ±0,1 alrededor del 15% absorbe los redondeos del cálculo del descuento.
+//
+// Asimétrico también a propósito: por arriba sigue valiendo solo MONTO_TOLERANCIA_ARS
+// (un pago de MÁS no se explica por un descuento).
+export const DESCUENTO_NO_REFLEJADO: Record<string, { min: number; max: number }> = {
+  'v0nirt-tc.myshopify.com': { min: 14.9, max: 15.1 },   // Bambua: descuento del 15%
+}
+
 // Mapeo de fuente de pago (payment.source) → billetera a la que pertenece el DINERO
 // (para el saldo de cada billetera). NO acota el emparejamiento: cualquier pago puede
 // emparejar con cualquier tienda.

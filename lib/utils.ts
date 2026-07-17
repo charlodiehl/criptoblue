@@ -1,6 +1,30 @@
 // Utilidades compartidas entre componentes
 
-import { PAYMENT_SOURCE_NAMES, PAYMENT_SOURCE_TO_WALLET, WALLETS } from './config'
+import { PAYMENT_SOURCE_NAMES, PAYMENT_SOURCE_TO_WALLET, WALLETS, MONTO_TOLERANCIA_ARS, DESCUENTO_NO_REFLEJADO } from './config'
+
+// ─── Coincidencia de monto (pago vs total de la orden) ───────────────────────
+// ÚNICA fuente de la regla: la usan el auto-match (server) y la vista de
+// Emparejamiento (cliente), para que no puedan desincronizarse.
+//
+// Coincide si:
+//   a) la diferencia (en cualquier sentido) es ≤ MONTO_TOLERANCIA_ARS, o
+//   b) la tienda aplica un descuento que no baja el total de la orden Y el pago cae
+//      DENTRO DE LA BANDA de ese descuento (ver DESCUENTO_NO_REFLEJADO).
+// Nada intermedio: un pago 5% o 10% más chico no se explica por el descuento.
+
+// % que el pago quedó por debajo del total (0 si es igual o mayor).
+export function pctPorDebajo(montoPago: number, totalOrden: number): number {
+  if (!(totalOrden > 0) || montoPago >= totalOrden) return 0
+  return ((totalOrden - montoPago) / totalOrden) * 100
+}
+
+export function montoCoincide(montoPago: number, totalOrden: number, storeId?: string): boolean {
+  if (Math.abs(montoPago - totalOrden) <= MONTO_TOLERANCIA_ARS) return true
+  const banda = storeId ? DESCUENTO_NO_REFLEJADO[storeId] : undefined
+  if (!banda) return false
+  const pct = pctPorDebajo(montoPago, totalOrden)
+  return pct >= banda.min && pct <= banda.max
+}
 
 // Resuelve el payment.source de un pago a su billetera. Tolerante con datos
 // históricos "sucios": además de las claves canónicas (mercadopago, fiwind, …),

@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect } from 'react'
 import type { UnmatchedPayment, Order } from '@/lib/types'
-import { ARS, fmtDate, billeteraLabel } from '@/lib/utils'
+import { ARS, fmtDate, billeteraLabel, montoCoincide, pctPorDebajo } from '@/lib/utils'
 import { SAMEMONTO_WINDOW_HOURS } from '@/lib/config'
 
 
@@ -169,11 +169,18 @@ function computeSignals(payment: Payment, order: Order): Signal[] {
     ? emailMatchesName(payment.emailPagador, order.customerName)
     : false
 
+  const montoOk = montoCoincide(payment.monto, order.total, order.storeId)
+  const pctMenos = pctPorDebajo(payment.monto, order.total)
+
   return [
     {
       label: 'Monto',
-      value: diff === 0 ? 'Exacto' : `Dif. ${ARS.format(diff)}`,
-      match: diff <= 10, partial: diff <= 500, unavailable: false,
+      // La regla vive en montoCoincide (lib/utils), compartida con el auto-match del
+      // server: incluye la excepción de las tiendas con descuento no reflejado en la orden.
+      value: diff === 0 ? 'Exacto'
+        : montoOk && diff > 10 ? `Dif. ${ARS.format(diff)} (−${pctMenos.toFixed(1)}%)`
+        : `Dif. ${ARS.format(diff)}`,
+      match: montoOk, partial: diff <= 500, unavailable: false,
     },
     {
       label: 'CUIT / CUIL / DNI',

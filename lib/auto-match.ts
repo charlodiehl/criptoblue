@@ -6,7 +6,7 @@
 
 import type { Payment, Order, UnmatchedPayment } from './types'
 import { SAMEMONTO_WINDOW_HOURS } from './config'
-import { paymentWalletId } from './utils'
+import { paymentWalletId, montoCoincide, pctPorDebajo } from './utils'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -105,11 +105,18 @@ function computeSignals(payment: Payment, order: Order, sameMontoCount: number):
   const ordTime = order.createdAt ? new Date(order.createdAt).getTime() : 0
   const minDiff = payTime && ordTime ? Math.round(Math.abs(payTime - ordTime) / 60000) : -1
 
+  // Monto: la regla vive en montoCoincide (lib/utils) — incluye la excepción de las
+  // tiendas con descuento que no baja el total de la orden (el pago llega por debajo).
+  const montoOk = montoCoincide(payment.monto, order.total, order.storeId)
+  const pctMenos = pctPorDebajo(payment.monto, order.total)
+
   return [
     {
       label: 'Monto',
-      value: diff === 0 ? 'Exacto' : `Dif. ${diff}`,
-      match: diff <= 10, partial: diff <= 500, unavailable: false,
+      value: diff === 0 ? 'Exacto'
+        : montoOk && diff > 10 ? `Dif. ${diff} (−${pctMenos.toFixed(1)}%)`
+        : `Dif. ${diff}`,
+      match: montoOk, partial: diff <= 500, unavailable: false,
     },
     {
       label: 'CUIT / CUIL / DNI',

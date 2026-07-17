@@ -76,7 +76,12 @@ export async function getMetricas(desdeMs: number, hastaMs: number): Promise<Met
   const [stores, cfg, hot, cortes, cotizacion] = await Promise.all([
     getStores(), getComisiones(), loadHotState(), getCortesBilletera(), getUsdtRateSinMargen(),
   ])
-  const nombreTienda = (id: string) => stores[id]?.storeName ?? id
+  // Nombre real de las tiendas que YA NO están conectadas: al desconectarlas salen de
+  // `stores` pero su historial queda, y antes se mostraba el storeId pelado (un número
+  // suelto en las métricas). Cada fila del registro guarda su store_name: se usa como
+  // respaldo para que sigan figurando con su nombre. Se llena al recorrer `matched`.
+  const nombreEnRegistro = new Map<string, string>()
+  const nombreTienda = (id: string) => stores[id]?.storeName ?? nombreEnRegistro.get(id) ?? id
   const inc = (m: Map<string, number>, k: string, v: number) => m.set(k, (m.get(k) ?? 0) + v)
   // Un movimiento anterior al corte de su billetera ya está dentro del saldo inicial:
   // no debe recontarse. Sin corte configurado, la billetera cuenta todo.
@@ -91,7 +96,7 @@ export async function getMetricas(desdeMs: number, hastaMs: number): Promise<Met
   // Para la billetera importa CUÁNDO ENTRÓ la plata (fechaPago), que es lo que compara el corte.
   const matched = await fetchAllRows((f, t) =>
     sb.from('registro_log')
-      .select('store_id, ts, payment_received_at, source:payment->>source, monto:payment->>monto, amount, fechaPago:payment->>fechaPago')
+      .select('store_id, store_name, ts, payment_received_at, source:payment->>source, monto:payment->>monto, amount, fechaPago:payment->>fechaPago')
       .in('action', ['manual_paid', 'auto_paid']).eq('hidden', false)
       .gte('ts', desdeISO).lt('ts', hastaISO)
       .range(f, t))
@@ -101,7 +106,10 @@ export async function getMetricas(desdeMs: number, hastaMs: number): Promise<Met
   const ingBilletera = new Map<string, number>()
   for (const r of matched) {
     const ars = Number(r.monto ?? r.amount) || 0
-    if (r.store_id) { inc(ordenesPorTienda, r.store_id, 1); inc(volTienda, r.store_id, ars) }
+    if (r.store_id) {
+      inc(ordenesPorTienda, r.store_id, 1); inc(volTienda, r.store_id, ars)
+      if (r.store_name && !nombreEnRegistro.has(r.store_id)) nombreEnRegistro.set(r.store_id, r.store_name)
+    }
     const w = resolveWallet(r.source)
     if (w && !antesDelCorte(w, r.fechaPago || r.payment_received_at || r.ts)) inc(ingBilletera, w, ars)
   }
