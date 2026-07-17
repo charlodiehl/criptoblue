@@ -24,9 +24,13 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => null)
     const email = String(body?.email || '').trim().toLowerCase()
     if (!EMAIL_RE.test(email)) return NextResponse.json({ error: 'Email inválido' }, { status: 400 })
-    // Todo integrante de tienda es Administrador: se fuerza acá (no lo decide el cliente).
-    // Los demás permisos (transferencias, reembolsos) sí los elige quien lo agrega.
-    const permisos = { ...sanearPermisos(body?.permisos), administracion: true }
+    // El que agrega elige si el nuevo es Administrador (tiene todo) u operador (solo los
+    // permisos que le marque). Un Administrador tiene todos los permisos activos.
+    const permisos = sanearPermisos(body?.permisos)
+    if (permisos.administracion === true) {
+      permisos.solicitar_transferencias = true
+      permisos.solicitar_reembolsos = true
+    }
 
     const storeId = resolveStoreScope(auth.user, req.nextUrl.searchParams.get('storeId') || body?.storeId)
     if (!storeId) return NextResponse.json({ error: 'No hay tienda asignada' }, { status: 400 })

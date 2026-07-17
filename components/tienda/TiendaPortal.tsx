@@ -30,13 +30,13 @@ interface Props {
 
 type Tab = 'balance' | 'solicitar' | 'buscar' | 'reembolso' | 'equipo'
 
-// Cada pestaña con el permiso que exige (si lo tiene). Sin permiso → siempre visible.
+// Pestañas operativas (con el permiso que exige, si lo tiene). "Equipo" NO va acá:
+// es gestión de cuenta y vive en el menú superior (dropdown del avatar / modo espejo).
 const TABS: { key: Tab; label: string; permiso?: PermisoKey }[] = [
   { key: 'balance', label: 'Balance de Saldo' },
   { key: 'solicitar', label: 'Solicitar transferencias', permiso: 'solicitar_transferencias' },
   { key: 'buscar', label: 'Buscar pagos' },
   { key: 'reembolso', label: 'Solicitar reembolsos', permiso: 'solicitar_reembolsos' },
-  { key: 'equipo', label: 'Equipo' },
 ]
 
 export default function TiendaPortal({ storeId, userEmail, permisos, admin = false, refreshKey = 0 }: Props) {
@@ -120,11 +120,27 @@ export default function TiendaPortal({ storeId, userEmail, permisos, admin = fal
     </div>
   )
 
-  // Modo espejo (admin): sin header ni fondo — se embebe dentro de /finanzas.
+  // Botón "Equipo" separado de las pestañas operativas (gestión de cuenta).
+  const botonEquipo = (
+    <button onClick={() => setTab(tab === 'equipo' ? 'balance' : 'equipo')}
+      className="rounded-xl px-4 py-2 text-xs font-semibold transition-all shrink-0"
+      style={{
+        background: tab === 'equipo' ? 'rgba(0,212,255,0.12)' : 'rgba(255,255,255,0.03)',
+        border: `1px solid ${tab === 'equipo' ? 'rgba(0,212,255,0.4)' : 'rgba(148,163,184,0.12)'}`,
+        color: tab === 'equipo' ? '#00d4ff' : 'rgba(148,163,184,0.75)',
+      }}>
+      👥 Equipo
+    </button>
+  )
+
+  // Modo espejo (admin): sin header ni dropdown — el botón Equipo va junto a las pestañas.
   if (admin) {
     return (
       <div className="space-y-4">
-        {tabBar}
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          {tabBar}
+          {botonEquipo}
+        </div>
         {content}
         <ToastStack toasts={toasts} />
       </div>
@@ -163,6 +179,15 @@ export default function TiendaPortal({ storeId, userEmail, permisos, admin = fal
                       <div className="truncate" style={{ color: 'rgba(226,232,240,0.9)' }}>{userEmail}</div>
                     </div>
                   )}
+                  <button
+                    onClick={() => { setTab('equipo'); setUserMenuOpen(false) }}
+                    className="w-full text-left px-4 py-3 text-sm transition-all flex items-center gap-2"
+                    style={{ color: 'rgba(226,232,240,0.9)', borderBottom: '1px solid rgba(148,163,184,0.08)' }}
+                    onMouseEnter={e => (e.currentTarget.style.background = 'rgba(0,212,255,0.06)')}
+                    onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                  >
+                    <span>👥</span> Equipo
+                  </button>
                   <Link
                     href="/notificaciones"
                     className="w-full text-left px-4 py-3 text-sm transition-all flex items-center gap-2"

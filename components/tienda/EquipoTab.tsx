@@ -40,13 +40,19 @@ export default function EquipoTab({ qs, notify }: { qs: string; notify: (m: stri
     if (!data) return true
     if (!data.puedeGestionar) return true                             // sin Administración: solo lectura
     if (m.email === data.yoEmail && !data.soySuperAdmin) return true  // no editar los propios
-    if (key === 'administracion' && !data.soySuperAdmin) return true  // Administración: solo el Super Admin la cambia
+    // Administración: dar sí (cualquier admin de tienda); quitar solo el Super Admin.
+    if (key === 'administracion') return m.permisos.administracion === true && !data.soySuperAdmin
+    // Un Administrador tiene todos los permisos: transferencias/reembolsos no se editan aparte.
+    if (m.permisos.administracion === true) return true
     return false
   }
 
   async function togglePermiso(m: Miembro, key: PermisoKey) {
     if (toggleBloqueado(m, key) || guardando) return
-    const permisos: Permisos = { ...m.permisos, [key]: m.permisos[key] !== true }
+    // Activar Administración otorga todos los permisos.
+    const permisos: Permisos = (key === 'administracion' && m.permisos.administracion !== true)
+      ? { administracion: true, solicitar_transferencias: true, solicitar_reembolsos: true }
+      : { ...m.permisos, [key]: m.permisos[key] !== true }
     setGuardando(m.email)
     // optimista
     setData(d => d && ({ ...d, miembros: d.miembros.map(x => x.email === m.email ? { ...x, permisos } : x) }))
@@ -110,7 +116,8 @@ export default function EquipoTab({ qs, notify }: { qs: string; notify: (m: stri
                 {abierto && (
                   <div className="px-4 pb-3 pt-1 space-y-2" style={{ borderTop: '1px solid rgba(148,163,184,0.06)' }}>
                     {PERMISOS.map(p => {
-                      const on = m.permisos[p.key] === true
+                      // Un Administrador tiene todos los permisos → todos sus toggles en ON.
+                      const on = m.permisos.administracion === true || m.permisos[p.key] === true
                       const bloqueado = toggleBloqueado(m, p.key)
                       return (
                         <div key={p.key} className="flex items-start justify-between gap-3 py-1.5">
@@ -141,22 +148,26 @@ export default function EquipoTab({ qs, notify }: { qs: string; notify: (m: stri
         <h3 className="text-xs font-semibold uppercase tracking-widest mb-1" style={{ color: 'rgba(0,212,255,0.7)' }}>Agregar integrante</h3>
         {!puede
           ? <p className="text-[12px] mb-2" style={{ color: 'rgba(148,163,184,0.55)' }}>Solo los integrantes con Administración pueden agregar miembros.</p>
-          : <p className="text-[12px] mb-2" style={{ color: 'rgba(148,163,184,0.55)' }}>Todo integrante es Administrador de la tienda. Elegí además qué puede hacer:</p>}
+          : <p className="text-[12px] mb-2" style={{ color: 'rgba(148,163,184,0.55)' }}>Todos pueden buscar pagos y ver el registro. Elegí qué más puede hacer:</p>}
         <div className="space-y-3 mt-2">
           <input type="email" value={nuevoEmail} onChange={e => setNuevoEmail(e.target.value)} disabled={!puede || agregando}
             placeholder="email@ejemplo.com"
             className="w-full rounded-xl px-3 py-2.5 text-sm disabled:opacity-50"
             style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(0,212,255,0.18)', color: 'rgba(226,232,240,0.92)', outline: 'none' }} />
           <div className="space-y-1.5">
-            {/* Administración no se elige: la lleva todo integrante y solo el Super Admin la saca. */}
-            {PERMISOS.filter(p => p.key !== 'administracion').map(p => (
-              <label key={p.key} className="flex items-center gap-2 text-sm" style={{ color: 'rgba(226,232,240,0.85)', cursor: puede ? 'pointer' : 'not-allowed' }}>
-                <input type="checkbox" disabled={!puede || agregando}
-                  checked={nuevoPerm[p.key] === true}
-                  onChange={e => setNuevoPerm(v => ({ ...v, [p.key]: e.target.checked }))} />
-                {p.label}
-              </label>
-            ))}
+            {PERMISOS.map(p => {
+              // Un Administrador tiene todo: si se marca, los otros quedan en ON y bloqueados.
+              const esAdmin = nuevoPerm.administracion === true
+              const heredado = esAdmin && p.key !== 'administracion'
+              return (
+                <label key={p.key} className="flex items-center gap-2 text-sm" style={{ color: 'rgba(226,232,240,0.85)', opacity: heredado ? 0.6 : 1, cursor: puede && !heredado ? 'pointer' : 'not-allowed' }}>
+                  <input type="checkbox" disabled={!puede || agregando || heredado}
+                    checked={p.key === 'administracion' ? esAdmin : (esAdmin || nuevoPerm[p.key] === true)}
+                    onChange={e => setNuevoPerm(v => ({ ...v, [p.key]: e.target.checked }))} />
+                  {p.label}{p.key === 'administracion' && <span className="text-[11px]" style={{ color: 'rgba(148,163,184,0.5)' }}>(tiene todos los permisos)</span>}
+                </label>
+              )
+            })}
           </div>
           <button onClick={agregarMiembro} disabled={!puede || agregando}
             className="w-full py-3 rounded-xl text-sm font-bold text-white transition-all disabled:opacity-40"

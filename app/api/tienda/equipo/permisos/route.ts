@@ -45,13 +45,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Ese usuario no es integrante de esta tienda' }, { status: 404 })
     }
 
-    // Todo integrante de tienda es Administrador. El permiso Administración lo gestiona
-    // SOLO el Super Admin (darlo o quitarlo): un administrador de tienda nunca lo cambia.
-    // Se compara contra el valor efectivo (=== true) para que un body que la omite
-    // —{ permisos: {} }, que borraría la columna entera— cuente como cambio y se bloquee.
-    const cambiaAdministracion = (target.permisos.administracion === true) !== (nuevos.administracion === true)
-    if (cambiaAdministracion && !esSuperAdmin) {
-      return NextResponse.json({ error: 'Solo un Super Admin puede cambiar el permiso de Administración' }, { status: 403 })
+    // DAR Administración lo puede un administrador de tienda; QUITARLA solo el Super Admin.
+    // Se compara contra !== true (y no === false) para que un body que la omite
+    // —{ permisos: {} }, que reemplazaría la columna entera— también cuente como quitar.
+    const quitaAdministracion = target.permisos.administracion === true && nuevos.administracion !== true
+    if (quitaAdministracion && !esSuperAdmin) {
+      return NextResponse.json({ error: 'Solo un Super Admin puede quitar el permiso de Administración' }, { status: 403 })
+    }
+
+    // Un Administrador tiene TODOS los permisos: al dárselo se activan los demás.
+    if (nuevos.administracion === true) {
+      nuevos.solicitar_transferencias = true
+      nuevos.solicitar_reembolsos = true
     }
 
     await setPermisos(emailTarget, storeId, nuevos)

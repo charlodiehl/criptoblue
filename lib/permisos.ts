@@ -63,11 +63,13 @@ export interface UsuarioConPermisos {
 }
 
 export function puede(user: UsuarioConPermisos, key: PermisoKey): boolean {
-  if (user.role === 'admin') return true
+  if (user.role === 'admin') return true                    // super-admin del sistema
+  if (user.permisos?.administracion === true) return true   // Administrador de tienda: TODOS los permisos
   return user.permisos?.[key] === true
 }
 
 // Puede gestionar el equipo (dar/quitar permisos, agregar miembros) de SU tienda.
+// Es el Administrador de tienda (o el super-admin).
 export function puedeGestionarEquipo(user: UsuarioConPermisos): boolean {
-  return puede(user, 'administracion')
+  return user.role === 'admin' || user.permisos?.administracion === true
 }
