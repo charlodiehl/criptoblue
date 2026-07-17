@@ -179,15 +179,6 @@ export default function TiendaPortal({ storeId, userEmail, permisos, admin = fal
                       <div className="truncate" style={{ color: 'rgba(226,232,240,0.9)' }}>{userEmail}</div>
                     </div>
                   )}
-                  <button
-                    onClick={() => { setTab('equipo'); setUserMenuOpen(false) }}
-                    className="w-full text-left px-4 py-3 text-sm transition-all flex items-center gap-2"
-                    style={{ color: 'rgba(226,232,240,0.9)', borderBottom: '1px solid rgba(148,163,184,0.08)' }}
-                    onMouseEnter={e => (e.currentTarget.style.background = 'rgba(0,212,255,0.06)')}
-                    onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-                  >
-                    <span>👥</span> Equipo
-                  </button>
                   <Link
                     href="/notificaciones"
                     className="w-full text-left px-4 py-3 text-sm transition-all flex items-center gap-2"
@@ -224,8 +215,17 @@ export default function TiendaPortal({ storeId, userEmail, permisos, admin = fal
             </span>
           </div>
 
-          {/* RIGHT: saludo. No se muestra qué tienda es (la sesión ya es de esa tienda). */}
-          <div className="flex items-center justify-end gap-2 min-w-0">
+          {/* RIGHT: botón Equipo + saludo. Equipo va en el menú superior, no en las pestañas. */}
+          <div className="flex items-center justify-end gap-2 sm:gap-3 min-w-0">
+            <button onClick={() => setTab(tab === 'equipo' ? 'balance' : 'equipo')} title="Equipo"
+              className="flex items-center gap-1.5 rounded-xl px-2.5 sm:px-3 py-2 text-xs font-semibold transition-all shrink-0"
+              style={{
+                background: tab === 'equipo' ? 'rgba(0,212,255,0.12)' : 'rgba(255,255,255,0.04)',
+                border: `1px solid ${tab === 'equipo' ? 'rgba(0,212,255,0.4)' : 'rgba(0,212,255,0.2)'}`,
+                color: tab === 'equipo' ? '#00d4ff' : 'rgba(148,163,184,0.9)',
+              }}>
+              👥 <span className="hidden sm:inline">Equipo</span>
+            </button>
             <div className="text-xs sm:text-sm font-bold whitespace-nowrap" style={{ color: '#00d4ff', textShadow: '0 0 12px rgba(0,212,255,0.3)' }}>
               ¡Bienvenido!
             </div>
