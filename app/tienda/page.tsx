@@ -14,6 +14,7 @@ export default async function TiendaPage() {
     <TiendaPortal
       storeId={user.storeId}
       userEmail={user.email}
+      permisos={user.permisos}
     />
   )
 }

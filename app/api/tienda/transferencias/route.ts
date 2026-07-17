@@ -3,6 +3,7 @@ import { requireUser, resolveStoreScope } from '@/lib/auth/server'
 import { crearSolicitud, listarSolicitudesTienda, validarDatosSolicitud } from '@/lib/transferencias'
 import { getStores } from '@/lib/storage'
 import { notifyAdmins } from '@/lib/push'
+import { puede } from '@/lib/permisos'
 import type { TransferTipo } from '@/lib/types'
 
 const TIPOS: TransferTipo[] = ['ars', 'usd', 'usdt', 'usd_billete', 'ars_billete']
@@ -40,6 +41,11 @@ export async function POST(req: NextRequest) {
     // así que al admin le fallaba el envío con "No hay tienda asignada".
     const storeId = resolveStoreScope(auth.user, req.nextUrl.searchParams.get('storeId') || body.storeId)
     if (!storeId) return NextResponse.json({ error: 'No hay tienda asignada' }, { status: 400 })
+
+    // Permiso: solicitar transferencias. El super-admin (vista espejo) siempre puede.
+    if (!puede(auth.user, 'solicitar_transferencias')) {
+      return NextResponse.json({ error: 'No tenés permiso para solicitar transferencias' }, { status: 403 })
+    }
 
     const tipo = body.tipo as TransferTipo
     if (!TIPOS.includes(tipo)) {

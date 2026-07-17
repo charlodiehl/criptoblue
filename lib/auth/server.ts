@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import type { AppUser } from '@/lib/types'
+import { sanearPermisos, type Permisos } from '@/lib/permisos'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Autenticación server-side (rutas API y route handlers).
@@ -56,6 +57,9 @@ export interface SessionUser {
   storeId: string | null
   displayName: string | null
   aal2: boolean
+  // Permisos del integrante DENTRO de su tienda. Los 'admin' del sistema pueden todo
+  // por su rol (las funciones de lib/permisos lo contemplan), así que su valor no importa.
+  permisos: Permisos
 }
 
 // Usuario de la sesión actual, cruzado con app_users. null = sin sesión o sin permiso.
@@ -67,9 +71,9 @@ export async function getSessionUser(): Promise<SessionUser | null> {
   const email = user.email.toLowerCase()
   const { data: row } = await serviceClient()
     .from('app_users')
-    .select('email, role, store_id, display_name')
+    .select('email, role, store_id, display_name, permisos')
     .eq('email', email)
-    .maybeSingle<{ email: string; role: AppUser['role']; store_id: string | null; display_name: string | null }>()
+    .maybeSingle<{ email: string; role: AppUser['role']; store_id: string | null; display_name: string | null; permisos: unknown }>()
   if (!row) return null
 
   const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
@@ -81,6 +85,7 @@ export async function getSessionUser(): Promise<SessionUser | null> {
     storeId: row.store_id ?? null,
     displayName: row.display_name ?? null,
     aal2: aal?.currentLevel === 'aal2',
+    permisos: sanearPermisos(row.permisos),
   }
 }
 
@@ -92,7 +97,7 @@ export async function requireUser(role?: 'admin'): Promise<{ user: SessionUser }
   if (!user) return { error: NextResponse.json({ error: 'No autorizado' }, { status: 401 }) }
   if (!user.aal2) return { error: NextResponse.json({ error: 'Se requiere completar el 2FA' }, { status: 401 }) }
   if (role === 'admin' && user.role !== 'admin') {
-    return { error: NextResponse.json({ error: 'Solo administradores' }, { status: 403 }) }
+    return { error: NextResponse.json({ error: 'Solo Super Admin' }, { status: 403 }) }
   }
   return { user }
 }

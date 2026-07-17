@@ -99,7 +99,7 @@ export default function SolicitarTab({ qs, notify }: Props) {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Error')
-      notify('Solicitud enviada al administrador ✓', 'success')
+      notify('Solicitud enviada al Super Admin ✓', 'success')
       cambiarTipo('')
       fetchList()
     } catch (e) {

@@ -106,7 +106,7 @@ export default function SolicitarReembolsoTab({ qs, notify }: Props) {
       <div className="rounded-2xl p-4 sm:p-6 space-y-4"
         style={{ background: 'linear-gradient(135deg, #0d1117, #111827)', border: '1px solid rgba(0,212,255,0.12)' }}>
         <p className="text-xs" style={{ color: 'rgba(148,163,184,0.6)' }}>
-          Buscá una orden tuya por número. Si existe y todavía tiene saldo reembolsable, podés enviar una solicitud de reembolso al administrador.
+          Buscá una orden tuya por número. Si existe y todavía tiene saldo reembolsable, podés enviar una solicitud de reembolso al Super Admin.
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-3 sm:items-end">
           <div>
@@ -148,7 +148,7 @@ export default function SolicitarReembolsoTab({ qs, notify }: Props) {
                 <div>
                   <label style={labelStyle}>Monto a reembolsar (ARS)</label>
                   <MontoInput style={inputStyle} value={monto} onChange={setMonto} placeholder="0,00" />
-                  <div className="text-[11px] mt-1" style={{ color: 'rgba(148,163,184,0.6)' }}>Disponible: {ARS.format(restante)} · el administrador decide el monto final</div>
+                  <div className="text-[11px] mt-1" style={{ color: 'rgba(148,163,184,0.6)' }}>Disponible: {ARS.format(restante)} · el Super Admin decide el monto final</div>
                 </div>
                 <button onClick={enviar} disabled={enviando}
                   className="rounded-xl text-xs font-bold text-white transition-all disabled:opacity-50 w-full sm:w-auto"

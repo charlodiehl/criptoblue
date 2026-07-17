@@ -18,10 +18,12 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Comprobante no encontrado' }, { status: 404 })
     }
 
-    // Scope: la solicitud debe pertenecer a la tienda del scope resuelto.
+    // Scope: la solicitud debe pertenecer a la tienda del scope resuelto. A una tienda
+    // se le responde 404 (igual que si no existiera), no 403: un 403 revelaría que ese
+    // id existe en OTRA tienda (oráculo de existencia enumerando ids ajenos).
     const storeId = resolveStoreScope(auth.user, req.nextUrl.searchParams.get('storeId'))
     if (auth.user.role === 'tienda' && solicitud.storeId !== storeId) {
-      return NextResponse.json({ error: 'Sin permiso' }, { status: 403 })
+      return NextResponse.json({ error: 'Comprobante no encontrado' }, { status: 404 })
     }
 
     const url = await urlComprobante(solicitud.comprobantePath)

@@ -1,0 +1,62 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { requireUser, resolveStoreScope } from '@/lib/auth/server'
+import { getUsuario, setPermisos } from '@/lib/equipo'
+import { puedeGestionarEquipo, sanearPermisos } from '@/lib/permisos'
+
+// POST /api/tienda/equipo/permisos { email, permisos: {…} } [?storeId=]
+// Edita los permisos de un integrante de la MISMA tienda.
+//
+// Reglas de seguridad (todas server-side; el front solo refleja esto):
+//   • Solo puede editar quien tenga Administración (o el super-admin del sistema).
+//   • Aislamiento: el objetivo tiene que ser un rol 'tienda' de ESTA tienda. Un usuario
+//     de una tienda nunca toca a alguien de otra (storeId lo fija resolveStoreScope y
+//     además setPermisos vuelve a filtrar por store_id).
+//   • Nadie edita sus PROPIOS permisos (evita auto-escalar o auto-bloquearse). Solo el
+//     super-admin del sistema puede.
+//   • QUITAR el permiso de Administración (true→false) solo lo hace el super-admin del
+//     sistema. Un administrador de tienda puede darlo, pero no sacarlo.
+export async function POST(req: NextRequest) {
+  try {
+    const auth = await requireUser()
+    if ('error' in auth) return auth.error
+    const yo = auth.user
+    const esSuperAdmin = yo.role === 'admin'
+
+    if (!puedeGestionarEquipo(yo)) {
+      return NextResponse.json({ error: 'No tenés permiso de Administración' }, { status: 403 })
+    }
+
+    const body = await req.json().catch(() => null)
+    const emailTarget = String(body?.email || '').trim().toLowerCase()
+    if (!emailTarget) return NextResponse.json({ error: 'Falta el email' }, { status: 400 })
+    const nuevos = sanearPermisos(body?.permisos)
+
+    const storeId = resolveStoreScope(yo, req.nextUrl.searchParams.get('storeId') || body?.storeId)
+    if (!storeId) return NextResponse.json({ error: 'No hay tienda asignada' }, { status: 400 })
+
+    // No editar los propios permisos (salvo super-admin del sistema).
+    if (emailTarget === yo.email && !esSuperAdmin) {
+      return NextResponse.json({ error: 'No podés editar tus propios permisos' }, { status: 403 })
+    }
+
+    // El objetivo tiene que ser un integrante 'tienda' de ESTA tienda.
+    const target = await getUsuario(emailTarget)
+    if (!target || target.role !== 'tienda' || target.storeId !== storeId) {
+      return NextResponse.json({ error: 'Ese usuario no es integrante de esta tienda' }, { status: 404 })
+    }
+
+    // Todo integrante de tienda es Administrador. El permiso Administración lo gestiona
+    // SOLO el Super Admin (darlo o quitarlo): un administrador de tienda nunca lo cambia.
+    // Se compara contra el valor efectivo (=== true) para que un body que la omite
+    // —{ permisos: {} }, que borraría la columna entera— cuente como cambio y se bloquee.
+    const cambiaAdministracion = (target.permisos.administracion === true) !== (nuevos.administracion === true)
+    if (cambiaAdministracion && !esSuperAdmin) {
+      return NextResponse.json({ error: 'Solo un Super Admin puede cambiar el permiso de Administración' }, { status: 403 })
+    }
+
+    await setPermisos(emailTarget, storeId, nuevos)
+    return NextResponse.json({ success: true, email: emailTarget, permisos: nuevos })
+  } catch (err) {
+    return NextResponse.json({ error: String(err) }, { status: 500 })
+  }
+}

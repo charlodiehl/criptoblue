@@ -80,7 +80,7 @@ function LoginInner() {
               <div className="text-4xl">🚫</div>
               <p className="text-sm font-semibold text-white">No tenés permiso para acceder</p>
               <p className="text-xs" style={{ color: 'rgba(226,232,240,0.55)' }}>
-                Comunicate con un administrador.
+                Comunicate con un Super Admin.
               </p>
             </div>
           ) : (

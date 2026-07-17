@@ -4,6 +4,7 @@ import { getStores, loadLogs, saveLogs, appendActivity } from '@/lib/storage'
 import { buscarOrdenEnTienda } from '@/lib/buscar-orden'
 import { resumenReembolsos, crearRefundRequest, listarRefundRequestsTienda } from '@/lib/reembolsos'
 import { notifyAdmins } from '@/lib/push'
+import { puede } from '@/lib/permisos'
 
 // POST /api/tienda/reembolso  { orderNumber, monto, storeId? }
 // La tienda solicita un reembolso: valida que la orden exista y que NO esté
@@ -22,6 +23,11 @@ export async function POST(req: NextRequest) {
 
     const storeId = resolveStoreScope(auth.user, req.nextUrl.searchParams.get('storeId') || body?.storeId)
     if (!storeId) return NextResponse.json({ error: 'No hay tienda asignada' }, { status: 400 })
+
+    // Permiso: solicitar reembolsos. El super-admin (vista espejo) siempre puede.
+    if (!puede(auth.user, 'solicitar_reembolsos')) {
+      return NextResponse.json({ error: 'No tenés permiso para solicitar reembolsos' }, { status: 403 })
+    }
 
     const stores = await getStores()
     const store = stores[storeId]

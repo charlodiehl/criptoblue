@@ -177,6 +177,7 @@ export interface AppUser {
   role: 'admin' | 'tienda'
   storeId?: string | null        // obligatorio para role='tienda'
   displayName?: string | null
+  permisos?: Record<string, boolean>   // permisos del integrante dentro de su tienda (lib/permisos)
 }
 
 export type TransferTipo = 'ars' | 'usd' | 'usdt' | 'usd_billete' | 'ars_billete'

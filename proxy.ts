@@ -109,7 +109,7 @@ export async function proxy(req: NextRequest) {
       || pathname.startsWith('/api/tienda/')
       || pathname === '/notificaciones'
       || pathname.startsWith('/api/push/')
-    if (!permitido) return isApi ? deny(403, 'Solo administradores') : redirect('/tienda')
+    if (!permitido) return isApi ? deny(403, 'Solo Super Admin') : redirect('/tienda')
   }
 
   return res

@@ -54,17 +54,17 @@ export const GRUPOS_TIENDA: GrupoNotificacion[] = [
   {
     key: 'orden_emparejada',
     label: 'Nueva orden emparejada',
-    descripcion: 'Cuando entra un pago a tu registro: te avisa el monto y el número de orden. Incluye el saldo personalizado que te agregue un administrador.',
+    descripcion: 'Cuando entra un pago a tu registro: te avisa el monto y el número de orden. Incluye el saldo personalizado que te agregue un Super Admin.',
   },
   {
     key: 'transferencia_pagada',
     label: 'Transferencia pagada',
-    descripcion: 'Cuando un administrador paga una transferencia que solicitaste: te avisa el monto y a quién se le pagó.',
+    descripcion: 'Cuando un Super Admin paga una transferencia que solicitaste: te avisa el monto y a quién se le pagó.',
   },
   {
     key: 'reembolso_completado',
     label: 'Reembolso completado',
-    descripcion: 'Cuando un administrador paga un reembolso que solicitaste: te avisa el número de orden y el monto devuelto.',
+    descripcion: 'Cuando un Super Admin paga un reembolso que solicitaste: te avisa el número de orden y el monto devuelto.',
   },
 ]
 

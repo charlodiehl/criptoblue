@@ -84,7 +84,7 @@ export async function agregarSaldoPersonalizado(input: SaldoPersonalizadoInput):
   const montoTxt = `$${input.monto.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
   await notifyTienda(input.storeId, 'orden_emparejada', {
     title: 'Saldo agregado',
-    body: `Un administrador te agregó un saldo de ${montoTxt}${motivo ? ` · ${motivo}` : ''}.`,
+    body: `Un Super Admin te agregó un saldo de ${montoTxt}${motivo ? ` · ${motivo}` : ''}.`,
     url: '/tienda',
   })
 }

@@ -18,10 +18,11 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Comprobante no encontrado' }, { status: 404 })
     }
 
-    // Scope: el reembolso debe pertenecer a la tienda del scope resuelto.
+    // Scope: el reembolso debe pertenecer a la tienda del scope resuelto. A una tienda
+    // se le responde 404 (no 403) para no revelar que ese id existe en otra tienda.
     const storeId = resolveStoreScope(auth.user, req.nextUrl.searchParams.get('storeId'))
     if (auth.user.role === 'tienda' && refund.storeId !== storeId) {
-      return NextResponse.json({ error: 'Sin permiso' }, { status: 403 })
+      return NextResponse.json({ error: 'Comprobante no encontrado' }, { status: 404 })
     }
 
     const url = await urlComprobanteReembolso(refund.comprobantePath)

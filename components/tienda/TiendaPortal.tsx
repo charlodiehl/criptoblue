@@ -7,6 +7,8 @@ import BalanceTab from './BalanceTab'
 import SolicitarTab from './SolicitarTab'
 import BuscarPagosTab from './BuscarPagosTab'
 import SolicitarReembolsoTab from './SolicitarReembolsoTab'
+import EquipoTab from './EquipoTab'
+import { puede, type PermisoKey, type Permisos, type UsuarioConPermisos } from '@/lib/permisos'
 
 export type Toast = { id: number; msg: string; type: 'success' | 'error' | 'info' }
 
@@ -15,6 +17,9 @@ interface Props {
   // El nombre de la tienda ya no se usa: el portal no lo muestra (la sesión ya es
   // de esa tienda) y la vista espejo del admin lo pone en su propio encabezado.
   userEmail?: string
+  // Permisos del integrante dentro de su tienda (gating de las pestañas). En la vista
+  // espejo del admin no llega: el admin puede todo (perfil abajo con role='admin').
+  permisos?: Permisos
   // Vista espejo del admin (O2): sin header propio, y las llamadas a /api/tienda/**
   // van con ?storeId= explícito.
   admin?: boolean
@@ -23,16 +28,21 @@ interface Props {
   refreshKey?: number
 }
 
-type Tab = 'balance' | 'solicitar' | 'buscar' | 'reembolso'
+type Tab = 'balance' | 'solicitar' | 'buscar' | 'reembolso' | 'equipo'
 
-const TABS: { key: Tab; label: string }[] = [
+// Cada pestaña con el permiso que exige (si lo tiene). Sin permiso → siempre visible.
+const TABS: { key: Tab; label: string; permiso?: PermisoKey }[] = [
   { key: 'balance', label: 'Balance de Saldo' },
-  { key: 'solicitar', label: 'Solicitar transferencias' },
+  { key: 'solicitar', label: 'Solicitar transferencias', permiso: 'solicitar_transferencias' },
   { key: 'buscar', label: 'Buscar pagos' },
-  { key: 'reembolso', label: 'Solicitar reembolsos' },
+  { key: 'reembolso', label: 'Solicitar reembolsos', permiso: 'solicitar_reembolsos' },
+  { key: 'equipo', label: 'Equipo' },
 ]
 
-export default function TiendaPortal({ storeId, userEmail, admin = false, refreshKey = 0 }: Props) {
+export default function TiendaPortal({ storeId, userEmail, permisos, admin = false, refreshKey = 0 }: Props) {
+  // Perfil para el gating visual. El admin (vista espejo) puede todo por su rol; el
+  // gating REAL igual lo hace el backend en cada endpoint —esto es solo la UI.
+  const perfil: UsuarioConPermisos = { role: admin ? 'admin' : 'tienda', permisos: permisos ?? {} }
   const [tab, setTab] = useState<Tab>('balance')
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [toasts, setToasts] = useState<Toast[]>([])
@@ -75,28 +85,35 @@ export default function TiendaPortal({ storeId, userEmail, admin = false, refres
         {tab === 'solicitar' && <SolicitarTab storeId={storeId} qs={qs} notify={notify} />}
         {tab === 'buscar' && <BuscarPagosTab storeId={storeId} qs={qs} admin={admin} notify={notify} />}
         {tab === 'reembolso' && <SolicitarReembolsoTab storeId={storeId} qs={qs} notify={notify} />}
+        {tab === 'equipo' && <EquipoTab qs={qs} notify={notify} />}
       </motion.div>
     </AnimatePresence>
   )
 
-  // Barra de pestañas (compartida entre modo tienda y modo espejo del admin)
+  // Barra de pestañas (compartida entre modo tienda y modo espejo del admin). Una
+  // pestaña sin el permiso requerido se ve opaca y no se puede abrir.
   const tabBar = (
     <div className="flex flex-wrap gap-1.5">
       {TABS.map(t => {
         const active = tab === t.key
+        const bloqueada = t.permiso ? !puede(perfil, t.permiso) : false
         return (
           <button
             key={t.key}
-            onClick={() => setTab(t.key)}
+            onClick={() => { if (!bloqueada) setTab(t.key) }}
+            disabled={bloqueada}
+            title={bloqueada ? 'No tenés permiso para esta sección' : undefined}
             className="rounded-xl px-4 py-2 text-xs font-semibold transition-all"
             style={{
               background: active ? 'rgba(0,212,255,0.12)' : 'rgba(255,255,255,0.03)',
               border: `1px solid ${active ? 'rgba(0,212,255,0.4)' : 'rgba(148,163,184,0.12)'}`,
               color: active ? '#00d4ff' : 'rgba(148,163,184,0.75)',
               boxShadow: active ? '0 0 16px rgba(0,212,255,0.12)' : 'none',
+              opacity: bloqueada ? 0.4 : 1,
+              cursor: bloqueada ? 'not-allowed' : 'pointer',
             }}
           >
-            {t.label}
+            {t.label}{bloqueada ? ' 🔒' : ''}
           </button>
         )
       })}
