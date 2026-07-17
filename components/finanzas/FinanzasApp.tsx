@@ -245,7 +245,7 @@ export default function FinanzasApp({ userEmail }: { userEmail?: string }) {
                   <div className="space-y-4">
                     <h2 className="text-lg font-bold" style={{ color: '#00d4ff' }}>{activeStore.storeName}</h2>
                     <p className="text-xs" style={{ color: 'rgba(148,163,184,0.5)' }}>Vista espejo — mismas funciones que la tienda (control y operación).</p>
-                    <TiendaPortal storeId={activeStore.storeId} storeName={activeStore.storeName} admin refreshKey={refreshKey} />
+                    <TiendaPortal storeId={activeStore.storeId} admin refreshKey={refreshKey} />
                   </div>
                 ) : null}
               </motion.div>

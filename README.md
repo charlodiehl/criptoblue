@@ -80,6 +80,46 @@ Sistema multi-rol sobre la app de conciliación. Plan y decisiones completas en
   `node scripts/cargar-saldo-inicial.mjs <storeId> <ars> <usdt> ["desc"]`
   (los balances arrancan en 0; esto agrega un movimiento `ajuste`).
 
+## Conectar una tienda Shopify
+
+Shopify obliga a **una app por tienda**: se crea con *Custom distribution*, que la ata
+a un dominio concreto. Usar la app de una tienda en otra da
+*"The installation link for this app is invalid"*.
+
+1. **Partner Dashboard** (partners.shopify.com) → **Apps → Create app**
+   (ej. "Automatización \<Tienda\>").
+2. **Configuration** — los valores tienen que ser EXACTOS:
+   - **App URL:** `https://criptoblue.vercel.app/`
+   - **Allowed redirection URL(s):** `https://criptoblue.vercel.app/api/shopify/callback`
+     — el código la arma como `<origin>/api/shopify/callback` (`api/shopify/connect`);
+     si no coincide, Shopify rechaza el OAuth.
+   - **Scopes:** `read_orders,write_orders,read_customers` (= `CONFIG.shopify.scopes`).
+     Si quedan vacíos, la app se instala sin permisos.
+   - *Embed app in Shopify admin:* NO. *Webhooks API version:* da igual — la app lee
+     las órdenes por API y no recibe webhooks de Shopify.
+3. **Distribution → Custom distribution** → el dominio de la tienda
+   (`<handle>.myshopify.com`; el handle sale de `admin.shopify.com/store/<handle>/`).
+   Sin esto, la instalación falla.
+4. **Client ID / Client secret** de la app → variables de Vercel
+   `CRIPTOBLUE_SHOPIFY_CLIENT_ID` y `CRIPTOBLUE_SHOPIFY_CLIENT_SECRET` → **redeploy**
+   (sin redeploy sigue usando las de la app anterior).
+5. **Instalar**: abrir el link de *Generate link* → Install.
+6. **Conectar en CriptoBlue**: 🏪 Tiendas → Agregar tienda → Shopify → el handle
+   (acepta `<handle>` o `<handle>.myshopify.com`).
+
+**El paso 6 no se puede saltear:** el link de Shopify instala la app pero trae
+`no_redirect=true` y no pasa por `/api/shopify/callback`, que es donde se intercambia
+el `code` por el **access token** y se guarda la tienda. Sin eso, la app queda instalada
+pero CriptoBlue no tiene con qué leerla.
+
+**Pisar esas env NO rompe las tiendas ya conectadas:** el `client_id`/`secret` se usan
+sólo durante la conexión; después cada tienda opera con su propio `accessToken` guardado
+en `criptoblue:stores`. Por eso se van pisando con la app de cada tienda nueva.
+
+**Verificar que quedó bien** (con el `accessToken` de `criptoblue:stores`, header
+`X-Shopify-Access-Token`): `GET https://<handle>.myshopify.com/admin/api/2026-01/shop.json`
+y `…/orders.json?limit=3&status=any` (prueba el scope `read_orders`).
+
 ## Cotización del USDT
 
 - **Fuente:** precio de **venta** de Binance P2P (`bid`) vía CriptoYa

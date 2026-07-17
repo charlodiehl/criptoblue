@@ -12,7 +12,8 @@ export type Toast = { id: number; msg: string; type: 'success' | 'error' | 'info
 
 interface Props {
   storeId: string
-  storeName: string
+  // El nombre de la tienda ya no se usa: el portal no lo muestra (la sesión ya es
+  // de esa tienda) y la vista espejo del admin lo pone en su propio encabezado.
   userEmail?: string
   // Vista espejo del admin (O2): sin header propio, y las llamadas a /api/tienda/**
   // van con ?storeId= explícito.
@@ -31,7 +32,7 @@ const TABS: { key: Tab; label: string }[] = [
   { key: 'reembolso', label: 'Solicitar reembolsos' },
 ]
 
-export default function TiendaPortal({ storeId, storeName, userEmail, admin = false, refreshKey = 0 }: Props) {
+export default function TiendaPortal({ storeId, userEmail, admin = false, refreshKey = 0 }: Props) {
   const [tab, setTab] = useState<Tab>('balance')
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [toasts, setToasts] = useState<Toast[]>([])
@@ -181,11 +182,10 @@ export default function TiendaPortal({ storeId, storeName, userEmail, admin = fa
             </span>
           </div>
 
-          {/* RIGHT: nombre de la tienda */}
+          {/* RIGHT: saludo. No se muestra qué tienda es (la sesión ya es de esa tienda). */}
           <div className="flex items-center justify-end gap-2 min-w-0">
-            <div className="text-right min-w-0">
-              <div className="text-[10px] uppercase tracking-widest" style={{ color: 'rgba(148,163,184,0.5)' }}>Tienda</div>
-              <div className="text-xs sm:text-sm font-bold truncate" style={{ color: '#00d4ff', textShadow: '0 0 12px rgba(0,212,255,0.3)' }}>{storeName}</div>
+            <div className="text-xs sm:text-sm font-bold whitespace-nowrap" style={{ color: '#00d4ff', textShadow: '0 0 12px rgba(0,212,255,0.3)' }}>
+              ¡Bienvenido!
             </div>
           </div>
         </div>
