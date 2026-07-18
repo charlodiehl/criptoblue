@@ -3,6 +3,7 @@ import { requireUser } from '@/lib/auth/server'
 import { getStores, loadHotState, saveHotState } from '@/lib/storage'
 import { updateRegistroPorId, getRegistroBasico } from '@/lib/registro'
 import { buscarOrdenEnTienda } from '@/lib/buscar-orden'
+import type { Order } from '@/lib/types'
 import { markOrderAsPaid as markTNPaid } from '@/lib/tiendanube'
 import { markOrderAsPaid as markShopifyPaid } from '@/lib/shopify'
 import { actualizarCotizacionDeIngreso } from '@/lib/balance'
@@ -17,7 +18,10 @@ import { audit } from '@/lib/audit'
 // La edición NO bloquea por ningún motivo (a veces se marca mal y hay que corregir).
 //
 // Al cambiar el número de orden, se REASOCIA el pago:
-//   • Se guarda el nuevo número + order_id en el registro.
+//   • Se vuelcan al registro TODOS los datos de la orden nueva (número, order_id, total,
+//     fecha, cliente, tienda y el order_data completo), no solo el número: si no, la
+//     entrada queda mezclada con el cliente y el total de la orden anterior. El pagador
+//     (payment.nombrePagador) no se toca: es dato del pago, no de la orden.
 //   • Se marca la orden NUEVA como pagada en la tienda (best-effort, igual que el
 //     emparejamiento normal: si TN responde 403/422 solo queda una nota).
 //   • La orden VIEJA se des-asocia en la app (el match reciente pasa a la nueva). Su
@@ -58,6 +62,7 @@ export async function POST(req: NextRequest) {
     // ── Reasociación de orden (solo si el número cambió) ──────────────────────────
     let mensajeOrden: string | null = null
     let orderId: string | null | undefined = undefined   // se patchea solo si hay orden nueva
+    let ordenNueva: Order | undefined = undefined        // datos completos, si se encontró
 
     if (orderNumber !== undefined) {
       const basico = await getRegistroBasico(registroId)
@@ -71,6 +76,7 @@ export async function POST(req: NextRequest) {
         let nueva = null
         try { nueva = await buscarOrdenEnTienda(store, orderNumber) } catch { /* se guarda sin reasociar */ }
         orderId = nueva?.order.orderId ?? null
+        ordenNueva = nueva?.order
 
         // Marcar la orden NUEVA como pagada (si existe y no lo estaba).
         let marcado: { success: boolean; method?: string; error?: string } | null = null
@@ -107,7 +113,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const ok = await updateRegistroPorId(registroId, { orderNumber, orderId, customerName: nombre, cuit, hechoPor: auth.user.email })
+    const ok = await updateRegistroPorId(registroId, { orderNumber, orderId, order: ordenNueva, customerName: nombre, cuit, hechoPor: auth.user.email })
     if (!ok) return NextResponse.json({ error: 'La entrada del registro no existe' }, { status: 404 })
 
     let movimiento = null

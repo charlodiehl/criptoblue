@@ -895,6 +895,7 @@ export async function buscarEntradasPorOrden(
 export interface RegistroCampos {
   orderNumber?: string
   orderId?: string | null   // reasociar el pago a otra orden de la tienda
+  order?: Order             // orden nueva completa: pisa TODOS los datos de la vieja
   customerName?: string
   cuit?: string
   storeName?: string
@@ -937,7 +938,26 @@ export async function updateRegistroPorId(registroId: number, campos: RegistroCa
 
   const patch: Row = {}
   const payment = row.payment ? { ...row.payment } : null
-  const orderData = row.order_data ? { ...row.order_data } : null
+  let orderData = row.order_data ? { ...row.order_data } : null
+
+  // Reasociación a otra orden: se vuelca la orden NUEVA entera (columnas + order_data).
+  // Si solo se cambiara el número, la entrada queda mezclada —número nuevo con cliente,
+  // total y fecha de la orden anterior—, que es justo lo que hay que evitar.
+  //
+  // `payment` NO se toca a propósito: el pagador es un dato del pago, no de la orden, y
+  // muy seguido es un tercero que no coincide con el cliente. Va primero para que un
+  // valor explícito del admin (customerName, cuit) lo pise después.
+  if (campos.order) {
+    const o = campos.order
+    patch.order_number = o.orderNumber
+    patch.order_id = o.orderId
+    patch.order_total = o.total
+    patch.order_created_at = o.createdAt
+    patch.customer_name = o.customerName
+    patch.store_id = o.storeId
+    patch.store_name = o.storeName
+    orderData = { ...o }
+  }
 
   if (campos.customerName !== undefined) {
     patch.customer_name = campos.customerName
@@ -972,9 +992,9 @@ export async function updateRegistroPorId(registroId: number, campos: RegistroCa
 
   // El movimiento de balance guarda "Orden #123 · Tienda" congelado al crearse. Si
   // cambió alguno de los dos, hay que reescribirlo o el extracto muestra el viejo.
-  if (campos.orderNumber !== undefined || campos.storeName !== undefined) {
-    const orden = campos.orderNumber ?? row.order_number
-    const tienda = campos.storeName ?? row.store_name
+  if (campos.orderNumber !== undefined || campos.storeName !== undefined || campos.order) {
+    const orden = campos.orderNumber ?? campos.order?.orderNumber ?? row.order_number
+    const tienda = campos.storeName ?? campos.order?.storeName ?? row.store_name
     await actualizarDescripcionIngreso(registroId, `Orden #${orden || '—'} · ${tienda || ''}`.trim())
   }
   return true
