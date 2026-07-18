@@ -270,7 +270,15 @@ function applyRegistroFilters(q: any, opts: RegistroQueryOpts): any {
       `mp_payment_id.ilike.${pat}`,
       `payment->>nombrePagador.ilike.${pat}`,
     ]
-    if (/^\d+(\.\d+)?$/.test(safe)) ors.push(`amount.eq.${Number(safe)}`)
+    // Monto. Un ENTERO sin decimales busca todo ese peso (escribir 107841 encuentra
+    // también 107841.6), porque en pantalla el monto se ve con centavos y nadie los
+    // tipea. Con decimales explícitos, coincidencia exacta.
+    if (/^\d+$/.test(safe)) {
+      const n = Number(safe)
+      ors.push(`and(amount.gte.${n},amount.lt.${n + 1})`)
+    } else if (/^\d+\.\d+$/.test(safe)) {
+      ors.push(`amount.eq.${Number(safe)}`)
+    }
     q = q.or(ors.join(','))
     // search es global: NO se filtra por mes
   } else if (opts.month && /^\d{4}-\d{2}$/.test(opts.month)) {
