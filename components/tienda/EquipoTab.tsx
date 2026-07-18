@@ -148,12 +148,26 @@ export default function EquipoTab({ qs, notify }: { qs: string; notify: (m: stri
         <h3 className="text-xs font-semibold uppercase tracking-widest mb-1" style={{ color: 'rgba(0,212,255,0.7)' }}>Agregar integrante</h3>
         {!puede
           ? <p className="text-[12px] mb-2" style={{ color: 'rgba(148,163,184,0.55)' }}>Solo los integrantes con Administración pueden agregar miembros.</p>
-          : <p className="text-[12px] mb-2" style={{ color: 'rgba(148,163,184,0.55)' }}>Todos pueden buscar pagos y ver el registro. Elegí qué más puede hacer:</p>}
+          : (
+            <div className="mb-1 rounded-lg px-3 py-2" style={{ background: 'rgba(0,255,136,0.06)', border: '1px solid rgba(0,255,136,0.18)' }}>
+              <p className="text-[11px] leading-snug" style={{ color: 'rgba(203,213,225,0.8)' }}>
+                <span className="font-semibold" style={{ color: '#00ff88' }}>✓ Todos los integrantes ya pueden</span> buscar pagos y ver el registro. No hace falta activarlo.
+              </p>
+            </div>
+          )}
         <div className="space-y-3 mt-2">
           <input type="email" value={nuevoEmail} onChange={e => setNuevoEmail(e.target.value)} disabled={!puede || agregando}
             placeholder="email@ejemplo.com"
             className="w-full rounded-xl px-3 py-2.5 text-sm disabled:opacity-50"
             style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(0,212,255,0.18)', color: 'rgba(226,232,240,0.92)', outline: 'none' }} />
+          {puede && (
+            <div className="pt-1">
+              <p className="text-[12px] font-bold uppercase tracking-wider flex items-center gap-1.5" style={{ color: '#00d4ff' }}>
+                <span>➕</span> Permisos adicionales
+              </p>
+              <p className="text-[11px] mt-0.5" style={{ color: 'rgba(148,163,184,0.6)' }}>Tildá lo que este integrante va a poder hacer <span style={{ color: 'rgba(203,213,225,0.75)' }}>además</span> del acceso base.</p>
+            </div>
+          )}
           <div className="space-y-1.5">
             {PERMISOS.map(p => {
               // Un Administrador tiene todo: si se marca, los otros quedan en ON y bloqueados.
