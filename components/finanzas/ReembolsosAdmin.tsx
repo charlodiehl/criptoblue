@@ -284,6 +284,10 @@ export function GestionReembolsos() {
   } = useReembolsos()
 
   const restante = resultado?.reembolsos.restante ?? 0
+  // Valor del botón MAX. Se trunca hacia abajo a 2 decimales (no se redondea) para
+  // no pasarse nunca del tope que valida el backend. MontoInput espera el string
+  // "limpio" con punto decimal; él lo muestra formateado (1.234,56).
+  const maxReembolsable = (Math.floor(restante * 100) / 100).toFixed(2)
   const montoNum = Number(monto.replace(',', '.'))
   const cotNum = Number(cotizacion.replace(',', '.'))
   const usdtPreview = Number.isFinite(montoNum) && Number.isFinite(cotNum) && cotNum > 0 ? montoNum / cotNum : null
@@ -377,7 +381,23 @@ export function GestionReembolsos() {
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label style={labelStyle}>Monto a reembolsar (ARS)</label>
-                      <MontoInput style={inputStyle} value={monto} onChange={setMonto} placeholder="0,00" />
+                      <div style={{ position: 'relative' }}>
+                        {/* paddingRight deja lugar al botón, que va montado adentro del campo */}
+                        <MontoInput style={{ ...inputStyle, paddingRight: '58px' }} value={monto} onChange={setMonto} placeholder="0,00" />
+                        <button
+                          type="button"
+                          onClick={() => setMonto(maxReembolsable)}
+                          disabled={ejecutando || restante <= 0}
+                          title={`Reembolsar todo lo disponible (${ARS.format(restante)})`}
+                          className="absolute text-[11px] font-bold rounded-md px-2 py-1 transition-all disabled:opacity-30"
+                          style={{
+                            right: '6px', top: '50%', transform: 'translateY(-50%)',
+                            background: 'rgba(0,212,255,0.12)', border: '1px solid rgba(0,212,255,0.3)',
+                            color: '#00d4ff', cursor: ejecutando || restante <= 0 ? 'not-allowed' : 'pointer',
+                          }}>
+                          MAX
+                        </button>
+                      </div>
                       <div className="text-[11px] mt-1" style={{ color: 'rgba(148,163,184,0.6)' }}>Disponible: {ARS.format(restante)}</div>
                     </div>
                     <TasaInput key={`cot-${compKey}`} label="Cotización USDT/ARS" value={cotizacion} onChange={setCotizacion} notify={notify} sinMargen />
