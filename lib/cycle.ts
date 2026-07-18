@@ -3,7 +3,7 @@ import { getPendingOrders as getTNOrders } from './tiendanube'
 import { getPendingOrders as getShopifyOrders } from './shopify'
 import { loadState, saveState, getStores, appendError, loadLogs, saveLogs, withStateLock } from './storage'
 import { getConfirmedMarks } from './registro'
-import { HARD_CUTOFF_PAYMENTS, HARD_CUTOFF_ORDERS, SAMEMONTO_WINDOW_HOURS, ORDER_CACHE_MIN_HOURS, ORDER_CACHE_BUFFER_HOURS, PAYMENT_CACHE_HOURS, WALLETS_SIN_VENCIMIENTO } from './config'
+import { HARD_CUTOFF_PAYMENTS, HARD_CUTOFF_ORDERS, SAMEMONTO_WINDOW_HOURS, ORDER_CACHE_MIN_HOURS, ORDER_CACHE_BUFFER_HOURS, PAYMENT_CACHE_HOURS, WALLETS_SIN_VENCIMIENTO, MERCADOPAGO_ACTIVO } from './config'
 import type { UnmatchedPayment, Store } from './types'
 import { audit, auditApiCall } from './audit'
 import { nowART, paymentWalletId } from './utils'
@@ -76,33 +76,37 @@ export async function processMPPayments(): Promise<CycleResult> {
   )
   const sinceOrders = new Date(Math.max(ordersCutoffMs, HARD_CUTOFF_ORDERS.getTime()))
 
-  // Traer pagos aprobados desde el cutoff efectivo
-  let payments
-  const mpStart = Date.now()
-  try {
-    payments = await fetchAllPaymentsSince(sincePayments)
-    await auditApiCall({
-      action: 'mp.fetch_payments', component: 'cycle',
-      endpoint: 'mercadopago/search', result: 'success',
-      durationMs: Date.now() - mpStart,
-      message: `Fetched ${payments.length} pagos desde ${sincePayments.toISOString()}`,
-      meta: { count: payments.length, since: sincePayments.toISOString() },
-    })
-  } catch (err) {
-    await auditApiCall({
-      action: 'mp.fetch_payments', component: 'cycle',
-      endpoint: 'mercadopago/search', result: 'failure',
-      durationMs: Date.now() - mpStart,
-      message: `Error al traer pagos de MP: ${String(err)}`,
-      error: String(err),
-    })
-    result.errors.push(`MP fetch error: ${String(err)}`)
-    // Solo guardar el error — no sobreescribir todo el estado para evitar pisar
-    // cambios del usuario en registroLog (copiedAt, hidden, ediciones)
-    const errorLogs = await loadLogs()
-    appendError(errorLogs, 'mercadopago', 'error', `Error al traer pagos de MercadoPago: ${String(err)}`)
-    await saveLogs(errorLogs)
-    return result
+  // Traer pagos aprobados desde el cutoff efectivo.
+  // MercadoPago desconectado (MERCADOPAGO_ACTIVO=false): se saltea la traída y el
+  // ciclo sigue solo con órdenes + auto-match de las billeteras activas (MS, Lacar).
+  let payments: Awaited<ReturnType<typeof fetchAllPaymentsSince>> = []
+  if (MERCADOPAGO_ACTIVO) {
+    const mpStart = Date.now()
+    try {
+      payments = await fetchAllPaymentsSince(sincePayments)
+      await auditApiCall({
+        action: 'mp.fetch_payments', component: 'cycle',
+        endpoint: 'mercadopago/search', result: 'success',
+        durationMs: Date.now() - mpStart,
+        message: `Fetched ${payments.length} pagos desde ${sincePayments.toISOString()}`,
+        meta: { count: payments.length, since: sincePayments.toISOString() },
+      })
+    } catch (err) {
+      await auditApiCall({
+        action: 'mp.fetch_payments', component: 'cycle',
+        endpoint: 'mercadopago/search', result: 'failure',
+        durationMs: Date.now() - mpStart,
+        message: `Error al traer pagos de MP: ${String(err)}`,
+        error: String(err),
+      })
+      result.errors.push(`MP fetch error: ${String(err)}`)
+      // Solo guardar el error — no sobreescribir todo el estado para evitar pisar
+      // cambios del usuario en registroLog (copiedAt, hidden, ediciones)
+      const errorLogs = await loadLogs()
+      appendError(errorLogs, 'mercadopago', 'error', `Error al traer pagos de MercadoPago: ${String(err)}`)
+      await saveLogs(errorLogs)
+      return result
+    }
   }
 
   const processedSet = new Set(state.processedPayments)

@@ -18,6 +18,8 @@ interface PagoEncontrado {
   nombrePagador: string
   fechaPago: string
   billetera: string
+  estado: 'disponible' | 'usado'
+  ordenPropia?: string   // si el pago ya se usó en una orden de ESTA tienda
 }
 
 const inputStyle: React.CSSProperties = {
@@ -133,18 +135,25 @@ export default function BuscarPagosTab({ qs, notify }: Props) {
           <h3 className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'rgba(0,255,136,0.75)' }}>
             {resultado.pagos.length} pago{resultado.pagos.length === 1 ? '' : 's'} encontrado{resultado.pagos.length === 1 ? '' : 's'}
           </h3>
-          {resultado.pagos.map(pago => (
+          {resultado.pagos.map(pago => {
+            const usado = pago.estado === 'usado'
+            return (
             <div key={pago.mpPaymentId} className="rounded-2xl p-5"
-              style={{ background: 'linear-gradient(135deg, #0d1117, #111827)', border: '1px solid rgba(0,255,136,0.2)' }}>
+              style={{ background: 'linear-gradient(135deg, #0d1117, #111827)', border: `1px solid ${usado ? 'rgba(248,113,113,0.3)' : 'rgba(0,255,136,0.2)'}`, opacity: usado ? 0.85 : 1 }}>
               <div className="flex items-start justify-between gap-3 flex-wrap">
                 <div>
-                  <div className="text-2xl font-black" style={{ color: '#00ff88' }}>{ARS.format(pago.monto)}</div>
+                  <div className="text-2xl font-black" style={{ color: usado ? 'rgba(148,163,184,0.7)' : '#00ff88' }}>{ARS.format(pago.monto)}</div>
                   <div className="text-sm mt-1" style={{ color: 'rgba(226,232,240,0.85)' }}>{pago.nombrePagador || 'Sin nombre'}</div>
                   <div className="text-[11px] mt-1" style={{ color: 'rgba(148,163,184,0.55)' }}>
                     {fmtDate(pago.fechaPago)} · Billetera: <span style={{ color: 'rgba(0,212,255,0.75)' }}>{pago.billetera}</span>
                   </div>
                 </div>
-                {reclamando !== pago.mpPaymentId && (
+                {usado ? (
+                  <span className="px-3 py-1.5 rounded-lg text-xs font-bold"
+                    style={{ background: 'rgba(248,113,113,0.12)', border: '1px solid rgba(248,113,113,0.35)', color: '#f87171' }}>
+                    ✕ Ya usado
+                  </span>
+                ) : reclamando !== pago.mpPaymentId && (
                   <button onClick={() => abrirReclamo(pago.mpPaymentId)}
                     className="px-4 py-2 rounded-xl text-xs font-bold transition-all"
                     style={{ background: 'rgba(0,255,136,0.12)', border: '1px solid rgba(0,255,136,0.35)', color: '#00ff88', cursor: 'pointer' }}>
@@ -153,7 +162,13 @@ export default function BuscarPagosTab({ qs, notify }: Props) {
                 )}
               </div>
 
-              {reclamando === pago.mpPaymentId && (
+              {usado && (
+                <div className="mt-3 pt-3 text-xs" style={{ borderTop: '1px solid rgba(148,163,184,0.1)', color: 'rgba(248,113,113,0.85)' }}>
+                  Este pago ya fue usado para validar {pago.ordenPropia ? <>tu orden <span className="font-bold">#{pago.ordenPropia}</span></> : 'otra orden'}. No se puede reclamar de nuevo.
+                </div>
+              )}
+
+              {!usado && reclamando === pago.mpPaymentId && (
                 <div className="mt-4 pt-4 flex items-end gap-3 flex-wrap" style={{ borderTop: '1px solid rgba(148,163,184,0.1)' }}>
                   <div className="flex-1 min-w-[160px]">
                     <label style={labelStyle}>Número de orden</label>
@@ -175,7 +190,8 @@ export default function BuscarPagosTab({ qs, notify }: Props) {
                 </div>
               )}
             </div>
-          ))}
+            )
+          })}
         </div>
       )}
     </div>

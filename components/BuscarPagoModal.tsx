@@ -63,7 +63,7 @@ export default function BuscarPagoModal({
   const [monto, setMonto] = useState('')
   const [fechaLocal, setFechaLocal] = useState('')
 
-  // Búsqueda de pago en MP
+  // Búsqueda de pago en la app (cola + emparejados)
   const [buscandoPago, setBuscandoPago] = useState(false)
   const [pagoError, setPagoError] = useState<string | null>(null)
   const [resultadosPago, setResultadosPago] = useState<PagoResultado[] | null>(null)
@@ -248,7 +248,7 @@ export default function BuscarPagoModal({
           </div>
           <button onClick={buscarPago} disabled={buscandoPago}
             style={{ fontSize: '12px', fontWeight: 700, padding: '8px 14px', borderRadius: '7px', border: '1px solid rgba(0,212,255,0.3)', background: 'rgba(0,212,255,0.08)', color: 'rgba(0,212,255,0.85)', cursor: buscandoPago ? 'not-allowed' : 'pointer', opacity: buscandoPago ? 0.5 : 1 }}>
-            {buscandoPago ? 'Buscando en MercadoPago…' : '🔎 Buscar en MercadoPago'}
+            {buscandoPago ? 'Buscando…' : '🔎 Buscar pago'}
           </button>
 
           {/* Texto detectado por el OCR — para diagnosticar cuando un comprobante se lee mal */}
@@ -271,7 +271,7 @@ export default function BuscarPagoModal({
         {/* Resultados de pago */}
         {resultadosPago && resultadosPago.length === 0 && (
           <div style={{ padding: '10px 12px', borderRadius: '8px', fontSize: '12px', marginBottom: '12px', background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.25)', color: 'rgba(251,191,36,0.9)' }}>
-            ⚠ No se encontró ningún pago en MercadoPago con ese monto y fecha (±1 min).
+            ⚠ No se encontró ningún pago en la app con ese monto y fecha (±24 h).
           </div>
         )}
         {resultadosPago && resultadosPago.length > 0 && (

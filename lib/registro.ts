@@ -571,6 +571,45 @@ export async function isPaymentAlreadyUsed(mpPaymentId: string): Promise<boolean
   return (count ?? 0) > 0
 }
 
+export interface PagoEmparejado {
+  mpPaymentId: string | null
+  monto: number
+  nombrePagador: string
+  fechaPago: string
+  source: string
+  orderNumber: string
+  storeId: string
+  storeName: string
+}
+
+// Pagos YA EMPAREJADOS (registro_log) con un monto exacto. Para que "Buscar pagos"
+// muestre los pagos ya usados y los bloquee (impedir que un mismo pago valide dos
+// órdenes). Se filtra por monto en la DB; la ventana de fecha y el nombre los acota
+// el que llama (son criterios más finos). Tope defensivo por si un monto se repite.
+export async function buscarEmparejadosPorMonto(monto: number): Promise<PagoEmparejado[]> {
+  const supabase = getClient()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (supabase.from(TABLE) as any)
+    .select('mp_payment_id, amount, order_number, store_id, store_name, payment_received_at, ts, monto:payment->>monto, nombre:payment->>nombrePagador, fechaPago:payment->>fechaPago, source:payment->>source')
+    .eq('hidden', false)
+    .in('action', ['manual_paid', 'auto_paid'])
+    .eq('amount', monto)
+    .order('ts', { ascending: false })
+    .limit(100)
+  if (error) throw new Error(`buscarEmparejadosPorMonto falló: ${error.message} [${error.code}]`)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return ((data ?? []) as any[]).map(r => ({
+    mpPaymentId: r.mp_payment_id ?? null,
+    monto: Number(r.monto ?? r.amount) || 0,
+    nombrePagador: r.nombre || '',
+    fechaPago: r.fechaPago || r.payment_received_at || r.ts || '',
+    source: r.source || '',
+    orderNumber: r.order_number != null ? String(r.order_number) : '',
+    storeId: r.store_id ?? '',
+    storeName: r.store_name ?? '',
+  }))
+}
+
 // Búsqueda de duplicados por identidad en una ventana (para buscar-orden).
 // Devuelve entradas con order_id que matcheen la tienda y la ventana temporal.
 // Paginado: alimenta la detección de duplicados de /api/buscar-orden. Si truncara,

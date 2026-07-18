@@ -33,9 +33,8 @@ function isPublicRoute(pathname: string): boolean {
     || pathname.startsWith('/api/shopify/callback')
     || pathname.startsWith('/api/tn/connect')
     || pathname.startsWith('/api/shopify/connect')
-    || pathname.startsWith('/api/fiwind/webhook') // valida por su propio secreto (servicio externo)
     || pathname.startsWith('/api/notificador/webhook') // valida por su propio secreto (servicio externo)
-    || pathname.startsWith('/api/montemar/webhook') // valida por su propio secreto (servicio externo)
+    // Fiwind y Montemar desconectados (jul 2026): sus webhooks se eliminaron.
 }
 
 export async function proxy(req: NextRequest) {

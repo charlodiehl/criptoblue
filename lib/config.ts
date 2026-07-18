@@ -100,7 +100,15 @@ export const PAYMENT_SOURCE_TO_WALLET: Record<string, string> = {
 // desaparecen de la vista por antigüedad (ignoran el rolling de 48hs), mientras
 // sigan sin emparejar y sin marcar "No es de tiendas". Al emparejarse o marcarse,
 // vuelven al comportamiento normal de expiración a las 48hs.
-export const WALLETS_SIN_VENCIMIENTO: readonly string[] = ['MF', 'Lacar', 'MS', 'Montemar']
+// MF y Montemar quedaron desconectadas (jul 2026): salen de esta lista para que
+// cualquier pago rezagado de esos medios expire solo por antigüedad.
+export const WALLETS_SIN_VENCIMIENTO: readonly string[] = ['Lacar', 'MS']
+
+// MercadoPago desconectado (jul 2026): se cerró la billetera "MF" (MercadoPago +
+// Fiwind). El ciclo cada 5 min ya NO pide pagos a MercadoPago (ver lib/cycle.ts).
+// El código de traída se conserva para poder reactivarlo si hiciera falta:
+// poner en true y MP vuelve a ingresar pagos a la cola.
+export const MERCADOPAGO_ACTIVO = false
 
 export const CONFIG = {
   tiendanube: {
