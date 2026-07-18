@@ -145,7 +145,14 @@ export async function getMetricas(desdeMs: number, hastaMs: number): Promise<Met
   const reembBill = new Map<string, number>()
   const rf = await fetchAllRows((f, t) =>
     sb.from('refunds').select('wallet, monto, created_at').gte('created_at', desdeISO).lt('created_at', hastaISO).range(f, t))
-  for (const r of rf) if (r.wallet && !antesDelCorte(r.wallet, r.created_at)) inc(reembBill, r.wallet, Number(r.monto) || 0)
+  // resolveWallet: un reembolso pagado desde "Otras" se guarda como `otras:<nombre>` y
+  // tiene que sumar a la billetera "Otras", no aparecer como una billetera aparte.
+  for (const r of rf) {
+    if (!r.wallet) continue
+    const w = resolveWallet(r.wallet)
+    if (antesDelCorte(w, r.created_at)) continue
+    inc(reembBill, w, Number(r.monto) || 0)
+  }
 
   // 5) reembolsos SOLICITADOS (refund_requests) en el período, cantidad por tienda.
   const reqs = await fetchAllRows((f, t) =>

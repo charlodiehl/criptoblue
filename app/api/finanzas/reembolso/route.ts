@@ -36,6 +36,7 @@ export async function POST(req: NextRequest) {
     const comprobantePath = typeof body?.comprobantePath === 'string' ? body.comprobantePath.trim() : ''
     const requestId = body?.requestId != null ? Number(body.requestId) : null
     const walletSel = String(body?.wallet || '').trim()   // billetera elegida o 'externo'
+    const walletOtra = String(body?.walletOtra || '').trim()   // nombre libre si es "Otras"
 
     if (!storeId || !orderNumber) return NextResponse.json({ error: 'Faltan la tienda o el número de orden' }, { status: 400 })
     if (!Number.isFinite(monto) || monto <= 0) return NextResponse.json({ error: 'Monto a reembolsar inválido' }, { status: 400 })
@@ -47,7 +48,16 @@ export async function POST(req: NextRequest) {
     if (!esExterno && !WALLETS.includes(walletSel as typeof WALLETS[number])) {
       return NextResponse.json({ error: 'Elegí quién paga el reembolso (una billetera o "Pago por afuera")' }, { status: 400 })
     }
-    const wallet: string | null = esExterno ? null : walletSel
+    // "Otras" es un cajón, no una billetera: se guarda con su nombre libre
+    // (`otras:<nombre>`), igual que los pagos manuales, para que en el extracto se
+    // vea de qué billetera salió la plata. La agregación por billetera normaliza
+    // con resolveWallet(), así que sigue restándose del saldo de "Otras".
+    if (walletSel === 'Otras' && !walletOtra) {
+      return NextResponse.json({ error: 'Escribí el nombre de la billetera que paga' }, { status: 400 })
+    }
+    const wallet: string | null = esExterno
+      ? null
+      : (walletSel === 'Otras' ? `otras:${walletOtra.slice(0, 40)}` : walletSel)
 
     const stores = await getStores()
     const store = stores[storeId]

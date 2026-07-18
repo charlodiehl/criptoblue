@@ -23,7 +23,7 @@
 // así que la cola se deduplica contra los ids de registro_log: manda el registro.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { getClient, kvGet, loadHotState } from './storage'
+import { getClient, kvGet, loadHotState, getStores } from './storage'
 import { resolveWallet } from './utils'
 import { WALLETS } from './config'
 import { getComisiones, comisionBilletera } from './comisiones'
@@ -84,6 +84,7 @@ export interface PagoBilletera {
   // cambia; marca que la orden asociada tuvo un reembolso (total o parcial).
   estado: 'emparejado' | 'en_cola' | 'reembolsado'
   detalle?: string          // billetera "Otras": el nombre libre que se le puso al pago
+  tienda?: string           // vacío mientras el pago está en cola: todavía no tiene orden
 }
 
 export interface ReembolsoBilletera {
@@ -91,6 +92,7 @@ export interface ReembolsoBilletera {
   monto: number             // ARS reembolsado (positivo)
   seq: number
   fecha: string
+  tienda?: string           // tienda a la que se le devolvió la plata
 }
 
 // Una salida de plata del día: retiro/transferencia o reembolso. Se muestran juntos
@@ -108,6 +110,7 @@ export interface MovimientoDia {
   refundId?: number                       // reembolso con comprobante → id para descargarlo
   salidaId?: number                       // id del wallet_movement (retiro/ajuste) → editable
   reembolsoId?: number                    // id del refund → editable
+  tienda?: string                         // solo reembolsos: a qué tienda se le devolvió
   tasaEdit?: number | null                // cotización para prellenar la edición (retiro: ARS/moneda; reembolso: ARS/USDT)
 }
 
@@ -144,6 +147,7 @@ interface Ingreso {
   titular: string
   estado: 'emparejado' | 'en_cola'
   storeId?: string          // solo emparejados: para cruzar con los reembolsos de la orden
+  storeName?: string        // solo emparejados: un pago en cola todavía no tiene tienda
   orderNumber?: string
 }
 
@@ -201,7 +205,7 @@ async function ingresosEmparejados(): Promise<Ingreso[]> {
   for (;;) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data, error } = await (c.from('registro_log') as any)
-      .select('amount, ts, payment_received_at, store_id, order_number, source:payment->>source, monto:payment->>monto, titular:payment->>nombrePagador, fechaPago:payment->>fechaPago')
+      .select('amount, ts, payment_received_at, store_id, store_name, order_number, source:payment->>source, monto:payment->>monto, titular:payment->>nombrePagador, fechaPago:payment->>fechaPago')
       .eq('hidden', false)
       .in('action', MATCHED_ACTIONS)
       .order('id', { ascending: true })
@@ -221,6 +225,7 @@ async function ingresosEmparejados(): Promise<Ingreso[]> {
         titular: r.titular || '',
         estado: 'emparejado',
         storeId: r.store_id ?? undefined,
+        storeName: r.store_name ?? undefined,
         orderNumber: r.order_number != null ? String(r.order_number) : undefined,
       })
     }
@@ -366,9 +371,11 @@ export async function getIngresosBilletera(wallet: string, diaART?: string): Pro
   // "Otras" con sources `otras:<nombre>` dinámicos).
   const esDeEsta = (s: string) => resolveWallet(s) === wallet
 
-  const [emparejados, hot, refundsAll, salidasAll, yaEmparejados, cortes, reembolsadas] = await Promise.all([
-    ingresosEmparejados(), loadHotState(), getRefundsDeWallet(wallet), getSalidasDeWallet(wallet), idsEmparejados(), getCortesBilletera(), getOrdenesReembolsadas(),
+  const [emparejados, hot, refundsAll, salidasAll, yaEmparejados, cortes, reembolsadas, stores] = await Promise.all([
+    ingresosEmparejados(), loadHotState(), getRefundsDeWallet(wallet), getSalidasDeWallet(wallet), idsEmparejados(), getCortesBilletera(), getOrdenesReembolsadas(), getStores(),
   ])
+  // refunds guarda store_id, no el nombre: se resuelve contra el directorio de tiendas.
+  const nombreTienda = (storeId?: string | null) => (storeId ? stores[storeId]?.storeName : undefined)
   // Corte: se cuenta desde `desde`; lo previo ya está en el saldo inicial (neto).
   // Con soloInicial se ignora TODA la actividad (pagos, reembolsos, salidas) de
   // cualquier fecha: la billetera muestra únicamente el saldo inicial en su día de corte.
@@ -445,10 +452,15 @@ export async function getIngresosBilletera(wallet: string, diaART?: string): Pro
       // Un reembolso siempre se devuelve en ARS: no hay conversión que mostrar.
       ...refundsDelDia.map((r): MovimientoDia => ({
         clase: 'reembolso', fecha: r.createdAt, ars: r.monto,
-        concepto: `Reembolso orden #${r.orderNumber}${r.seq > 1 ? ` (${r.seq})` : ''}`,
+        // En "Otras" se agrega de qué billetera salió la plata (el nombre libre de
+        // `otras:<nombre>`): es el único lugar donde se ve, porque la tabla agrupa
+        // todos esos reembolsos bajo "Otras".
+        concepto: `Reembolso orden #${r.orderNumber}${r.seq > 1 ? ` (${r.seq})` : ''}`
+          + (detalleOtras(r.wallet) ? ` · ${detalleOtras(r.wallet)}` : ''),
         moneda: 'ARS' as const, montoOrigen: r.monto, cotizacion: null,
         refundId: r.comprobantePath ? r.id : undefined,
         reembolsoId: r.id, tasaEdit: r.cotizacion,
+        tienda: nombreTienda(r.storeId),
       })),
     ].sort((a, b) => (new Date(a.fecha).getTime() || 0) - (new Date(b.fecha).getTime() || 0))
   }
@@ -462,7 +474,7 @@ export async function getIngresosBilletera(wallet: string, diaART?: string): Pro
     cantidad: ingresos.length,
     comisionArs, comisionPct: pct,
     reembolsosArs,
-    reembolsos: refunds.map(r => ({ orderNumber: r.orderNumber, monto: r.monto, seq: r.seq, fecha: r.createdAt })),
+    reembolsos: refunds.map(r => ({ orderNumber: r.orderNumber, monto: r.monto, seq: r.seq, fecha: r.createdAt, tienda: nombreTienda(r.storeId) })),
     salidasArs,
     salidas,
     totalDia,
@@ -485,6 +497,7 @@ export async function getIngresosBilletera(wallet: string, diaART?: string): Pro
         ? 'reembolsado' as const
         : m.estado,
       detalle: detalleOtras(m.source) || undefined,
+      tienda: m.storeName || undefined,
     })),
   }
 }

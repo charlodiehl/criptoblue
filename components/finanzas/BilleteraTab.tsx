@@ -16,6 +16,7 @@ interface Pago {
   comision: number
   estado: 'emparejado' | 'en_cola' | 'reembolsado'
   detalle?: string   // billetera "Otras": nombre libre del pago
+  tienda?: string    // vacío mientras el pago está en cola (todavía no tiene orden)
 }
 const ESTADO_LABEL: Record<Pago['estado'], string> = { emparejado: 'Emparejado', en_cola: 'En cola', reembolsado: 'Reembolsado' }
 const ESTADO_STYLE: Record<Pago['estado'], React.CSSProperties> = {
@@ -35,6 +36,7 @@ interface MovimientoDia {
   salidaId?: number   // id del wallet_movement (retiro/ajuste) → editable
   reembolsoId?: number // id del refund → editable
   tasaEdit?: number | null // cotización para prellenar la edición
+  tienda?: string     // solo reembolsos: a qué tienda se le devolvió
 }
 interface Detalle {
   wallet: string
@@ -57,7 +59,7 @@ const fmtPct = (n: number) => n.toLocaleString('es-AR', { maximumFractionDigits:
 const fmtArs = (n: number) => ARS.format(n)
 
 // Columnas ordenables del extracto del día.
-type SortKey = 'fecha' | 'titular' | 'detalle' | 'monto' | 'comision' | 'estado'
+type SortKey = 'fecha' | 'titular' | 'tienda' | 'detalle' | 'monto' | 'comision' | 'estado'
 
 // Hoy en horario Argentina (UTC-3) como 'YYYY-MM-DD'
 function hoyART(): string {
@@ -121,6 +123,7 @@ export default function BilleteraTab({ wallet, notify, refreshKey = 0 }: { walle
   const columnas: { key: SortKey; label: string }[] = [
     { key: 'fecha', label: 'Fecha y hora del pago' },
     { key: 'titular', label: 'Titular' },
+    { key: 'tienda', label: 'Tienda' },
     ...(esOtras ? [{ key: 'detalle' as SortKey, label: 'Billetera' }] : []),
     { key: 'monto', label: 'Monto (ARS)' },
     { key: 'comision', label: `Comisión (${fmtPct(data?.comisionPct ?? 0)}%)` },
@@ -141,6 +144,7 @@ export default function BilleteraTab({ wallet, notify, refreshKey = 0 }: { walle
       switch (sortKey) {
         case 'fecha':   cmp = (new Date(a.fecha).getTime() || 0) - (new Date(b.fecha).getTime() || 0); break
         case 'titular': cmp = (a.titular || '').localeCompare(b.titular || '', 'es'); break
+        case 'tienda':  cmp = (a.tienda || '').localeCompare(b.tienda || '', 'es'); break
         case 'detalle': cmp = (a.detalle || '').localeCompare(b.detalle || '', 'es'); break
         case 'monto':   cmp = a.monto - b.monto; break
         case 'comision': cmp = a.comision - b.comision; break
@@ -270,9 +274,9 @@ export default function BilleteraTab({ wallet, notify, refreshKey = 0 }: { walle
             </thead>
             <tbody>
               {loading && !data ? (
-                <tr><td colSpan={esOtras ? 6 : 5} className="px-3 py-8 text-center text-sm" style={{ color: 'rgba(148,163,184,0.5)' }}>Cargando…</td></tr>
+                <tr><td colSpan={esOtras ? 7 : 6} className="px-3 py-8 text-center text-sm" style={{ color: 'rgba(148,163,184,0.5)' }}>Cargando…</td></tr>
               ) : !data || data.pagos.length === 0 ? (
-                <tr><td colSpan={esOtras ? 6 : 5} className="px-3 py-8 text-center text-sm" style={{ color: 'rgba(148,163,184,0.5)' }}>Sin pagos este día</td></tr>
+                <tr><td colSpan={esOtras ? 7 : 6} className="px-3 py-8 text-center text-sm" style={{ color: 'rgba(148,163,184,0.5)' }}>Sin pagos este día</td></tr>
               ) : (
                 pagosOrdenados.map((p, i) => (
                   <motion.tr key={i} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3, delay: Math.min(i * 0.025, 0.4) }}
@@ -281,6 +285,10 @@ export default function BilleteraTab({ wallet, notify, refreshKey = 0 }: { walle
                     <td className="px-3 py-2.5" style={{ color: 'rgba(226,232,240,0.85)' }}>
                       {p.titular || '—'}
                       {!esOtras && p.detalle && <span className="ml-1.5 text-[11px]" style={{ color: 'rgba(167,139,250,0.9)' }}>· {p.detalle}</span>}
+                    </td>
+                    {/* Un pago en cola todavía no tiene orden, así que no tiene tienda. */}
+                    <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: p.tienda ? 'rgba(226,232,240,0.85)' : 'rgba(148,163,184,0.4)' }}>
+                      {p.tienda || '—'}
                     </td>
                     {esOtras && (
                       <td className="px-3 py-2.5 whitespace-nowrap font-medium" style={{ color: 'rgba(167,139,250,0.95)' }}>{p.detalle || '—'}</td>
@@ -314,7 +322,7 @@ export default function BilleteraTab({ wallet, notify, refreshKey = 0 }: { walle
             <table className="w-full text-sm" style={{ borderCollapse: 'collapse', minWidth: '640px' }}>
               <thead>
                 <tr style={{ borderBottom: '1px solid rgba(248,113,113,0.15)' }}>
-                  {['Fecha y hora', 'Concepto', 'Monto original', 'Cotización', 'Monto (ARS)', 'Tipo', 'Comprobante'].map(h => (
+                  {['Fecha y hora', 'Concepto', 'Tienda', 'Monto original', 'Cotización', 'Monto (ARS)', 'Tipo', 'Comprobante'].map(h => (
                     <th key={h} className="text-left px-3 py-3 text-[11px] font-semibold uppercase tracking-wider whitespace-nowrap"
                       style={{ color: 'rgba(248,113,113,0.7)' }}>{h}</th>
                   ))}
@@ -330,6 +338,11 @@ export default function BilleteraTab({ wallet, notify, refreshKey = 0 }: { walle
                       style={{ borderBottom: '1px solid rgba(148,163,184,0.05)' }}>
                       <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: 'rgba(226,232,240,0.85)' }}>{fmtDate(m.fecha)}</td>
                       <td className="px-3 py-2.5" style={{ color: 'rgba(226,232,240,0.85)' }}>{m.concepto}</td>
+                      {/* Solo los reembolsos son de una tienda: un retiro o un ajuste
+                          salen de la billetera y no tienen tienda asociada. */}
+                      <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: m.tienda ? 'rgba(226,232,240,0.85)' : 'rgba(148,163,184,0.35)' }}>
+                        {m.tienda || '—'}
+                      </td>
                       <td className="px-3 py-2.5 whitespace-nowrap font-medium"
                         style={{ color: convertido ? '#00d4ff' : 'rgba(148,163,184,0.35)' }}>
                         {convertido ? `${(m.montoOrigen ?? 0).toLocaleString('es-AR')} ${m.moneda}` : '—'}

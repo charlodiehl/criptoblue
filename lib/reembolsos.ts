@@ -1,5 +1,6 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import type { Refund, RefundRequest, RefundRequestEstado } from './types'
+import { resolveWallet } from './utils'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Capa de datos de reembolsos.
@@ -225,7 +226,11 @@ export async function sumRefundsByWallet(
     if (error) throw new Error(`sumRefundsByWallet falló: ${error.message} [${error.code}]`)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     for (const r of (data ?? []) as any[]) {
-      const w = r.wallet as string
+      // Normalizar: los reembolsos pagados desde "Otras" se guardan como
+      // `otras:<nombre>`, y tienen que sumar al saldo de la billetera "Otras".
+      // resolveWallet deja intactas las billeteras normales ('MF' → 'MF') y
+      // mapea tanto `otras:X` como el 'Otras' pelado de los refunds históricos.
+      const w = resolveWallet(r.wallet as string)
       const c = cortes?.[w]
       if (c && (c.soloInicial || (new Date(r.created_at).getTime() || 0) < c.desde)) continue
       out[w] = (out[w] ?? 0) + (Number(r.monto) || 0)
@@ -278,11 +283,25 @@ export async function getOrdenesReembolsadas(): Promise<Set<string>> {
 
 // Reembolsos atribuidos a una billetera (para mostrar el detalle con su info).
 export async function getRefundsDeWallet(wallet: string): Promise<Refund[]> {
-  const { data, error } = await getClient()
-    .from(REFUNDS)
-    .select('*')
-    .eq('wallet', wallet)
-    .order('created_at', { ascending: false })
+  const base = () => getClient().from(REFUNDS).select('*').order('created_at', { ascending: false })
+
+  // "Otras" es un cajón: además del 'Otras' pelado (refunds viejos) hay que traer
+  // los `otras:<nombre>` que guarda el reembolso con billetera escrita a mano. Se
+  // hacen dos consultas en vez de un or() para no depender de cómo PostgREST
+  // escapa los dos puntos del prefijo.
+  if (wallet === 'Otras') {
+    const [pelados, conNombre] = await Promise.all([
+      base().eq('wallet', 'Otras'),
+      base().like('wallet', 'otras:%'),
+    ])
+    const err = pelados.error ?? conNombre.error
+    if (err) throw new Error(`getRefundsDeWallet falló: ${err.message} [${err.code}]`)
+    return [...(pelados.data ?? []), ...(conNombre.data ?? [])]
+      .map(rowToRefund)
+      .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
+  }
+
+  const { data, error } = await base().eq('wallet', wallet)
   if (error) throw new Error(`getRefundsDeWallet falló: ${error.message} [${error.code}]`)
   return (data ?? []).map(rowToRefund)
 }
