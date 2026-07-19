@@ -54,6 +54,8 @@ function rowToRequest(r: any): RefundRequest {
     orderId: r.order_id ?? null,
     orderTotal: r.order_total != null ? Number(r.order_total) : null,
     montoSolicitado: r.monto_solicitado != null ? Number(r.monto_solicitado) : null,
+    aliasCbu: r.alias_cbu ?? null,
+    titular: r.titular ?? null,
     estado: r.estado,
     createdBy: r.created_by,
     createdAt: r.created_at,
@@ -131,7 +133,7 @@ export async function setRefundMovement(refundId: number, movementId: number): P
 
 export async function crearRefundRequest(input: {
   storeId: string; orderNumber: string; orderId?: string | null; orderTotal?: number | null
-  montoSolicitado?: number | null; createdBy: string
+  montoSolicitado?: number | null; aliasCbu?: string | null; titular?: string | null; createdBy: string
 }): Promise<RefundRequest> {
   const { data, error } = await getClient()
     .from(REQUESTS)
@@ -141,6 +143,8 @@ export async function crearRefundRequest(input: {
       order_id: input.orderId ?? null,
       order_total: input.orderTotal ?? null,
       monto_solicitado: input.montoSolicitado ?? null,
+      alias_cbu: input.aliasCbu ?? null,
+      titular: input.titular ?? null,
       estado: 'pendiente',
       created_by: input.createdBy,
     })

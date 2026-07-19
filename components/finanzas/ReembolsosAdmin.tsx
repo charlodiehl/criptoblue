@@ -55,6 +55,7 @@ interface CtxValue {
   comprobantePath: string | null; setComprobantePath: (v: string | null) => void
   pagador: string; setPagador: (v: string) => void   // billetera que paga, o 'externo'
   pagadorOtra: string; setPagadorOtra: (v: string) => void   // nombre libre cuando paga "Otras"
+  solicitudActiva: SolicitudConTienda | null   // datos bancarios de la solicitud que se procesa
   compKey: number
   ejecutando: boolean
   requestId: number | null
@@ -94,6 +95,9 @@ export function ReembolsosProvider({ notify, onReembolsado, children }: Provider
   const [compKey, setCompKey] = useState(0)
   const [ejecutando, setEjecutando] = useState(false)
   const [requestId, setRequestId] = useState<number | null>(null)
+  // Solicitud que se está procesando: guarda los datos bancarios que mandó la tienda,
+  // que hay que tener a la vista mientras se hace la transferencia.
+  const [solicitudActiva, setSolicitudActiva] = useState<SolicitudConTienda | null>(null)
   const [abortandoId, setAbortandoId] = useState<number | null>(null)
   const toolRef = useRef<HTMLDivElement | null>(null)
 
@@ -121,7 +125,7 @@ export function ReembolsosProvider({ notify, onReembolsado, children }: Provider
   }, [fetchTiendas, fetchSolicitudes])
 
   function resetForm() {
-    setResultado(null); setMonto(''); setCotizacion(''); setComprobantePath(null); setRequestId(null); setPagador(''); setPagadorOtra('')
+    setResultado(null); setMonto(''); setCotizacion(''); setComprobantePath(null); setRequestId(null); setPagador(''); setPagadorOtra(''); setSolicitudActiva(null)
   }
 
   const buscar = useCallback(async (sid: string, ord: string) => {
@@ -184,6 +188,7 @@ export function ReembolsosProvider({ notify, onReembolsado, children }: Provider
     setStoreId(s.storeId)
     setOrden(String(s.orderNumber))
     setRequestId(s.id)
+    setSolicitudActiva(s)
     setMonto(s.montoSolicitado != null ? String(s.montoSolicitado) : '')
     setCotizacion('')
     setComprobantePath(null)
@@ -216,7 +221,7 @@ export function ReembolsosProvider({ notify, onReembolsado, children }: Provider
     notify, tiendas, solicitudes, procesarSolicitud, abortarSolicitud, abortandoId,
     open, setOpen, storeId, setStoreId, orden, setOrden, buscando, resultado,
     monto, setMonto, cotizacion, setCotizacion, comprobantePath, setComprobantePath, pagador, setPagador,
-    pagadorOtra, setPagadorOtra, compKey,
+    pagadorOtra, setPagadorOtra, solicitudActiva, compKey,
     ejecutando, requestId, toolRef, buscar, ejecutar, resetForm,
   }
 
@@ -251,6 +256,13 @@ export function ReembolsosSolicitados() {
                     · {s.montoSolicitado != null ? ARS.format(s.montoSolicitado) : 'monto a definir'}
                   </span>
                   <span className="text-[11px]" style={{ color: 'rgba(148,163,184,0.5)' }}>· {fmtDate(s.createdAt)}</span>
+                  {/* A dónde hay que transferir, para verlo sin abrir la solicitud. */}
+                  {s.aliasCbu && (
+                    <span className="text-[11px] w-full" style={{ color: 'rgba(148,163,184,0.75)' }}>
+                      ↳ <span className="font-semibold select-all" style={{ color: '#00ff88' }}>{s.aliasCbu}</span>
+                      {s.titular && <span className="select-all"> · {s.titular}</span>}
+                    </span>
+                  )}
                 </div>
                 <div className="flex items-center gap-2">
                   <button onClick={() => procesarSolicitud(s)}
@@ -279,7 +291,7 @@ export function GestionReembolsos() {
   const {
     notify, tiendas, storeId, setStoreId, orden, setOrden, buscando, resultado,
     monto, setMonto, cotizacion, setCotizacion, comprobantePath, setComprobantePath, pagador, setPagador,
-    pagadorOtra, setPagadorOtra, compKey, ejecutando, requestId,
+    pagadorOtra, setPagadorOtra, solicitudActiva, compKey, ejecutando, requestId,
     toolRef, buscar, ejecutar, resetForm,
   } = useReembolsos()
 
@@ -343,6 +355,31 @@ export function GestionReembolsos() {
                   <span> · elegí abajo quién paga el reembolso</span>
                 </div>
               </div>
+
+              {/* Datos bancarios que mandó la tienda. Es lo que hay que copiar para hacer
+                  la transferencia, así que va arriba de todo y bien visible. Solo aparece
+                  cuando el reembolso viene de una solicitud (no en una carga a mano). */}
+              {solicitudActiva && (
+                <div className="rounded-xl p-4" style={{ background: 'rgba(0,255,136,0.05)', border: '1px solid rgba(0,255,136,0.25)' }}>
+                  <div className="text-[11px] font-semibold uppercase tracking-wider mb-2" style={{ color: 'rgba(0,255,136,0.8)' }}>
+                    Datos para transferir · los cargó {solicitudActiva.storeName}
+                  </div>
+                  <div className="flex flex-wrap gap-x-8 gap-y-2">
+                    <div>
+                      <div className="text-[10px] uppercase tracking-wider" style={{ color: 'rgba(148,163,184,0.55)' }}>Alias / CBU</div>
+                      <div className="text-sm font-bold select-all" style={{ color: solicitudActiva.aliasCbu ? '#00ff88' : 'rgba(148,163,184,0.5)' }}>
+                        {solicitudActiva.aliasCbu || 'no informado'}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] uppercase tracking-wider" style={{ color: 'rgba(148,163,184,0.55)' }}>Titular</div>
+                      <div className="text-sm font-semibold select-all" style={{ color: solicitudActiva.titular ? 'rgba(226,232,240,0.92)' : 'rgba(148,163,184,0.5)' }}>
+                        {solicitudActiva.titular || 'no informado'}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Advertencia de reembolso previo */}
               {resultado.reembolsos.count > 0 && (

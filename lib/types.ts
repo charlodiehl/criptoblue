@@ -278,6 +278,10 @@ export interface RefundRequest {
   orderId?: string | null
   orderTotal?: number | null
   montoSolicitado?: number | null
+  // A dónde quiere la tienda que le devuelvan la plata. El alias/CBU es obligatorio
+  // en la app; el titular es opcional. Null en las solicitudes previas a esta feature.
+  aliasCbu?: string | null
+  titular?: string | null
   estado: RefundRequestEstado
   createdBy: string
   createdAt: string

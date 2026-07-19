@@ -37,6 +37,8 @@ export default function SolicitarReembolsoTab({ qs, notify }: Props) {
   const [buscando, setBuscando] = useState(false)
   const [resultado, setResultado] = useState<OrdenResult | null>(null)
   const [monto, setMonto] = useState('')
+  const [aliasCbu, setAliasCbu] = useState('')   // obligatorio: dónde recibir la plata
+  const [titular, setTitular] = useState('')     // opcional: si la cuenta es de un tercero
   const [enviando, setEnviando] = useState(false)
   const [solicitudes, setSolicitudes] = useState<RefundRequest[]>([])
   const [loadingList, setLoadingList] = useState(true)
@@ -58,7 +60,7 @@ export default function SolicitarReembolsoTab({ qs, notify }: Props) {
 
   async function buscar() {
     if (buscando || !orden.trim()) { notify('Ingresá el número de orden', 'error'); return }
-    setBuscando(true); setResultado(null); setMonto('')
+    setBuscando(true); setResultado(null); setMonto(''); setAliasCbu(''); setTitular('')
     try {
       const res = await fetch(`/api/tienda/reembolso/buscar${qs}`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -79,16 +81,21 @@ export default function SolicitarReembolsoTab({ qs, notify }: Props) {
     const m = Number(monto.replace(',', '.'))
     if (!Number.isFinite(m) || m <= 0) { notify('Ingresá el monto a reembolsar', 'error'); return }
     if (m > resultado.reembolsos.restante + 0.01) { notify(`El monto supera lo disponible (${resultado.reembolsos.restante.toLocaleString('es-AR')})`, 'error'); return }
+    // Sin alias/CBU el admin no tiene a dónde transferir: se corta acá.
+    if (!aliasCbu.trim()) { notify('Ingresá el alias o CBU donde querés recibir el reembolso', 'error'); return }
     setEnviando(true)
     try {
       const res = await fetch(`/api/tienda/reembolso${qs}`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orderNumber: resultado.order.orderNumber, monto: m }),
+        body: JSON.stringify({
+          orderNumber: resultado.order.orderNumber, monto: m,
+          aliasCbu: aliasCbu.trim(), titular: titular.trim(),
+        }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Error')
       notify(`Solicitud de reembolso enviada para la orden #${data.orderNumber} ✓`, 'success')
-      setResultado(null); setOrden(''); setMonto('')
+      setResultado(null); setOrden(''); setMonto(''); setAliasCbu(''); setTitular('')
       fetchList()
     } catch (e) {
       notify(e instanceof Error ? e.message : 'No se pudo enviar la solicitud', 'error')
@@ -144,13 +151,30 @@ export default function SolicitarReembolsoTab({ qs, notify }: Props) {
                 Esta orden ya fue reembolsada en su totalidad.
               </div>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-3 sm:items-end">
+              <div className="space-y-3">
                 <div>
                   <label style={labelStyle}>Monto a reembolsar (ARS)</label>
                   <MontoInput style={inputStyle} value={monto} onChange={setMonto} placeholder="0,00" />
                   <div className="text-[11px] mt-1" style={{ color: 'rgba(148,163,184,0.6)' }}>Disponible: {ARS.format(restante)} · el Super Admin decide el monto final</div>
                 </div>
-                <button onClick={enviar} disabled={enviando}
+
+                {/* Dónde recibir la plata. Sin el alias/CBU el admin no puede transferir,
+                    así que es obligatorio; el titular solo hace falta si la cuenta es de
+                    otra persona. */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label style={labelStyle}>Alias o CBU <span style={{ color: '#f87171' }}>*</span></label>
+                    <input style={inputStyle} value={aliasCbu} onChange={e => setAliasCbu(e.target.value)}
+                      maxLength={100} placeholder="mi.alias.mp o 0000003100000000000000" disabled={enviando} />
+                  </div>
+                  <div>
+                    <label style={labelStyle}>Nombre del titular <span style={{ color: 'rgba(148,163,184,0.5)', fontWeight: 400 }}>(opcional)</span></label>
+                    <input style={inputStyle} value={titular} onChange={e => setTitular(e.target.value)}
+                      maxLength={100} placeholder="Si la cuenta es de otra persona" disabled={enviando} />
+                  </div>
+                </div>
+
+                <button onClick={enviar} disabled={enviando || !aliasCbu.trim()}
                   className="rounded-xl text-xs font-bold text-white transition-all disabled:opacity-50 w-full sm:w-auto"
                   style={{ padding: '11px 22px', background: 'linear-gradient(135deg, #00d4ff, #0070f3)', cursor: enviando ? 'wait' : 'pointer' }}>
                   {enviando ? 'Enviando…' : 'Solicitar reembolso'}

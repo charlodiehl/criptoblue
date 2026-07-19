@@ -6,10 +6,14 @@ import { resumenReembolsos, crearRefundRequest, listarRefundRequestsTienda } fro
 import { notifyAdmins } from '@/lib/push'
 import { puede } from '@/lib/permisos'
 
-// POST /api/tienda/reembolso  { orderNumber, monto, storeId? }
+// POST /api/tienda/reembolso  { orderNumber, monto, aliasCbu, titular?, storeId? }
 // La tienda solicita un reembolso: valida que la orden exista y que NO esté
 // totalmente reembolsada; propone un monto (el admin decide el final). Crea una
 // solicitud que llega al panel de Administración general.
+//
+// aliasCbu es OBLIGATORIO: es la cuenta a la que hay que devolver la plata, y sin
+// ese dato el admin no puede pagar. `titular` es opcional (a veces la cuenta está
+// a nombre de un tercero y conviene aclararlo).
 export async function POST(req: NextRequest) {
   try {
     const auth = await requireUser()
@@ -18,8 +22,13 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => null)
     const orderNumber = String(body?.orderNumber || '').trim()
     const monto = Number(body?.monto)
+    const aliasCbu = String(body?.aliasCbu || '').trim()
+    const titular = String(body?.titular || '').trim()
     if (!orderNumber) return NextResponse.json({ error: 'Ingresá el número de orden' }, { status: 400 })
     if (!Number.isFinite(monto) || monto <= 0) return NextResponse.json({ error: 'Ingresá el monto a reembolsar' }, { status: 400 })
+    if (!aliasCbu) return NextResponse.json({ error: 'Ingresá el alias o CBU donde recibir el reembolso' }, { status: 400 })
+    if (aliasCbu.length > 100) return NextResponse.json({ error: 'El alias o CBU es demasiado largo' }, { status: 400 })
+    if (titular.length > 100) return NextResponse.json({ error: 'El nombre del titular es demasiado largo' }, { status: 400 })
 
     const storeId = resolveStoreScope(auth.user, req.nextUrl.searchParams.get('storeId') || body?.storeId)
     if (!storeId) return NextResponse.json({ error: 'No hay tienda asignada' }, { status: 400 })
@@ -62,7 +71,7 @@ export async function POST(req: NextRequest) {
 
     const solicitud = await crearRefundRequest({
       storeId, orderNumber: order.orderNumber, orderId: order.orderId, orderTotal: total,
-      montoSolicitado: monto, createdBy: auth.user.email,
+      montoSolicitado: monto, aliasCbu, titular: titular || null, createdBy: auth.user.email,
     })
 
     try {
