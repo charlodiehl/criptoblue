@@ -17,6 +17,7 @@ export default function EquipoTab({ qs, notify }: { qs: string; notify: (m: stri
   const [cargando, setCargando] = useState(true)
   const [expandido, setExpandido] = useState<string | null>(null)
   const [guardando, setGuardando] = useState<string | null>(null)
+  const [eliminando, setEliminando] = useState<string | null>(null)
   // Alta de miembro
   const [nuevoEmail, setNuevoEmail] = useState('')
   const [nuevoPerm, setNuevoPerm] = useState<Permisos>({})
@@ -67,6 +68,35 @@ export default function EquipoTab({ qs, notify }: { qs: string; notify: (m: stri
       notify(e instanceof Error ? e.message : 'No se pudo guardar', 'error')
       cargar()   // revertir al estado real
     } finally { setGuardando(null) }
+  }
+
+  // ¿Se puede dar de baja a ESTE integrante? Espeja las reglas del backend:
+  // gestor (Administración o Super Admin), nunca a uno mismo, y a otro Administrador
+  // solo el Super Admin.
+  function puedeEliminar(m: Miembro): boolean {
+    if (!data?.puedeGestionar) return false
+    if (m.email === data.yoEmail) return false
+    if (m.permisos.administracion === true && !data.soySuperAdmin) return false
+    return true
+  }
+
+  async function eliminar(m: Miembro) {
+    if (eliminando) return
+    if (!window.confirm(`¿Dar de baja a ${m.email}? Va a perder el acceso a la tienda.`)) return
+    setEliminando(m.email)
+    try {
+      const res = await fetch(`/api/tienda/equipo/eliminar${qs}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: m.email }),
+      })
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.error || 'Error')
+      notify('Integrante dado de baja ✓', 'success')
+      setExpandido(null)
+      cargar()
+    } catch (e) {
+      notify(e instanceof Error ? e.message : 'No se pudo dar de baja', 'error')
+    } finally { setEliminando(null) }
   }
 
   async function agregarMiembro() {
@@ -135,6 +165,15 @@ export default function EquipoTab({ qs, notify }: { qs: string; notify: (m: stri
                         </div>
                       )
                     })}
+                    {puedeEliminar(m) && (
+                      <div className="pt-2 mt-1" style={{ borderTop: '1px solid rgba(148,163,184,0.06)' }}>
+                        <button onClick={() => eliminar(m)} disabled={eliminando === m.email}
+                          className="w-full py-2 rounded-lg text-xs font-bold transition-all disabled:opacity-50"
+                          style={{ background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.3)', color: '#f87171', cursor: eliminando === m.email ? 'not-allowed' : 'pointer' }}>
+                          {eliminando === m.email ? 'Dando de baja…' : '🗑 Dar de baja del equipo'}
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

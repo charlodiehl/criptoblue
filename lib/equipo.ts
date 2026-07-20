@@ -58,3 +58,15 @@ export async function agregarMiembro(email: string, storeId: string, displayName
   })
   if (error) throw new Error(`agregarMiembro falló: ${error.message} [${error.code}]`)
 }
+
+// Da de baja a un integrante: lo elimina de app_users. El WHERE lleva email +
+// store_id + role='tienda' (candado: nunca toca a alguien de otra tienda ni a un
+// admin del sistema). Devuelve true si borró la fila.
+export async function eliminarMiembro(email: string, storeId: string): Promise<boolean> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (getClient().from('app_users') as any)
+    .delete().eq('email', email.toLowerCase()).eq('store_id', storeId).eq('role', 'tienda')
+    .select('email')
+  if (error) throw new Error(`eliminarMiembro falló: ${error.message} [${error.code}]`)
+  return (data?.length ?? 0) > 0
+}
