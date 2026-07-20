@@ -18,7 +18,7 @@ interface Pago {
   detalle?: string   // billetera "Otras": nombre libre del pago
   tienda?: string    // vacío mientras el pago está en cola (todavía no tiene orden)
 }
-const ESTADO_LABEL: Record<Pago['estado'], string> = { emparejado: 'Emparejado', en_cola: 'En cola', reembolsado: 'Reembolsado' }
+const ESTADO_LABEL: Record<Pago['estado'], string> = { emparejado: 'Emparejado', en_cola: 'Pendiente', reembolsado: 'Reembolsado' }
 const ESTADO_STYLE: Record<Pago['estado'], React.CSSProperties> = {
   emparejado: { background: 'rgba(0,255,136,0.1)', color: '#00ff88' },
   en_cola: { background: 'rgba(245,158,11,0.1)', color: '#fbbf24' },
