@@ -53,8 +53,10 @@ export function serviceClient(): SupabaseClient {
 export interface SessionUser {
   userId: string
   email: string
-  role: 'admin' | 'tienda'
+  role: 'admin' | 'tienda' | 'billetera'
   storeId: string | null
+  wallet: string | null                                  // solo rol 'billetera': su billetera
+  billeteraPermiso: 'editor' | 'lectura' | null          // solo rol 'billetera'
   displayName: string | null
   aal2: boolean
   // Permisos del integrante DENTRO de su tienda. Los 'admin' del sistema pueden todo
@@ -71,9 +73,9 @@ export async function getSessionUser(): Promise<SessionUser | null> {
   const email = user.email.toLowerCase()
   const { data: row } = await serviceClient()
     .from('app_users')
-    .select('email, role, store_id, display_name, permisos')
+    .select('email, role, store_id, wallet, billetera_permiso, display_name, permisos')
     .eq('email', email)
-    .maybeSingle<{ email: string; role: AppUser['role']; store_id: string | null; display_name: string | null; permisos: unknown }>()
+    .maybeSingle<{ email: string; role: AppUser['role']; store_id: string | null; wallet: string | null; billetera_permiso: 'editor' | 'lectura' | null; display_name: string | null; permisos: unknown }>()
   if (!row) return null
 
   const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
@@ -83,6 +85,8 @@ export async function getSessionUser(): Promise<SessionUser | null> {
     email,
     role: row.role,
     storeId: row.store_id ?? null,
+    wallet: row.wallet ?? null,
+    billeteraPermiso: row.billetera_permiso ?? null,
     displayName: row.display_name ?? null,
     aal2: aal?.currentLevel === 'aal2',
     permisos: sanearPermisos(row.permisos),
@@ -92,12 +96,15 @@ export async function getSessionUser(): Promise<SessionUser | null> {
 // Guard para rutas API. Exige sesión + fila en app_users + 2FA completo (AAL2).
 // Con role='admin' exige además rol de administrador.
 // Uso:  const auth = await requireUser();  if ('error' in auth) return auth.error
-export async function requireUser(role?: 'admin'): Promise<{ user: SessionUser } | { user?: never; error: NextResponse }> {
+export async function requireUser(role?: 'admin' | 'billetera'): Promise<{ user: SessionUser } | { user?: never; error: NextResponse }> {
   const user = await getSessionUser()
   if (!user) return { error: NextResponse.json({ error: 'No autorizado' }, { status: 401 }) }
   if (!user.aal2) return { error: NextResponse.json({ error: 'Se requiere completar el 2FA' }, { status: 401 }) }
   if (role === 'admin' && user.role !== 'admin') {
     return { error: NextResponse.json({ error: 'Solo Super Admin' }, { status: 403 }) }
+  }
+  if (role === 'billetera' && user.role !== 'billetera') {
+    return { error: NextResponse.json({ error: 'Solo dueños de billetera' }, { status: 403 }) }
   }
   return { user }
 }

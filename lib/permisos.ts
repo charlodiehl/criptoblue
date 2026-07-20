@@ -58,7 +58,7 @@ export function sanearPermisos(entrada: unknown): Permisos {
 // ── Decisiones de autorización (puras; las usan el front para el gating visual y el
 //    backend para el gating REAL). El super-admin del sistema (role 'admin') puede todo.
 export interface UsuarioConPermisos {
-  role: 'admin' | 'tienda'
+  role: 'admin' | 'tienda' | 'billetera'   // 'billetera' no tiene permisos de tienda → puede() = false
   permisos?: Permisos | null
 }
 

@@ -47,7 +47,7 @@ async function sincronizarClaim(email, role, storeId) {
   console.log('  claim del JWT sincronizado (aplica en su próximo refresh de sesión)')
 }
 
-const [, , a, b, c, d] = process.argv
+const [, , a, b, c, d, e] = process.argv
 
 if (a === '--listar') {
   const { data, error } = await supabase.from('app_users').select('*').order('role')
@@ -71,17 +71,27 @@ if (a === '--borrar') {
   process.exit(0)
 }
 
+const WALLETS = ['MF', 'Lacar', 'MS', 'Montemar', 'Otras']
+
 const email = (a || '').toLowerCase().trim()
 const role = (b || '').toLowerCase().trim()
-const storeId = role === 'tienda' ? (c || '').trim() : null
-const displayName = role === 'tienda' ? (d || null) : (c || null)
 
-if (!email || !['admin', 'tienda'].includes(role) || (role === 'tienda' && !storeId)) {
-  console.error('Uso: node scripts/agregar-usuario.mjs <email> admin | <email> tienda <storeId> ["Nombre"]')
+const USO = 'Uso:\n' +
+  '  node scripts/agregar-usuario.mjs <email> admin\n' +
+  '  node scripts/agregar-usuario.mjs <email> tienda <storeId> ["Nombre"]\n' +
+  '  node scripts/agregar-usuario.mjs <email> billetera <wallet> <editor|lectura> ["Nombre"]'
+
+if (!email || !['admin', 'tienda', 'billetera'].includes(role)) {
+  console.error(USO)
   process.exit(1)
 }
 
+let fila
+let storeIdClaim = null
+
 if (role === 'tienda') {
+  const storeId = (c || '').trim()
+  if (!storeId) { console.error(USO); process.exit(1) }
   // Validar que la tienda exista en el directorio.
   const { data: stores } = await supabase.from('kv_store').select('value').eq('key', 'criptoblue:stores').maybeSingle()
   const tienda = stores?.value?.[storeId]
@@ -91,11 +101,25 @@ if (role === 'tienda') {
     process.exit(1)
   }
   console.log(`Tienda: ${tienda.storeName} (${storeId})`)
+  // No se tocan los permisos del integrante (los administra su tienda).
+  fila = { email, role, store_id: storeId, wallet: null, billetera_permiso: null, display_name: d || null }
+  storeIdClaim = storeId
+} else if (role === 'billetera') {
+  const wallet = (c || '').trim()
+  const permiso = (d || '').toLowerCase().trim()
+  if (!WALLETS.includes(wallet)) { console.error(`Billetera inválida. Opciones: ${WALLETS.join(', ')}`); process.exit(1) }
+  if (!['editor', 'lectura'].includes(permiso)) { console.error('Permiso inválido (editor | lectura)'); process.exit(1) }
+  console.log(`Billetera: ${wallet} · permiso ${permiso}`)
+  // Limpia restos de un rol anterior: sin tienda ni permisos de tienda.
+  fila = { email, role, store_id: null, wallet, billetera_permiso: permiso, permisos: {}, display_name: e || null }
+} else {
+  // admin
+  fila = { email, role, store_id: null, wallet: null, billetera_permiso: null, display_name: c || null }
 }
 
-const { error } = await supabase.from('app_users').upsert({
-  email, role, store_id: storeId, display_name: displayName,
-})
+const { error } = await supabase.from('app_users').upsert(fila)
 if (error) throw new Error(error.message)
-console.log(`OK: ${email} → rol ${role}${storeId ? ` · tienda ${storeId}` : ''}`)
-await sincronizarClaim(email, role, storeId)
+console.log(`OK: ${email} → rol ${role}` +
+  (fila.store_id ? ` · tienda ${fila.store_id}` : '') +
+  (fila.wallet ? ` · billetera ${fila.wallet} (${fila.billetera_permiso})` : ''))
+await sincronizarClaim(email, role, storeIdClaim)

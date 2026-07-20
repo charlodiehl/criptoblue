@@ -88,7 +88,7 @@ export async function proxy(req: NextRequest) {
 
   // Rol desde el claim del JWT (sincronizado con app_users por /auth/callback).
   const role = (user.app_metadata as Record<string, unknown> | undefined)?.cb_role
-  if (role !== 'admin' && role !== 'tienda') {
+  if (role !== 'admin' && role !== 'tienda' && role !== 'billetera') {
     return isApi ? deny(403, 'Sin permiso') : redirect('/login?blocked=1')
   }
 
@@ -109,6 +109,16 @@ export async function proxy(req: NextRequest) {
       || pathname === '/notificaciones'
       || pathname.startsWith('/api/push/')
     if (!permitido) return isApi ? deny(403, 'Solo Super Admin') : redirect('/tienda')
+  }
+
+  // Dueño de billetera: solo su portal y sus APIs (scoping real de la billetera se
+  // hace server-side leyendo app_users.wallet — nunca se confía en el cliente).
+  if (role === 'billetera') {
+    const permitido = pathname === '/billetera'
+      || pathname.startsWith('/billetera/')
+      || pathname === '/api/billetera'
+      || pathname.startsWith('/api/billetera/')
+    if (!permitido) return isApi ? deny(403, 'Sin permiso') : redirect('/billetera')
   }
 
   return res

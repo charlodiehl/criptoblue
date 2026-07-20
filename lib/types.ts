@@ -172,10 +172,13 @@ export interface ErrorEntry {
 // ─── Portal de tiendas / Administración financiera ─────────────────────────
 
 // Usuario de la app (tabla app_users, carga manual con scripts/agregar-usuario.mjs)
+export type BilleteraPermiso = 'editor' | 'lectura'
 export interface AppUser {
   email: string                  // lowercase — es la PK
-  role: 'admin' | 'tienda'
+  role: 'admin' | 'tienda' | 'billetera'
   storeId?: string | null        // obligatorio para role='tienda'
+  wallet?: string | null         // obligatorio para role='billetera' (a qué billetera pertenece)
+  billeteraPermiso?: BilleteraPermiso | null  // obligatorio para role='billetera': editor | lectura
   displayName?: string | null
   permisos?: Record<string, boolean>   // permisos del integrante dentro de su tienda (lib/permisos)
 }

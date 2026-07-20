@@ -70,8 +70,8 @@ export const GRUPOS_TIENDA: GrupoNotificacion[] = [
 
 // Los grupos que le corresponden a un rol. Es lo que se muestra en la página y lo
 // único que el backend acepta guardar para ese usuario.
-export function gruposPara(role: 'admin' | 'tienda'): GrupoNotificacion[] {
-  return role === 'admin' ? GRUPOS_ADMIN : GRUPOS_TIENDA
+export function gruposPara(role: 'admin' | 'tienda' | 'billetera'): GrupoNotificacion[] {
+  return role === 'admin' ? GRUPOS_ADMIN : role === 'tienda' ? GRUPOS_TIENDA : []
 }
 
 // Preferencias de un usuario: { [key]: boolean }. Falta de clave = true (activado).

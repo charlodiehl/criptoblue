@@ -68,7 +68,19 @@ function hoyART(): string {
 
 // Vista de una billetera: saldo histórico (sin corte, a diferencia de las tiendas)
 // + extracto dividido por día, y la pestaña "Retirar saldo".
-export default function BilleteraTab({ wallet, notify, refreshKey = 0 }: { wallet: string; notify: (msg: string, type?: Toast['type']) => void; refreshKey?: number }) {
+export default function BilleteraTab({
+  wallet, notify, refreshKey = 0,
+  apiBase = '/api/finanzas/billetera',   // dueño de billetera usa '/api/billetera'
+  puedeRetirar = true,                    // muestra la pestaña "Retirar saldo"
+  puedeEditar = true,                     // muestra "Editar" y descarga de comprobante (solo admin)
+}: {
+  wallet: string
+  notify: (msg: string, type?: Toast['type']) => void
+  refreshKey?: number
+  apiBase?: string
+  puedeRetirar?: boolean
+  puedeEditar?: boolean
+}) {
   const [data, setData] = useState<Detalle | null>(null)
   const [fecha, setFecha] = useState(hoyART())
   const [loading, setLoading] = useState(true)
@@ -82,7 +94,7 @@ export default function BilleteraTab({ wallet, notify, refreshKey = 0 }: { walle
   const fetchData = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await fetch(`/api/finanzas/billetera?wallet=${encodeURIComponent(wallet)}&fecha=${fecha}`)
+      const res = await fetch(`${apiBase}?wallet=${encodeURIComponent(wallet)}&fecha=${fecha}`)
       if (!res.ok) throw new Error((await res.json()).error || 'Error')
       setData(await res.json())
     } catch (e) {
@@ -90,7 +102,7 @@ export default function BilleteraTab({ wallet, notify, refreshKey = 0 }: { walle
     } finally {
       setLoading(false)
     }
-  }, [wallet, fecha, notify])
+  }, [wallet, fecha, notify, apiBase])
 
   // Carga inicial + al cambiar de día + refresco cada 60s (respaldo)
   useEffect(() => {
@@ -110,10 +122,9 @@ export default function BilleteraTab({ wallet, notify, refreshKey = 0 }: { walle
     if (dias?.length && !dias.includes(fecha)) setFecha(dias[dias.length - 1])
   }, [dias, fecha])
 
-  const tabs: { key: 'balance' | 'pagos'; label: string }[] = [
-    { key: 'balance', label: 'Balance de Saldo' },
-    { key: 'pagos', label: 'Retirar saldo' },
-  ]
+  const tabs: { key: 'balance' | 'pagos'; label: string }[] = puedeRetirar
+    ? [{ key: 'balance', label: 'Balance de Saldo' }, { key: 'pagos', label: 'Retirar saldo' }]
+    : [{ key: 'balance', label: 'Balance de Saldo' }]
 
   // Cabeceras del extracto: clickear una columna la ordena; volver a clickearla
   // invierte el sentido. Las de texto arrancan ascendente; las numéricas, descendente.
@@ -164,27 +175,29 @@ export default function BilleteraTab({ wallet, notify, refreshKey = 0 }: { walle
         </p>
       </div>
 
-      <div className="flex flex-wrap gap-1.5">
-        {tabs.map(t => {
-          const activo = vista === t.key
-          return (
-            <button
-              key={t.key}
-              onClick={() => setVista(t.key)}
-              className="rounded-xl px-4 py-2 text-xs font-semibold transition-all"
-              style={{
-                background: activo ? 'rgba(0,212,255,0.12)' : 'rgba(255,255,255,0.03)',
-                border: `1px solid ${activo ? 'rgba(0,212,255,0.4)' : 'rgba(148,163,184,0.12)'}`,
-                color: activo ? '#00d4ff' : 'rgba(148,163,184,0.75)',
-              }}
-            >
-              {t.label}
-            </button>
-          )
-        })}
-      </div>
+      {tabs.length > 1 && (
+        <div className="flex flex-wrap gap-1.5">
+          {tabs.map(t => {
+            const activo = vista === t.key
+            return (
+              <button
+                key={t.key}
+                onClick={() => setVista(t.key)}
+                className="rounded-xl px-4 py-2 text-xs font-semibold transition-all"
+                style={{
+                  background: activo ? 'rgba(0,212,255,0.12)' : 'rgba(255,255,255,0.03)',
+                  border: `1px solid ${activo ? 'rgba(0,212,255,0.4)' : 'rgba(148,163,184,0.12)'}`,
+                  color: activo ? '#00d4ff' : 'rgba(148,163,184,0.75)',
+                }}
+              >
+                {t.label}
+              </button>
+            )
+          })}
+        </div>
+      )}
 
-      {vista === 'pagos' && <BilleteraRetiros wallet={wallet} notify={notify} onRetiro={fetchData} />}
+      {puedeRetirar && vista === 'pagos' && <BilleteraRetiros wallet={wallet} notify={notify} onRetiro={fetchData} apiBase={apiBase} />}
 
       {vista === 'balance' && <>
 
@@ -362,7 +375,7 @@ export default function BilleteraTab({ wallet, notify, refreshKey = 0 }: { walle
                         </span>
                       </td>
                       <td className="px-3 py-2.5 whitespace-nowrap">
-                        {m.refundId != null ? (
+                        {puedeEditar && m.refundId != null ? (
                           <a href={`/api/tienda/comprobante-reembolso?id=${m.refundId}`}
                             target="_blank" rel="noopener noreferrer" title="Descargar comprobante"
                             className="inline-flex items-center gap-1 text-[11px] font-semibold rounded-lg px-2 py-1 transition-all"
@@ -378,7 +391,7 @@ export default function BilleteraTab({ wallet, notify, refreshKey = 0 }: { walle
                         )}
                       </td>
                       <td className="px-3 py-2.5 whitespace-nowrap text-right">
-                        {(m.reembolsoId != null || m.salidaId != null) && (
+                        {puedeEditar && (m.reembolsoId != null || m.salidaId != null) && (
                           <button onClick={() => setEditandoMov(
                             m.reembolsoId != null
                               ? { fuente: 'refund', id: m.reembolsoId, fechaISO: m.fecha, concepto: m.concepto, montoArs: m.ars, tasa: m.tasaEdit ?? null, puedeMontoTasa: true, tasaLabel: 'ARS/USDT' }

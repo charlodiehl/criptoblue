@@ -8,9 +8,9 @@ import { gruposPara, type EventoKey, type NotificationPrefs } from '@/lib/notifi
 // Página de preferencias de notificaciones (admin y tienda). Un toggle global que
 // activa/desactiva las push del dispositivo, y —una vez activo— un toggle por cada
 // grupo de eventos del rol. Todo es sobre la PWA instalada (acceso directo del navegador).
-export default function NotificacionesPanel({ userEmail, role }: { userEmail: string; role: 'admin' | 'tienda' }) {
+export default function NotificacionesPanel({ userEmail, role }: { userEmail: string; role: 'admin' | 'tienda' | 'billetera' }) {
   const grupos = gruposPara(role)
-  const volverA = role === 'admin' ? '/finanzas' : '/tienda'
+  const volverA = role === 'admin' ? '/finanzas' : role === 'billetera' ? '/billetera' : '/tienda'
   const { isSupported, isSubscribed, isLoading, error, subscribe, unsubscribe } = usePushNotifications()
   const isPWA = useIsPWA()
   const platform = usePlatform()

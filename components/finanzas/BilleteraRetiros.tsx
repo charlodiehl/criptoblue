@@ -63,8 +63,8 @@ function ahoraART(): string {
 }
 
 export default function BilleteraRetiros({
-  wallet, notify, onRetiro,
-}: { wallet: string; notify: (msg: string, type?: Toast['type']) => void; onRetiro: () => void }) {
+  wallet, notify, onRetiro, apiBase = '/api/finanzas/billetera',
+}: { wallet: string; notify: (msg: string, type?: Toast['type']) => void; onRetiro: () => void; apiBase?: string }) {
   const [tipo, setTipo] = useState<TransferTipo | ''>('')
   const [form, setForm] = useState<Record<string, string>>({})
   const [fecha, setFecha] = useState(ahoraART())
@@ -79,7 +79,7 @@ export default function BilleteraRetiros({
   const fetchList = useCallback(async () => {
     setLoadingList(true)
     try {
-      const res = await fetch(`/api/finanzas/billetera/retiros?wallet=${encodeURIComponent(wallet)}`)
+      const res = await fetch(`${apiBase}/retiros?wallet=${encodeURIComponent(wallet)}`)
       if (!res.ok) throw new Error((await res.json()).error || 'Error')
       const data = await res.json()
       setRetiros(data.retiros || [])
@@ -88,7 +88,7 @@ export default function BilleteraRetiros({
     } finally {
       setLoadingList(false)
     }
-  }, [wallet, notify])
+  }, [wallet, notify, apiBase])
 
   useEffect(() => { fetchList() }, [fetchList])
 
@@ -127,7 +127,7 @@ export default function BilleteraRetiros({
 
     setEnviando(true)
     try {
-      const res = await fetch('/api/finanzas/billetera/retiros', {
+      const res = await fetch(`${apiBase}/retiros`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

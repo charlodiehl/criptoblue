@@ -9,5 +9,6 @@ export async function GET(req: NextRequest) {
   const user = await getSessionUser()
   if (!user) return NextResponse.redirect(`${origin}/login`)
   if (!user.aal2) return NextResponse.redirect(`${origin}/auth/mfa`)
-  return NextResponse.redirect(user.role === 'tienda' ? `${origin}/tienda` : `${origin}/`)
+  const destino = user.role === 'tienda' ? '/tienda' : user.role === 'billetera' ? '/billetera' : '/'
+  return NextResponse.redirect(`${origin}${destino}`)
 }
