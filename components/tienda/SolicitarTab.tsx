@@ -239,6 +239,11 @@ export default function SolicitarTab({ qs, notify }: Props) {
                 <div className="text-[11px] mt-1.5" style={{ color: 'rgba(148,163,184,0.5)' }}>
                   Solicitada: {fmtDate(s.createdAt)}{s.paidAt ? ` · ${s.estado === 'rechazada' ? 'Rechazada' : 'Pagada'}: ${fmtDate(s.paidAt)}` : ''}
                 </div>
+                {s.createdBy && (
+                  <div className="text-[11px] mt-0.5 break-all" style={{ color: 'rgba(148,163,184,0.5)' }}>
+                    Solicitado por: <span style={{ color: 'rgba(148,163,184,0.75)' }}>{s.createdBy}</span>
+                  </div>
+                )}
                 {s.estado === 'pagada' && s.descuento && (
                   <div className="text-[11px] mt-2 px-3 py-2 rounded-lg"
                     style={{ background: 'rgba(0,0,0,0.25)', color: 'rgba(226,232,240,0.7)' }}>

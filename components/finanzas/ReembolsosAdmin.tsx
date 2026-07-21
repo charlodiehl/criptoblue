@@ -263,6 +263,12 @@ export function ReembolsosSolicitados() {
                       {s.titular && <span className="select-all"> · {s.titular}</span>}
                     </span>
                   )}
+                  {/* Quién de la tienda hizo la solicitud. */}
+                  {s.createdBy && (
+                    <span className="text-[11px] w-full break-all" style={{ color: 'rgba(148,163,184,0.6)' }}>
+                      Solicitó: <span className="select-all" style={{ color: 'rgba(226,232,240,0.85)' }}>{s.createdBy}</span>
+                    </span>
+                  )}
                 </div>
                 <div className="flex items-center gap-2">
                   <button onClick={() => procesarSolicitud(s)}
@@ -364,6 +370,11 @@ export function GestionReembolsos() {
                   <div className="text-[11px] font-semibold uppercase tracking-wider mb-2" style={{ color: 'rgba(0,255,136,0.8)' }}>
                     Datos para transferir · los cargó {solicitudActiva.storeName}
                   </div>
+                  {solicitudActiva.createdBy && (
+                    <div className="text-[11px] mb-2 break-all" style={{ color: 'rgba(148,163,184,0.7)' }}>
+                      Solicitó: <span className="select-all" style={{ color: 'rgba(226,232,240,0.9)' }}>{solicitudActiva.createdBy}</span>
+                    </div>
+                  )}
                   <div className="flex flex-wrap gap-x-8 gap-y-2">
                     <div>
                       <div className="text-[10px] uppercase tracking-wider" style={{ color: 'rgba(148,163,184,0.55)' }}>Alias / CBU</div>

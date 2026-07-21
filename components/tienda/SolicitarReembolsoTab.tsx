@@ -211,6 +211,11 @@ export default function SolicitarReembolsoTab({ qs, notify }: Props) {
                     <div className="text-[11px] mt-1.5" style={{ color: 'rgba(148,163,184,0.5)' }}>
                       Solicitada: {fmtDate(s.createdAt)}{s.processedAt ? ` · Resuelta: ${fmtDate(s.processedAt)}` : ''}
                     </div>
+                    {s.createdBy && (
+                      <div className="text-[11px] mt-0.5 break-all" style={{ color: 'rgba(148,163,184,0.5)' }}>
+                        Solicitado por: <span style={{ color: 'rgba(148,163,184,0.75)' }}>{s.createdBy}</span>
+                      </div>
+                    )}
                   </motion.div>
                 )
               })}

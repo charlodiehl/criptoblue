@@ -190,6 +190,11 @@ export default function SolicitudModal({ solicitud, notify, onClose, onPaid }: P
           <div>
             <div className="text-sm font-bold" style={{ color: '#00d4ff' }}>{solicitud.storeName}</div>
             <div className="text-xs" style={{ color: 'rgba(148,163,184,0.6)' }}>Transferencia {solicitud.tipo.toUpperCase()} · solicitud #{solicitud.id}</div>
+            {solicitud.createdBy && (
+              <div className="text-[11px] mt-0.5 break-all" style={{ color: 'rgba(148,163,184,0.55)' }}>
+                Solicitó: <span style={{ color: 'rgba(226,232,240,0.85)' }}>{solicitud.createdBy}</span>
+              </div>
+            )}
           </div>
           <button onClick={onClose} className="text-xl px-2" style={{ color: 'rgba(148,163,184,0.6)', cursor: 'pointer' }}>×</button>
         </div>
