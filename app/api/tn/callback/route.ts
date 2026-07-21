@@ -63,7 +63,9 @@ export async function GET(req: NextRequest) {
 
   if (!stateName.trim()) {
     try {
-      const storeRes = await fetch(`${CONFIG.tiendanube.apiBase}/${storeId}`, {
+      // El recurso de datos de la tienda es {store_id}/store — pegar a {store_id}
+      // pelado devuelve 404 y dejaba el nombre en "Tienda {id}" (solo números).
+      const storeRes = await fetch(`${CONFIG.tiendanube.apiBase}/${storeId}/store`, {
         headers: {
           Authentication: `bearer ${accessToken}`,
           'User-Agent': CONFIG.tiendanube.userAgent,
@@ -72,11 +74,15 @@ export async function GET(req: NextRequest) {
       if (storeRes.ok) {
         const storeData = await storeRes.json()
         const name = storeData.name
-        if (typeof name === 'string' && name) {
-          storeName = name
+        // El nombre puede venir como string o como objeto multi-idioma { es, pt, … }.
+        let resuelto = ''
+        if (typeof name === 'string') {
+          resuelto = name
         } else if (name && typeof name === 'object') {
-          storeName = name.es || name.pt || Object.values(name).find((v): v is string => typeof v === 'string') || storeName
+          resuelto = name.es || name.pt || Object.values(name).find((v): v is string => typeof v === 'string') || ''
         }
+        // Recortar: varios nombres reales vienen con espacios al final (ej. "PROGRESSIVE ").
+        if (resuelto.trim()) storeName = resuelto.trim()
       }
     } catch {
       // usar nombre por defecto
