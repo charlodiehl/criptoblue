@@ -172,7 +172,6 @@ function meetsAutoCriteria(signals: Signal[]): boolean {
   const emailExact  = email?.match === true
   const emailOk     = emailExact || email?.partial === true
   const nombreOk    = nombre?.match === true
-  const allUnavailable = cuit?.unavailable && nombre?.unavailable && email?.unavailable
   const minDiff     = fecha?.timeMinutes ?? Infinity
 
   // Nombre y monto EXACTOS → auto-marca sin importar el tiempo transcurrido.
@@ -184,7 +183,12 @@ function meetsAutoCriteria(signals: Signal[]): boolean {
   const fechaOk = minDiff <= 30 || (minDiff <= 60 && (cuitOk || emailExact))
   if (!fechaOk) return false
 
-  return cuitOk || emailOk || nombreOk || (!!allUnavailable && unica?.match === true)
+  // Monto + fecha (≤30 min) + orden ÚNICA para ese monto en verde alcanzan para auto-marcar,
+  // AUNQUE el nombre no coincida: suele ser un pago de terceros (la transferencia sale a nombre
+  // del titular de la cuenta, no del cliente de la tienda). Reemplaza el viejo requisito de
+  // "pago totalmente anónimo" (que se bloqueaba si había un nombre presente pero distinto).
+  const tresVerdes = monto?.match === true && fecha?.match === true && unica?.match === true
+  return cuitOk || emailOk || nombreOk || tresVerdes
 }
 
 // ─── Export principal ─────────────────────────────────────────────────────────

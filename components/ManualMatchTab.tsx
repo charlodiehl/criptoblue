@@ -228,13 +228,15 @@ function meetsAutoCriteria(signals: Signal[]): boolean {
   const emailExact = email?.match === true
   const emailOk    = emailExact || email?.partial === true
   const nombreOk   = nombre?.match === true
-  const allUnavailable = cuit?.unavailable && nombre?.unavailable && email?.unavailable
   const minDiff    = fecha?.timeMinutes ?? Infinity
   // Nombre y monto EXACTOS → auto-marca sin importar el tiempo (pago posterior a la orden ya garantizado).
   if (monto?.value === 'Exacto' && nombre?.value === 'Exacto') return true
   const fechaOk    = minDiff <= 30 || (minDiff <= 60 && (cuitOk || emailExact))
   if (!fechaOk) return false
-  return cuitOk || emailOk || nombreOk || (!!allUnavailable && unica?.match === true)
+  // Monto + fecha (≤30 min) + orden única en verde → auto-marca aunque el nombre no
+  // coincida (pago de terceros). Espejo de lib/auto-match.ts.
+  const tresVerdes = monto?.match === true && fecha?.match === true && unica?.match === true
+  return cuitOk || emailOk || nombreOk || tresVerdes
 }
 
 // auto   → cumple todos los criterios de automarcado
