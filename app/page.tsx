@@ -1027,11 +1027,13 @@ export default function Dashboard() {
           {/* Administración Financiera (a esta pantalla solo llega un admin) */}
           <Link
             href="/finanzas"
-            className="flex items-center gap-2 rounded-xl px-3 sm:px-4 py-2.5 text-xs font-medium transition-all shrink-0"
-            style={{ background: 'rgba(0,212,255,0.08)', border: '1px solid rgba(0,212,255,0.25)', color: '#00d4ff', textDecoration: 'none', whiteSpace: 'nowrap' }}
+            className="flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 min-h-[44px] min-w-[44px] text-xs font-medium transition-colors shrink-0 active:opacity-70"
+            style={{ background: 'rgba(0,212,255,0.08)', border: '1px solid rgba(0,212,255,0.25)', color: '#00d4ff', textDecoration: 'none', whiteSpace: 'nowrap', touchAction: 'manipulation', WebkitTapHighlightColor: 'rgba(0,212,255,0.2)' }}
             title="Administración Financiera"
+            aria-label="Administración Financiera"
           >
-            💰 <span className="hidden lg:inline">Administración Financiera</span>
+            <span className="text-lg lg:text-xs leading-none">💰</span>
+            <span className="hidden lg:inline">Administración Financiera</span>
           </Link>
           </div>
 

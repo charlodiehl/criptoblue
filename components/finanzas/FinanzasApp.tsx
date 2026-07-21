@@ -157,9 +157,10 @@ export default function FinanzasApp({ userEmail }: { userEmail?: string }) {
 
           {/* RIGHT: volver a la gestión de órdenes */}
           <div className="flex items-center justify-end">
-            <Link href="/" className="flex items-center gap-2 rounded-xl px-3 sm:px-4 py-2.5 text-xs font-medium transition-all whitespace-nowrap"
-              style={{ background: 'rgba(0,212,255,0.08)', border: '1px solid rgba(0,212,255,0.25)', color: '#00d4ff' }}>
-              ← <span className="hidden sm:inline">Gestión de órdenes</span><span className="sm:hidden">Órdenes</span>
+            <Link href="/" className="flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 min-h-[44px] text-xs font-medium transition-colors whitespace-nowrap active:opacity-70"
+              style={{ background: 'rgba(0,212,255,0.08)', border: '1px solid rgba(0,212,255,0.25)', color: '#00d4ff', touchAction: 'manipulation', WebkitTapHighlightColor: 'rgba(0,212,255,0.2)' }}
+              aria-label="Gestión de órdenes">
+              <span className="text-lg sm:text-xs leading-none">←</span> <span className="hidden sm:inline">Gestión de órdenes</span><span className="sm:hidden">Órdenes</span>
             </Link>
           </div>
         </div>
