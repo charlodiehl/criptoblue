@@ -73,6 +73,11 @@ export interface LogEntry {
   hidden?: boolean            // true = oculto en la UI (botón "Borrar registro"), pero se conserva en Supabase
   copiedAt?: string           // ISO timestamp de cuando fue copiado con "Copiar nuevos registros"
   hechoPor?: string | null    // email del admin que cargó/editó el pago a mano (null = automático)
+  // Adjudicación sujeta a confirmación (source='tienda_buscar' con orden inexistente):
+  // 'pendiente' = ya suma al saldo pero espera al admin · 'confirmada' = firme ·
+  // 'rechazada' = revertida (el movimiento de balance se borró y action pasó a 'cancelled').
+  // null/undefined = reclamo con orden real (firme de una) o entrada normal.
+  adjudicacion?: 'pendiente' | 'confirmada' | 'rechazada' | null
 }
 
 export interface UnmatchedPayment {

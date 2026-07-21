@@ -14,6 +14,7 @@ interface Reclamo {
   id: number; timestamp: string; storeId: string; storeName: string; amount: number; orderNumber: string
   customerName: string; nombrePagador: string; cuit: string; email: string; fechaPago: string
   billetera: string; metodoPago: string; referencia: string; mpPaymentId: string
+  adjudicacion: string | null   // 'pendiente' = requiere confirmar/rechazar · null/'confirmada' = firme
 }
 
 const TIPO_LABEL: Record<TransferTipo, string> = {
@@ -53,6 +54,7 @@ export default function AdminGeneralTab({ notify, onSolicitudPagada, refreshKey 
   const [modal, setModal] = useState<SolicitudConTienda | null>(null)
   const [okId, setOkId] = useState<number | null>(null)  // reclamo al que se le está dando OK
   const [abortandoId, setAbortandoId] = useState<number | null>(null)  // solicitud que se está abortando
+  const [adjId, setAdjId] = useState<number | null>(null)  // adjudicación que se está confirmando/rechazando
 
   const fetchAll = useCallback(async () => {
     try {
@@ -123,6 +125,29 @@ export default function AdminGeneralTab({ notify, onSolicitudPagada, refreshKey 
       notify(`No se pudo dar OK: ${e instanceof Error ? e.message : e}`, 'error')
     } finally {
       setOkId(null)
+    }
+  }
+
+  // Confirmar (queda firme) o rechazar (revierte el saldo y libera el pago) una
+  // adjudicación PENDIENTE (una tienda adjudicó un pago con una orden que no existe).
+  async function resolverAdjudicacion(id: number, accion: 'confirmar' | 'rechazar') {
+    if (adjId != null) return
+    if (accion === 'rechazar' && !window.confirm('¿Rechazar esta adjudicación? Se descuenta del saldo de la tienda y el pago vuelve a estar disponible.')) return
+    setAdjId(id)
+    try {
+      const res = await fetch('/api/finanzas/reclamos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, action: accion }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error || 'Error')
+      setReclamos(rs => rs.filter(r => r.id !== id))
+      notify(accion === 'confirmar' ? 'Adjudicación confirmada ✓' : 'Adjudicación rechazada y revertida', 'success')
+      onSolicitudPagada()  // refresca los balances de la franja superior
+    } catch (e) {
+      notify(`No se pudo ${accion}: ${e instanceof Error ? e.message : e}`, 'error')
+    } finally {
+      setAdjId(null)
     }
   }
 
@@ -197,20 +222,42 @@ export default function AdminGeneralTab({ notify, onSolicitudPagada, refreshKey 
           <div className="space-y-2">
             {reclamos.map(r => (
               <div key={r.id} className="rounded-xl px-4 py-3 text-sm"
-                style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(148,163,184,0.08)', color: 'rgba(226,232,240,0.75)' }}>
-                {/* Encabezado: tienda, monto, orden emparejada, fecha de adjudicación y OK */}
+                style={{ background: 'rgba(255,255,255,0.02)', border: `1px solid ${r.adjudicacion === 'pendiente' ? 'rgba(245,158,11,0.3)' : 'rgba(148,163,184,0.08)'}`, color: 'rgba(226,232,240,0.75)' }}>
+                {/* Encabezado: tienda, monto, orden, fecha y acción (OK · o Confirmar/Rechazar si es pendiente) */}
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-semibold" style={{ color: '#00d4ff' }}>{r.storeName}</span>
-                  <span>se adjudicó un pago de</span>
+                  <span>{r.adjudicacion === 'pendiente' ? 'quiere adjudicar un pago de' : 'se adjudicó un pago de'}</span>
                   <span className="font-bold" style={{ color: '#00ff88' }}>{ARS.format(r.amount)}</span>
                   {r.nombrePagador && <span>de <span className="font-semibold" style={{ color: 'rgba(226,232,240,0.9)' }}>{r.nombrePagador}</span></span>}
-                  <span className="text-[11px] ml-auto" style={{ color: 'rgba(148,163,184,0.45)' }}>adjudicado {fmtDate(r.timestamp)}</span>
-                  <button onClick={() => darOk(r.id)} disabled={okId === r.id}
-                    title="Dar OK: la tienda reclamó un pago correcto. Lo saca de la lista."
-                    className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-bold transition-all disabled:opacity-50"
-                    style={{ background: 'rgba(0,255,136,0.1)', border: '1px solid rgba(0,255,136,0.35)', color: '#00ff88', cursor: okId === r.id ? 'not-allowed' : 'pointer' }}>
-                    {okId === r.id ? '…' : '✓ OK'}
-                  </button>
+                  {r.adjudicacion === 'pendiente' && (
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full uppercase" style={{ background: 'rgba(245,158,11,0.15)', border: '1px solid rgba(245,158,11,0.35)', color: '#fbbf24' }}>
+                      Pendiente · orden inexistente
+                    </span>
+                  )}
+                  <span className="text-[11px] ml-auto" style={{ color: 'rgba(148,163,184,0.45)' }}>{r.adjudicacion === 'pendiente' ? 'solicitado' : 'adjudicado'} {fmtDate(r.timestamp)}</span>
+                  {r.adjudicacion === 'pendiente' ? (
+                    <div className="flex items-center gap-1.5">
+                      <button onClick={() => resolverAdjudicacion(r.id, 'confirmar')} disabled={adjId === r.id}
+                        title="Confirmar: la adjudicación queda firme."
+                        className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-bold transition-all disabled:opacity-50"
+                        style={{ background: 'rgba(0,255,136,0.1)', border: '1px solid rgba(0,255,136,0.35)', color: '#00ff88', cursor: adjId === r.id ? 'not-allowed' : 'pointer' }}>
+                        {adjId === r.id ? '…' : '✓ Confirmar'}
+                      </button>
+                      <button onClick={() => resolverAdjudicacion(r.id, 'rechazar')} disabled={adjId === r.id}
+                        title="Rechazar: se descuenta del saldo de la tienda y el pago vuelve a estar disponible."
+                        className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-bold transition-all disabled:opacity-50"
+                        style={{ background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.35)', color: '#f87171', cursor: adjId === r.id ? 'not-allowed' : 'pointer' }}>
+                        ✕ Rechazar
+                      </button>
+                    </div>
+                  ) : (
+                    <button onClick={() => darOk(r.id)} disabled={okId === r.id}
+                      title="Dar OK: la tienda reclamó un pago correcto. Lo saca de la lista."
+                      className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-bold transition-all disabled:opacity-50"
+                      style={{ background: 'rgba(0,255,136,0.1)', border: '1px solid rgba(0,255,136,0.35)', color: '#00ff88', cursor: okId === r.id ? 'not-allowed' : 'pointer' }}>
+                      {okId === r.id ? '…' : '✓ OK'}
+                    </button>
+                  )}
                 </div>
                 {/* Detalle completo del pago emparejado */}
                 <div className="mt-2.5 pt-2.5 grid gap-x-6 gap-y-1.5"

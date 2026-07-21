@@ -639,6 +639,26 @@ export function incrementPersistedMonthStats(
   }
 }
 
+// Inverso de incrementPersistedMonthStats: resta un monto/cuenta del mes actual.
+// Se usa al RECHAZAR una adjudicación que ya había sumado. Clamp en 0 (nunca negativo).
+export function decrementPersistedMonthStats(
+  hot: { persistedMonthStats: Record<string, PersistedMonthStats> },
+  amount: number,
+  source: 'emparejamiento' | 'manual_pagos' | 'manual_ordenes'
+): void {
+  const key = monthKeyART()
+  hot.persistedMonthStats = hot.persistedMonthStats ?? {}
+  const base = hot.persistedMonthStats[key] ?? { matchedCount: 0, matchedVolume: 0, manualCount: 0, manualVolume: 0 }
+  const isMatched = source === 'emparejamiento'
+  const isManual = source === 'manual_pagos' || source === 'manual_ordenes'
+  hot.persistedMonthStats[key] = {
+    matchedCount:  Math.max(0, base.matchedCount  - (isMatched ? 1 : 0)),
+    matchedVolume: Math.max(0, base.matchedVolume - (isMatched ? amount : 0)),
+    manualCount:   Math.max(0, base.manualCount   - (isManual  ? 1 : 0)),
+    manualVolume:  Math.max(0, base.manualVolume  - (isManual  ? amount : 0)),
+  }
+}
+
 // ─────────────────────────────────────────────
 // Lock global — exclusión mutua para operaciones de marcado
 // Usa un key dedicado en kv_store para no interferir con merge de HotState.

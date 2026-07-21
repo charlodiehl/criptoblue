@@ -85,6 +85,7 @@ function entryToRow(e0: LogEntry): Row {
     hidden: e.hidden ?? false,
     copied_at: e.copiedAt ?? null,
     hecho_por: e.hechoPor ?? null,
+    adjudicacion: e.adjudicacion ?? null,
     payment: e.payment ? stripRawData(e.payment) : null,
     order_data: e.order ?? null,
   }
@@ -111,6 +112,7 @@ function rowToEntry(r: Row): LogEntry {
     hidden: r.hidden ?? undefined,
     copiedAt: r.copied_at ?? undefined,
     hechoPor: r.hecho_por ?? undefined,
+    adjudicacion: r.adjudicacion ?? undefined,
     payment: (r.payment as Payment) ?? undefined,
     order: (r.order_data as Order) ?? undefined,
   }
@@ -761,45 +763,141 @@ export interface ReclamoReciente {
   metodoPago: string
   referencia: string
   mpPaymentId: string
+  // 'pendiente' = orden inexistente, requiere confirmar/rechazar del admin.
+  // null/'confirmada' = firme (orden real o ya confirmada) → informativo.
+  adjudicacion: string | null
 }
 
+const SELECT_RECLAMO = 'id, ts, store_id, store_name, amount, order_number, customer_name, mp_payment_id, adjudicacion, payment'
+
+function rowToReclamo(r: Row): ReclamoReciente {
+  const p = r.payment ?? {}
+  return {
+    id: Number(r.id),
+    timestamp: r.ts,
+    storeId: r.store_id ?? '',
+    storeName: r.store_name ?? '',
+    amount: Number(p.monto ?? r.amount) || 0,
+    orderNumber: r.order_number ?? '',
+    customerName: r.customer_name ?? '',
+    nombrePagador: p.nombrePagador ?? '',
+    cuit: p.cuitPagador ?? '',
+    email: p.emailPagador ?? '',
+    fechaPago: p.fechaPago ?? '',
+    billetera: billeteraLabel(p.source ?? ''),
+    metodoPago: p.metodoPago ?? '',
+    referencia: p.referencia ?? '',
+    mpPaymentId: p.mpPaymentId ?? r.mp_payment_id ?? '',
+    adjudicacion: r.adjudicacion ?? null,
+  }
+}
+
+// Feed del admin: los reclamos firmes de los últimos `sinceMs` (informativo) MÁS
+// TODAS las adjudicaciones 'pendiente' sin importar la antigüedad (requieren acción,
+// no pueden caerse del feed por viejas). Se excluyen las 'rechazada' (ya resueltas)
+// y las que el admin ya marcó OK.
 export async function getReclamosRecientes(sinceMs: number): Promise<ReclamoReciente[]> {
   const supabase = getClient()
   const cutoff = new Date(sinceMs).toISOString()
-  const [res, okIds] = await Promise.all([
+  const base = () =>
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (supabase.from(TABLE) as any)
-      .select('id, ts, store_id, store_name, amount, order_number, customer_name, mp_payment_id, payment')
-      .eq('source', 'tienda_buscar')
-      .eq('hidden', false)
-      .gte('ts', cutoff)
-      .order('ts', { ascending: false }),
+    (supabase.from(TABLE) as any).select(SELECT_RECLAMO).eq('source', 'tienda_buscar').eq('hidden', false)
+  const [recientes, pendientes, okIds] = await Promise.all([
+    base().gte('ts', cutoff).order('ts', { ascending: false }),
+    base().eq('adjudicacion', 'pendiente').order('ts', { ascending: false }),
     getReclamosOkIds(),
   ])
-  const { data, error } = res
-  if (error) throw new Error(`getReclamosRecientes falló: ${error.message} [${error.code}]`)
-  return (data ?? [])
-    .filter((r: Row) => !okIds.has(Number(r.id)))
-    .map((r: Row): ReclamoReciente => {
-      const p = r.payment ?? {}
-      return {
-        id: Number(r.id),
-        timestamp: r.ts,
-        storeId: r.store_id ?? '',
-        storeName: r.store_name ?? '',
-        amount: Number(p.monto ?? r.amount) || 0,
-        orderNumber: r.order_number ?? '',
-        customerName: r.customer_name ?? '',
-        nombrePagador: p.nombrePagador ?? '',
-        cuit: p.cuitPagador ?? '',
-        email: p.emailPagador ?? '',
-        fechaPago: p.fechaPago ?? '',
-        billetera: billeteraLabel(p.source ?? ''),
-        metodoPago: p.metodoPago ?? '',
-        referencia: p.referencia ?? '',
-        mpPaymentId: p.mpPaymentId ?? r.mp_payment_id ?? '',
-      }
-    })
+  const err = recientes.error ?? pendientes.error
+  if (err) throw new Error(`getReclamosRecientes falló: ${err.message} [${err.code}]`)
+
+  // Merge por id (una adjudicación pendiente vieja puede no estar en "recientes").
+  const porId = new Map<number, Row>()
+  for (const r of [...(recientes.data ?? []), ...(pendientes.data ?? [])] as Row[]) porId.set(Number(r.id), r)
+
+  return Array.from(porId.values())
+    .filter(r => r.adjudicacion !== 'rechazada' && !okIds.has(Number(r.id)))
+    .map(rowToReclamo)
+    .sort((a, b) => (a.timestamp < b.timestamp ? 1 : -1))
+}
+
+// ─── Adjudicaciones sujetas a confirmación (source='tienda_buscar' + orden inexistente) ───
+
+// Una entrada del registro por id (para el flujo de confirmar/rechazar). Trae el
+// payment para poder re-inyectarlo a la cola al rechazar.
+export async function getRegistroEntryById(id: number): Promise<LogEntry | null> {
+  const supabase = getClient()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (supabase.from(TABLE) as any).select('*').eq('id', id).maybeSingle()
+  if (error) throw new Error(`getRegistroEntryById falló: ${error.message} [${error.code}]`)
+  return data ? rowToEntry(data) : null
+}
+
+// Confirma una adjudicación pendiente → queda firme ('confirmada'). CLAIM condicional
+// (solo si sigue 'pendiente'): devuelve true si ESTE llamado la confirmó.
+export async function confirmarAdjudicacion(id: number): Promise<boolean> {
+  const supabase = getClient()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (supabase.from(TABLE) as any)
+    .update({ adjudicacion: 'confirmada' })
+    .eq('id', id)
+    .eq('adjudicacion', 'pendiente')
+    .select('id')
+  if (error) throw new Error(`confirmarAdjudicacion falló: ${error.message} [${error.code}]`)
+  return (data?.length ?? 0) > 0
+}
+
+// Rechaza una adjudicación pendiente: marca la fila 'rechazada' y le cambia el
+// action a 'cancelled' para que quede EXCLUIDA de todos los guards de emparejamiento
+// (isPaymentAlreadyUsed / isOrderAlreadyPaid / getConfirmedMarks / buscarEmparejados)
+// → el pago vuelve a estar disponible. CLAIM condicional (solo si sigue 'pendiente').
+// El caller borra el movimiento de balance, resta los stats y re-inyecta el pago.
+export async function rechazarAdjudicacion(id: number): Promise<boolean> {
+  const supabase = getClient()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (supabase.from(TABLE) as any)
+    .update({ adjudicacion: 'rechazada', action: 'cancelled' })
+    .eq('id', id)
+    .eq('adjudicacion', 'pendiente')
+    .select('id')
+  if (error) throw new Error(`rechazarAdjudicacion falló: ${error.message} [${error.code}]`)
+  return (data?.length ?? 0) > 0
+}
+
+export interface AdjudicacionTienda {
+  id: number
+  timestamp: string
+  monto: number
+  nombrePagador: string
+  orderNumber: string
+  estado: 'pendiente' | 'adjudicada' | 'rechazada'
+}
+
+// Historial de pagos que la tienda se adjudicó (para la lista de "Buscar pagos").
+// Estado: 'pendiente' (espera al admin) · 'rechazada' · 'adjudicada' (firme: orden
+// real o ya confirmada). Trae los más recientes primero.
+export async function getAdjudicacionesTienda(storeId: string, limit = 50): Promise<AdjudicacionTienda[]> {
+  const supabase = getClient()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (supabase.from(TABLE) as any)
+    .select('id, ts, amount, order_number, adjudicacion, payment')
+    .eq('source', 'tienda_buscar')
+    .eq('store_id', storeId)
+    .order('ts', { ascending: false })
+    .limit(limit)
+  if (error) throw new Error(`getAdjudicacionesTienda falló: ${error.message} [${error.code}]`)
+  return ((data ?? []) as Row[]).map((r): AdjudicacionTienda => {
+    const p = r.payment ?? {}
+    const estado = r.adjudicacion === 'pendiente' ? 'pendiente'
+      : r.adjudicacion === 'rechazada' ? 'rechazada' : 'adjudicada'
+    return {
+      id: Number(r.id),
+      timestamp: r.ts,
+      monto: Number(p.monto ?? r.amount) || 0,
+      nombrePagador: p.nombrePagador ?? '',
+      orderNumber: r.order_number ?? '',
+      estado,
+    }
+  })
 }
 
 // ─────────────────────────────────────────────

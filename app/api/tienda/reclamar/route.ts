@@ -44,6 +44,9 @@ export async function POST(req: NextRequest) {
     if (!mpPaymentId || !orderNumber) {
       return NextResponse.json({ error: 'mpPaymentId y orderNumber son requeridos' }, { status: 400 })
     }
+    // Si la orden no existe en la tienda, `forzar` habilita la adjudicación PENDIENTE
+    // (sujeta a confirmación del admin). Sin el flag, se le avisa y no se registra.
+    const forzar = body.forzar === true
 
     const storeId = resolveStoreScope(user, req.nextUrl.searchParams.get('storeId') || body.storeId)
     if (!storeId) {
@@ -76,7 +79,65 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: `No se pudo consultar la tienda: ${err instanceof Error ? err.message : err}` }, { status: 502 })
     }
     if (!encontrada) {
-      return NextResponse.json({ error: `La orden #${orderNumber} no existe en ${store.storeName}` }, { status: 404 })
+      // La orden NO existe en la tienda. Sin `forzar`, se le avisa a la tienda para
+      // que decida (la validación quedará sujeta a confirmación del admin).
+      if (!forzar) {
+        return NextResponse.json({
+          needsConfirmation: true,
+          orderNumber: String(orderNumber),
+          message: `No se encontró la orden "${orderNumber}" en ${store.storeName}. Si la aceptás, la adjudicación queda sujeta a confirmación del administrador.`,
+        })
+      }
+
+      // ── Camino B: adjudicación PENDIENTE ──────────────────────────────────────
+      // Se registra igual (suma al saldo y al volumen del mes), SIN marcar nada en
+      // la plataforma (no hay orden). Queda 'pendiente' hasta que el admin confirme
+      // o rechace. Único guard: el pago no puede estar ya usado.
+      if (await isPaymentAlreadyUsed(mpPaymentId)) {
+        return NextResponse.json({ error: 'Ese pago ya fue utilizado con otra orden' }, { status: 409 })
+      }
+
+      hot.unmatchedPayments.splice(unmatchedIndex, 1)
+      incrementPersistedMonthStats(hot, payment.monto, 'emparejamiento')
+      hot.recentMatches = hot.recentMatches ?? []
+      hot.recentMatches.push({ mpPaymentId: payment.mpPaymentId, matchedAt: nowART(), storeId, payment })
+
+      const pendingEntry: LogEntry = {
+        timestamp: nowART(),
+        action: 'manual_paid',
+        source: 'tienda_buscar',
+        triggeredBy: 'human',
+        adjudicacion: 'pendiente',
+        payment,
+        mpPaymentId: payment.mpPaymentId,
+        amount: payment.monto,
+        orderNumber: String(orderNumber),   // el texto que tipeó la tienda (no existe como orden)
+        storeId,
+        storeName: store.storeName,
+        customerName: payment.nombrePagador,
+        paymentReceivedAt: toUTCISO(payment.fechaPago),
+        hechoPor: user.email,
+      }
+      await appendRegistroEntry(pendingEntry)
+
+      appendActivity(logs, 'human', 'tienda_adjudicacion_pendiente', {
+        mpPaymentId: payment.mpPaymentId, monto: payment.monto, orderNumber: String(orderNumber),
+        storeName: store.storeName, reclamadoPor: user.email,
+      })
+      await saveLogs(logs)
+      await saveHotState(hot)
+
+      try {
+        const montoTxt = Number(payment.monto).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+        const pagador = payment.nombrePagador ? ` de ${payment.nombrePagador}` : ''
+        await notifyAdmins('adjudicacion_revision', {
+          title: 'Adjudicación a revisar',
+          body: `${store.storeName} adjudicó un pago${pagador} de ${montoTxt} ARS con un N° de orden que no existe ("${orderNumber}"). Confirmá o rechazá.`,
+          url: '/finanzas',
+        })
+      } catch { /* best-effort */ }
+
+      return NextResponse.json({ success: true, pendiente: true, orderNumber: String(orderNumber), storeName: store.storeName, monto: payment.monto })
     }
     const order = encontrada.order
 

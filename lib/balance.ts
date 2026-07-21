@@ -203,6 +203,18 @@ export async function registrarAjuste(storeId: string, ars: number, usdt: number
   if (error) throw new Error(`registrarAjuste falló: ${error.message} [${error.code}]`)
 }
 
+// Borra el movimiento de ingreso ligado a una entrada del registro (por
+// ref_registro_id). Se usa al RECHAZAR una adjudicación pendiente: revierte del
+// saldo lo que había sumado. Idempotente (si no hay movimiento, no hace nada).
+export async function eliminarIngresoPorRegistro(registroId: number): Promise<void> {
+  const { error } = await getClient()
+    .from(TABLE)
+    .delete()
+    .eq('ref_registro_id', registroId)
+    .eq('tipo', 'ingreso_orden')
+  if (error) throw new Error(`eliminarIngresoPorRegistro falló: ${error.message} [${error.code}]`)
+}
+
 // ─── Lecturas ────────────────────────────────────────────────────────────────
 
 // Balance de TODAS las tiendas con movimientos (una sola llamada RPC).

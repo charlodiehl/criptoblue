@@ -17,12 +17,14 @@ export type EventoAdminKey =
   | 'transferencia_solicitada'
   | 'reembolso_solicitado'
   | 'pago_adjudicado'
+  | 'adjudicacion_revision'
 
 // Eventos que se le notifican a una TIENDA (cosas que le pasan a su saldo).
 export type EventoTiendaKey =
   | 'orden_emparejada'
   | 'transferencia_pagada'
   | 'reembolso_completado'
+  | 'adjudicacion_resuelta'
 
 export type EventoKey = EventoAdminKey | EventoTiendaKey
 
@@ -48,6 +50,11 @@ export const GRUPOS_ADMIN: GrupoNotificacion[] = [
     label: 'Pago adjudicado por una tienda',
     descripcion: 'Cuando una tienda se adjudica un pago y le pone un número de orden, para ir a corroborar.',
   },
+  {
+    key: 'adjudicacion_revision',
+    label: 'Adjudicación a revisar',
+    descripcion: 'Cuando una tienda adjudica un pago con un número de orden que no existe en su tienda: requiere que confirmes o rechaces la adjudicación.',
+  },
 ]
 
 export const GRUPOS_TIENDA: GrupoNotificacion[] = [
@@ -65,6 +72,11 @@ export const GRUPOS_TIENDA: GrupoNotificacion[] = [
     key: 'reembolso_completado',
     label: 'Reembolso completado',
     descripcion: 'Cuando un Super Admin paga un reembolso que solicitaste: te avisa el número de orden y el monto devuelto.',
+  },
+  {
+    key: 'adjudicacion_resuelta',
+    label: 'Adjudicación resuelta',
+    descripcion: 'Cuando un Super Admin confirma o rechaza un pago que adjudicaste con un número de orden que no existía en tu tienda.',
   },
 ]
 
