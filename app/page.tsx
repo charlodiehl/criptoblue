@@ -68,11 +68,14 @@ export default function Dashboard() {
   const [stores, setStores] = useState<Store[]>([])
   const [storesOpen, setStoresOpen] = useState(false)
   const [platformModalOpen, setPlatformModalOpen] = useState(false)
-  const [shopifyDomainStep, setShopifyDomainStep] = useState(false)
-  const [shopifyDomain, setShopifyDomain] = useState('')
+  const [addStep, setAddStep] = useState<'choose' | 'tn' | 'shopify'>('choose')
+  const [copiedLink, setCopiedLink] = useState(false)
   const [dismissedPairs, setDismissedPairs] = useState<{ mpPaymentId: string; orderId: string; storeId: string }[]>([])
   const [storesLoading, setStoresLoading] = useState(false)
   const [deletingStore, setDeletingStore] = useState<string | null>(null)
+  const [editingStore, setEditingStore] = useState<string | null>(null)
+  const [editName, setEditName] = useState('')
+  const [savingStore, setSavingStore] = useState<string | null>(null)
   const storesMenuRef = useRef<HTMLDivElement>(null)
 
   // Click-outside handlers
@@ -288,6 +291,32 @@ export default function Dashboard() {
       addToast(`Error: ${err}`, 'error')
     } finally {
       setDeletingStore(null)
+    }
+  }
+
+  const handleRenameStore = async (storeId: string) => {
+    const nombre = editName.trim()
+    if (!nombre) return
+    setSavingStore(storeId)
+    try {
+      const res = await fetch('/api/stores', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ storeId, storeName: nombre }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        setStores(prev => prev.map(s => s.storeId === storeId ? { ...s, storeName: nombre } : s))
+        setEditingStore(null)
+        setEditName('')
+        addToast('Nombre actualizado', 'success')
+      } else {
+        addToast(`Error: ${data.error}`, 'error')
+      }
+    } catch (err) {
+      addToast(`Error: ${err}`, 'error')
+    } finally {
+      setSavingStore(null)
     }
   }
 
@@ -1049,23 +1078,67 @@ export default function Dashboard() {
                           className="w-full px-4 py-3 text-sm group"
                           style={{ borderBottom: '1px solid rgba(0,212,255,0.05)' }}
                         >
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2.5 min-w-0">
-                              <span className="h-2 w-2 rounded-full flex-shrink-0" style={{ background: '#00ff88', boxShadow: '0 0 6px rgba(0,255,136,0.6)' }} />
-                              <div className="flex flex-col min-w-0">
-                                <span className="text-sm text-white truncate">{store.storeName}</span>
-                                <span className="text-[11px] leading-tight" style={{ color: 'rgba(148,163,184,0.6)' }}>app Tiendanube {store.appId ?? '27051'}</span>
+                          {editingStore === store.storeId ? (
+                            <div className="flex items-center gap-2">
+                              <input
+                                autoFocus
+                                value={editName}
+                                onChange={e => setEditName(e.target.value)}
+                                onKeyDown={e => {
+                                  if (e.key === 'Enter') handleRenameStore(store.storeId)
+                                  if (e.key === 'Escape') { setEditingStore(null); setEditName('') }
+                                }}
+                                className="flex-1 min-w-0 text-sm rounded-md px-2 py-1"
+                                style={{ background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(0,212,255,0.35)', color: 'white', outline: 'none' }}
+                              />
+                              <button
+                                onClick={() => handleRenameStore(store.storeId)}
+                                disabled={savingStore === store.storeId || !editName.trim()}
+                                className="text-sm flex-shrink-0 disabled:opacity-40 cursor-pointer"
+                                style={{ color: '#00ff88' }}
+                                title="Guardar"
+                              >
+                                {savingStore === store.storeId ? '...' : '✓'}
+                              </button>
+                              <button
+                                onClick={() => { setEditingStore(null); setEditName('') }}
+                                className="text-sm flex-shrink-0 cursor-pointer"
+                                style={{ color: 'rgba(148,163,184,0.7)' }}
+                                title="Cancelar"
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2.5 min-w-0">
+                                <span className="h-2 w-2 rounded-full flex-shrink-0" style={{ background: '#00ff88', boxShadow: '0 0 6px rgba(0,255,136,0.6)' }} />
+                                <div className="flex flex-col min-w-0">
+                                  <span className="text-sm text-white truncate">{store.storeName}</span>
+                                  <span className="text-[11px] leading-tight" style={{ color: 'rgba(148,163,184,0.6)' }}>
+                                    {store.platform === 'shopify' ? 'Shopify' : `app Tiendanube ${store.appId ?? '27051'}`}
+                                  </span>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-3 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <button
+                                  onClick={() => { setEditingStore(store.storeId); setEditName(store.storeName) }}
+                                  className="text-xs cursor-pointer"
+                                  style={{ color: '#00d4ff' }}
+                                >
+                                  editar
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteStore(store.storeId, store.storeName)}
+                                  disabled={deletingStore === store.storeId}
+                                  className="text-xs disabled:opacity-50 cursor-pointer"
+                                  style={{ color: '#f87171' }}
+                                >
+                                  {deletingStore === store.storeId ? '...' : '✕ eliminar'}
+                                </button>
                               </div>
                             </div>
-                            <button
-                              onClick={() => handleDeleteStore(store.storeId, store.storeName)}
-                              disabled={deletingStore === store.storeId}
-                              className="text-xs flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-50 cursor-pointer"
-                              style={{ color: '#f87171' }}
-                            >
-                              {deletingStore === store.storeId ? '...' : '✕ eliminar'}
-                            </button>
-                          </div>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -1074,7 +1147,7 @@ export default function Dashboard() {
                   {/* Botón agregar tienda */}
                   <div className="p-3" style={{ borderTop: stores.length > 0 ? '1px solid rgba(0,212,255,0.08)' : 'none' }}>
                     <button
-                      onClick={() => { setStoresOpen(false); setPlatformModalOpen(true) }}
+                      onClick={() => { setStoresOpen(false); setAddStep('choose'); setCopiedLink(false); setPlatformModalOpen(true) }}
                       className="flex items-center justify-center gap-2 w-full rounded-lg py-2.5 text-sm font-semibold transition-all"
                       style={{
                         background: 'linear-gradient(135deg, #00c851, #00a844)',
@@ -1200,14 +1273,14 @@ export default function Dashboard() {
 
         {platformModalOpen && (
           <div
-            onClick={() => { setPlatformModalOpen(false); setShopifyDomainStep(false); setShopifyDomain('') }}
+            onClick={() => { setPlatformModalOpen(false); setAddStep('choose'); setCopiedLink(false) }}
             style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}
           >
             <div
               onClick={e => e.stopPropagation()}
-              style={{ background: '#0f1923', border: '1px solid rgba(0,212,255,0.15)', borderRadius: '16px', padding: 'clamp(20px, 5vw, 32px)', width: 'min(360px, 100%)', boxShadow: '0 24px 64px rgba(0,0,0,0.5)' }}
+              style={{ background: '#0f1923', border: '1px solid rgba(0,212,255,0.15)', borderRadius: '16px', padding: 'clamp(20px, 5vw, 32px)', width: 'min(460px, 100%)', maxHeight: '85vh', overflowY: 'auto', boxShadow: '0 24px 64px rgba(0,0,0,0.5)' }}
             >
-              {!shopifyDomainStep ? (
+              {addStep === 'choose' && (
                 <>
                   <h2 style={{ color: 'white', fontSize: '18px', fontWeight: 700, marginBottom: '6px', textAlign: 'center' }}>Agregar tienda</h2>
                   <p style={{ color: 'rgba(148,163,184,0.6)', fontSize: '13px', textAlign: 'center', marginBottom: '18px' }}>¿Desde qué plataforma querés conectar?</p>
@@ -1215,7 +1288,7 @@ export default function Dashboard() {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                     {/* Tienda Nube */}
                     <button
-                      onClick={() => { setPlatformModalOpen(false); window.open('/api/tn/connect', '_blank', 'noopener,noreferrer') }}
+                      onClick={() => { setAddStep('tn'); setCopiedLink(false) }}
                       style={{ display: 'flex', alignItems: 'center', gap: '14px', padding: '16px 20px', borderRadius: '12px', border: '1px solid rgba(0,100,255,0.3)', background: 'rgba(0,100,255,0.06)', cursor: 'pointer', transition: 'all 0.2s', width: '100%' }}
                       onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(0,100,255,0.14)'; (e.currentTarget as HTMLElement).style.borderColor = 'rgba(0,100,255,0.5)' }}
                       onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(0,100,255,0.06)'; (e.currentTarget as HTMLElement).style.borderColor = 'rgba(0,100,255,0.3)' }}
@@ -1226,13 +1299,13 @@ export default function Dashboard() {
                       </svg>
                       <div style={{ textAlign: 'left' }}>
                         <div style={{ color: 'white', fontWeight: 700, fontSize: '15px' }}>Tienda Nube</div>
-                        <div style={{ color: 'rgba(148,163,184,0.6)', fontSize: '12px' }}>Conectar via OAuth</div>
+                        <div style={{ color: 'rgba(148,163,184,0.6)', fontSize: '12px' }}>Link directo para el dueño</div>
                       </div>
                     </button>
 
                     {/* Shopify */}
                     <button
-                      onClick={() => setShopifyDomainStep(true)}
+                      onClick={() => setAddStep('shopify')}
                       style={{ display: 'flex', alignItems: 'center', gap: '14px', padding: '16px 20px', borderRadius: '12px', border: '1px solid rgba(150,191,72,0.3)', background: 'rgba(150,191,72,0.06)', cursor: 'pointer', transition: 'all 0.2s', width: '100%' }}
                       onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(150,191,72,0.14)'; (e.currentTarget as HTMLElement).style.borderColor = 'rgba(150,191,72,0.5)' }}
                       onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(150,191,72,0.06)'; (e.currentTarget as HTMLElement).style.borderColor = 'rgba(150,191,72,0.3)' }}
@@ -1243,62 +1316,104 @@ export default function Dashboard() {
                       </svg>
                       <div style={{ textAlign: 'left' }}>
                         <div style={{ color: 'white', fontWeight: 700, fontSize: '15px' }}>Shopify</div>
-                        <div style={{ color: 'rgba(148,163,184,0.6)', fontSize: '12px' }}>Conectar via OAuth</div>
+                        <div style={{ color: 'rgba(148,163,184,0.6)', fontSize: '12px' }}>Instructivo para crear la app</div>
                       </div>
                     </button>
                   </div>
 
                   <button
-                    onClick={() => { setPlatformModalOpen(false); setShopifyDomainStep(false); setShopifyDomain('') }}
+                    onClick={() => { setPlatformModalOpen(false); setAddStep('choose'); setCopiedLink(false) }}
                     style={{ marginTop: '20px', width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid rgba(148,163,184,0.15)', background: 'transparent', color: 'rgba(148,163,184,0.5)', fontSize: '13px', cursor: 'pointer' }}
                   >
                     Cancelar
                   </button>
                 </>
-              ) : (
+              )}
+
+              {addStep === 'tn' && (
                 <>
                   <button
-                    onClick={() => { setShopifyDomainStep(false); setShopifyDomain('') }}
+                    onClick={() => { setAddStep('choose'); setCopiedLink(false) }}
                     style={{ background: 'none', border: 'none', color: 'rgba(148,163,184,0.6)', fontSize: '13px', cursor: 'pointer', marginBottom: '16px', padding: 0 }}
                   >
                     ← Volver
                   </button>
-                  <h2 style={{ color: 'white', fontSize: '18px', fontWeight: 700, marginBottom: '6px', textAlign: 'center' }}>Conectar Shopify</h2>
-                  <p style={{ color: 'rgba(148,163,184,0.6)', fontSize: '13px', textAlign: 'center', marginBottom: '24px' }}>Ingresá el dominio de tu tienda</p>
-                  <div style={{ marginBottom: '16px' }}>
+                  <h2 style={{ color: 'white', fontSize: '18px', fontWeight: 700, marginBottom: '6px', textAlign: 'center' }}>Conectar Tienda Nube</h2>
+                  <p style={{ color: 'rgba(148,163,184,0.7)', fontSize: '13px', textAlign: 'center', marginBottom: '20px', lineHeight: 1.55 }}>
+                    Copiá este link y pasáselo al <b style={{ color: 'rgba(226,232,240,0.9)' }}>dueño de la tienda</b>. Cuando lo abra e instale la app desde su Tienda Nube, la tienda aparece sola en esta lista con su nombre real.
+                  </p>
+
+                  <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
                     <input
-                      type="text"
-                      autoFocus
-                      value={shopifyDomain}
-                      onChange={e => setShopifyDomain(e.target.value)}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter' && shopifyDomain.trim()) {
-                          setPlatformModalOpen(false)
-                          setShopifyDomainStep(false)
-                          window.open(`/api/shopify/connect?shop=${encodeURIComponent(shopifyDomain.trim())}`, '_blank', 'noopener,noreferrer')
-                          setShopifyDomain('')
-                        }
-                      }}
-                      placeholder="mitienda.myshopify.com"
-                      style={{ width: '100%', padding: '10px 14px', borderRadius: '10px', border: '1px solid rgba(150,191,72,0.3)', background: 'rgba(255,255,255,0.05)', color: 'white', fontSize: '14px', outline: 'none', boxSizing: 'border-box' }}
+                      readOnly
+                      value={typeof window !== 'undefined' ? `${window.location.origin}/api/tn/connect` : '/api/tn/connect'}
+                      onFocus={e => e.currentTarget.select()}
+                      style={{ flex: 1, minWidth: 0, padding: '10px 12px', borderRadius: '10px', border: '1px solid rgba(0,100,255,0.3)', background: 'rgba(0,0,0,0.35)', color: 'rgba(226,232,240,0.92)', fontSize: '13px', outline: 'none', fontFamily: 'monospace' }}
                     />
-                    <p style={{ color: 'rgba(148,163,184,0.4)', fontSize: '11px', marginTop: '6px' }}>
-                      Podés poner solo &quot;mitienda&quot; o el dominio completo
-                    </p>
+                    <button
+                      onClick={async () => {
+                        try {
+                          await navigator.clipboard.writeText(`${window.location.origin}/api/tn/connect`)
+                          setCopiedLink(true)
+                          setTimeout(() => setCopiedLink(false), 2000)
+                        } catch { addToast('No se pudo copiar el link', 'error') }
+                      }}
+                      style={{ flexShrink: 0, padding: '10px 16px', borderRadius: '10px', border: 'none', background: copiedLink ? 'linear-gradient(135deg, #00c851, #00a844)' : 'linear-gradient(135deg, #00d4ff, #0070f3)', color: 'white', fontSize: '13px', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}
+                    >
+                      {copiedLink ? '✓ Copiado' : 'Copiar'}
+                    </button>
                   </div>
+
+                  <p style={{ color: 'rgba(148,163,184,0.5)', fontSize: '11.5px', lineHeight: 1.5 }}>
+                    El dueño no tiene que escribir ningún nombre. Si el nombre llega mal, editalo con el lápiz de la lista.
+                  </p>
+                </>
+              )}
+
+              {addStep === 'shopify' && (
+                <>
                   <button
-                    onClick={() => {
-                      if (!shopifyDomain.trim()) return
-                      setPlatformModalOpen(false)
-                      setShopifyDomainStep(false)
-                      window.open(`/api/shopify/connect?shop=${encodeURIComponent(shopifyDomain.trim())}`, '_blank', 'noopener,noreferrer')
-                      setShopifyDomain('')
-                    }}
-                    disabled={!shopifyDomain.trim()}
-                    style={{ width: '100%', padding: '11px', borderRadius: '10px', border: 'none', background: shopifyDomain.trim() ? 'linear-gradient(135deg, #96BF48, #7a9e38)' : 'rgba(255,255,255,0.1)', color: 'white', fontSize: '15px', fontWeight: 700, cursor: shopifyDomain.trim() ? 'pointer' : 'not-allowed' }}
+                    onClick={() => setAddStep('choose')}
+                    style={{ background: 'none', border: 'none', color: 'rgba(148,163,184,0.6)', fontSize: '13px', cursor: 'pointer', marginBottom: '14px', padding: 0 }}
                   >
-                    Conectar con Shopify
+                    ← Volver
                   </button>
+                  <h2 style={{ color: 'white', fontSize: '18px', fontWeight: 700, marginBottom: '6px', textAlign: 'center' }}>Conectar Shopify</h2>
+                  <p style={{ color: 'rgba(148,163,184,0.7)', fontSize: '13px', textAlign: 'center', marginBottom: '18px', lineHeight: 1.55 }}>
+                    Shopify obliga a crear <b style={{ color: 'rgba(226,232,240,0.9)' }}>una app por cada tienda</b>. Seguí estos pasos:
+                  </p>
+
+                  <ol style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                    {[
+                      <>Entrá a <b style={{ color: '#96BF48' }}>partners.shopify.com</b> → <b>Apps</b> → <b>Create app</b> → <b>Create app manually</b>. Ponele un nombre (ej. &quot;Automatización [Tienda]&quot;).</>,
+                      <>En <b>Configuration</b>, cargá estos valores <b>exactos</b>:
+                        <div style={{ marginTop: '6px', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(150,191,72,0.2)', borderRadius: '8px', padding: '8px 10px', fontSize: '12px', lineHeight: 1.7 }}>
+                          <div><span style={{ color: 'rgba(148,163,184,0.6)' }}>App URL:</span> <code style={{ color: '#96BF48', userSelect: 'all' }}>https://criptoblue.vercel.app/</code></div>
+                          <div><span style={{ color: 'rgba(148,163,184,0.6)' }}>Redirect URL:</span> <code style={{ color: '#96BF48', userSelect: 'all', wordBreak: 'break-all' }}>https://criptoblue.vercel.app/api/shopify/callback</code></div>
+                          <div><span style={{ color: 'rgba(148,163,184,0.6)' }}>Scopes:</span> <code style={{ color: '#96BF48', userSelect: 'all' }}>read_orders, write_orders, read_customers</code></div>
+                          <div><span style={{ color: 'rgba(148,163,184,0.6)' }}>Embed app in Shopify admin:</span> No</div>
+                        </div>
+                      </>,
+                      <>En <b>Distribution</b> elegí <b>Custom distribution</b> y poné el dominio de la tienda (<code style={{ color: '#96BF48', userSelect: 'all' }}>mitienda.myshopify.com</code>). Esto habilita la app para esa tienda.</>,
+                      <>En <b>API credentials</b>, copiá el <b>Client ID</b> y el <b>Client secret</b> y pasámelos: los cargo en Vercel y hago un redeploy. <span style={{ color: 'rgba(148,163,184,0.55)' }}>Sin esto, la conexión usaría las credenciales de otra app.</span></>,
+                      <>En <b>Distribution</b>, tocá <b>Generate link</b> y mandale ese link al dueño para que <b>instale</b> la app en su tienda.</>,
+                      <>Para <b>terminar de conectarla con nosotros</b>, abrí (o pasale al dueño) este link con el dominio de la tienda:
+                        <div style={{ marginTop: '6px', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(150,191,72,0.2)', borderRadius: '8px', padding: '8px 10px', fontSize: '12px' }}>
+                          <code style={{ color: '#96BF48', userSelect: 'all', wordBreak: 'break-all' }}>https://criptoblue.vercel.app/api/shopify/connect?shop=mitienda.myshopify.com</code>
+                        </div>
+                        <div style={{ color: 'rgba(148,163,184,0.55)', fontSize: '11.5px', marginTop: '5px' }}>El link de instalación de Shopify solo instala la app; este último paso es el que nos da acceso para leer las órdenes.</div>
+                      </>,
+                    ].map((paso, i) => (
+                      <li key={i} style={{ display: 'flex', gap: '10px', fontSize: '13px', color: 'rgba(226,232,240,0.85)', lineHeight: 1.55 }}>
+                        <span style={{ flexShrink: 0, width: '22px', height: '22px', borderRadius: '50%', background: 'rgba(150,191,72,0.15)', border: '1px solid rgba(150,191,72,0.4)', color: '#96BF48', fontSize: '12px', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{i + 1}</span>
+                        <div style={{ minWidth: 0 }}>{paso}</div>
+                      </li>
+                    ))}
+                  </ol>
+
+                  <p style={{ color: 'rgba(148,163,184,0.6)', fontSize: '12px', lineHeight: 1.5, marginTop: '18px', paddingTop: '14px', borderTop: '1px solid rgba(148,163,184,0.12)' }}>
+                    Cuando el dueño termine, la tienda aparece sola en esta lista con su nombre real. Si querés otro nombre, editalo con el lápiz de la lista.
+                  </p>
                 </>
               )}
             </div>

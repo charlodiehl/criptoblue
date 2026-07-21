@@ -33,6 +33,8 @@ function isPublicRoute(pathname: string): boolean {
     || pathname.startsWith('/api/shopify/callback')
     || pathname.startsWith('/api/tn/connect')
     || pathname.startsWith('/api/shopify/connect')
+    || pathname.startsWith('/tn-success')      // pantalla de "conectada" que ve el dueño tras instalar
+    || pathname.startsWith('/shopify-success')
     || pathname.startsWith('/api/notificador/webhook') // valida por su propio secreto (servicio externo)
     // Fiwind y Montemar desconectados (jul 2026): sus webhooks se eliminaron.
 }
