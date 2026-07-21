@@ -70,6 +70,10 @@ export default function Dashboard() {
   const [platformModalOpen, setPlatformModalOpen] = useState(false)
   const [addStep, setAddStep] = useState<'choose' | 'tn' | 'shopify'>('choose')
   const [copiedLink, setCopiedLink] = useState(false)
+  // Shopify: "bala cargada" (una app a la vez, esperando que una tienda la use).
+  const [shopifyArmed, setShopifyArmed] = useState<{ clientId: string; shop: string; label: string; armedAt: string } | null>(null)
+  const [shopForm, setShopForm] = useState({ shop: '', clientId: '', clientSecret: '', label: '' })
+  const [arming, setArming] = useState(false)
   const [dismissedPairs, setDismissedPairs] = useState<{ mpPaymentId: string; orderId: string; storeId: string }[]>([])
   const [storesLoading, setStoresLoading] = useState(false)
   const [deletingStore, setDeletingStore] = useState<string | null>(null)
@@ -200,6 +204,14 @@ export default function Dashboard() {
     }
   }, [])
 
+  // Estado de la "bala" de Shopify (app cargada esperando conexión).
+  const fetchShopifyArmed = useCallback(async () => {
+    try {
+      const res = await fetch('/api/shopify/apps')
+      if (res.ok) setShopifyArmed((await res.json()).armed || null)
+    } catch { /* ignore */ }
+  }, [])
+
   const fetchErrores = useCallback(async () => {
     try {
       const res = await fetch('/api/errores')
@@ -246,7 +258,7 @@ export default function Dashboard() {
     },
     onLogsChange: () => { fetchLog(); fetchErrores() },
     onOrdersChange: () => fetchOrders(),
-    onStoresChange: () => fetchStores(),
+    onStoresChange: () => { fetchStores(); fetchShopifyArmed() },
   })
 
   // Polling de respaldo cada 60s — cubre casos donde Realtime falla o se desconecta
@@ -269,6 +281,11 @@ export default function Dashboard() {
       fetchLog()
     }
   }, [tab, fetchOrders, fetchUnmatched, fetchLog])
+
+  // Al abrir el paso de Shopify en "Agregar tienda", traer el estado de la bala.
+  useEffect(() => {
+    if (platformModalOpen && addStep === 'shopify') fetchShopifyArmed()
+  }, [platformModalOpen, addStep, fetchShopifyArmed])
 
   const handleDeleteStore = async (storeId: string, storeName: string) => {
     if (!confirm(`¿Desconectar "${storeName}"? Se quita de la lista y de gestión financiera. NO se borra el registro general ni el saldo: se conservan y vuelven si la reconectás.`)) return
@@ -318,6 +335,41 @@ export default function Dashboard() {
     } finally {
       setSavingStore(null)
     }
+  }
+
+  // Cargar la "bala" de Shopify: guarda las credenciales de una app (id + secret +
+  // dominio). No deja cargar otra hasta que una tienda se conecte con esta.
+  const handleArmShopify = async () => {
+    if (arming) return
+    if (!shopForm.shop.trim() || !shopForm.clientId.trim() || !shopForm.clientSecret.trim()) {
+      addToast('Completá dominio, Client ID y Client secret', 'error'); return
+    }
+    setArming(true)
+    try {
+      const res = await fetch('/api/shopify/apps', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(shopForm),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Error')
+      setShopifyArmed(data.armed)
+      setShopForm({ shop: '', clientId: '', clientSecret: '', label: '' })
+      addToast('App de Shopify cargada ✓', 'success')
+    } catch (e) {
+      addToast(e instanceof Error ? e.message : 'No se pudo cargar la app', 'error')
+    } finally {
+      setArming(false)
+    }
+  }
+
+  const handleDiscardShopify = async () => {
+    if (!confirm('¿Descartar la app cargada? Vas a poder cargar otra en su lugar.')) return
+    try {
+      const res = await fetch('/api/shopify/apps', { method: 'DELETE' })
+      if (res.ok) { setShopifyArmed(null); addToast('App descartada', 'success') }
+      else addToast('No se pudo descartar', 'error')
+    } catch { addToast('Error de red', 'error') }
   }
 
   const handleMarkOrderPaid = async (storeId: string, orderId: string, total?: number) => {
@@ -1379,41 +1431,109 @@ export default function Dashboard() {
                     ← Volver
                   </button>
                   <h2 style={{ color: 'white', fontSize: '18px', fontWeight: 700, marginBottom: '6px', textAlign: 'center' }}>Conectar Shopify</h2>
-                  <p style={{ color: 'rgba(148,163,184,0.7)', fontSize: '13px', textAlign: 'center', marginBottom: '18px', lineHeight: 1.55 }}>
-                    Shopify obliga a crear <b style={{ color: 'rgba(226,232,240,0.9)' }}>una app por cada tienda</b>. Seguí estos pasos:
-                  </p>
 
-                  <ol style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                    {[
-                      <>Entrá a <b style={{ color: '#96BF48' }}>partners.shopify.com</b> → <b>Apps</b> → <b>Create app</b> → <b>Create app manually</b>. Ponele un nombre (ej. &quot;Automatización [Tienda]&quot;).</>,
-                      <>En <b>Configuration</b>, cargá estos valores <b>exactos</b>:
-                        <div style={{ marginTop: '6px', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(150,191,72,0.2)', borderRadius: '8px', padding: '8px 10px', fontSize: '12px', lineHeight: 1.7 }}>
-                          <div><span style={{ color: 'rgba(148,163,184,0.6)' }}>App URL:</span> <code style={{ color: '#96BF48', userSelect: 'all' }}>https://criptoblue.vercel.app/</code></div>
-                          <div><span style={{ color: 'rgba(148,163,184,0.6)' }}>Redirect URL:</span> <code style={{ color: '#96BF48', userSelect: 'all', wordBreak: 'break-all' }}>https://criptoblue.vercel.app/api/shopify/callback</code></div>
-                          <div><span style={{ color: 'rgba(148,163,184,0.6)' }}>Scopes:</span> <code style={{ color: '#96BF48', userSelect: 'all' }}>read_orders, write_orders, read_customers</code></div>
-                          <div><span style={{ color: 'rgba(148,163,184,0.6)' }}>Embed app in Shopify admin:</span> No</div>
-                        </div>
-                      </>,
-                      <>En <b>Distribution</b> elegí <b>Custom distribution</b> y poné el dominio de la tienda (<code style={{ color: '#96BF48', userSelect: 'all' }}>mitienda.myshopify.com</code>). Esto habilita la app para esa tienda.</>,
-                      <>En <b>API credentials</b>, copiá el <b>Client ID</b> y el <b>Client secret</b> y pasámelos: los cargo en Vercel y hago un redeploy. <span style={{ color: 'rgba(148,163,184,0.55)' }}>Sin esto, la conexión usaría las credenciales de otra app.</span></>,
-                      <>En <b>Distribution</b>, tocá <b>Generate link</b> y mandale ese link al dueño para que <b>instale</b> la app en su tienda.</>,
-                      <>Para <b>terminar de conectarla con nosotros</b>, abrí (o pasale al dueño) este link con el dominio de la tienda:
-                        <div style={{ marginTop: '6px', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(150,191,72,0.2)', borderRadius: '8px', padding: '8px 10px', fontSize: '12px' }}>
-                          <code style={{ color: '#96BF48', userSelect: 'all', wordBreak: 'break-all' }}>https://criptoblue.vercel.app/api/shopify/connect?shop=mitienda.myshopify.com</code>
-                        </div>
-                        <div style={{ color: 'rgba(148,163,184,0.55)', fontSize: '11.5px', marginTop: '5px' }}>El link de instalación de Shopify solo instala la app; este último paso es el que nos da acceso para leer las órdenes.</div>
-                      </>,
-                    ].map((paso, i) => (
-                      <li key={i} style={{ display: 'flex', gap: '10px', fontSize: '13px', color: 'rgba(226,232,240,0.85)', lineHeight: 1.55 }}>
-                        <span style={{ flexShrink: 0, width: '22px', height: '22px', borderRadius: '50%', background: 'rgba(150,191,72,0.15)', border: '1px solid rgba(150,191,72,0.4)', color: '#96BF48', fontSize: '12px', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{i + 1}</span>
-                        <div style={{ minWidth: 0 }}>{paso}</div>
-                      </li>
-                    ))}
-                  </ol>
+                  {shopifyArmed ? (
+                    /* Bala cargada: app esperando que una tienda se conecte con ella. */
+                    <>
+                      <div style={{ background: 'rgba(150,191,72,0.08)', border: '1px solid rgba(150,191,72,0.35)', borderRadius: '12px', padding: '14px 16px', marginTop: '10px', marginBottom: '16px' }}>
+                        <div style={{ color: '#96BF48', fontWeight: 700, fontSize: '14px', marginBottom: '2px' }}>🔫 App cargada</div>
+                        <div style={{ color: 'rgba(226,232,240,0.9)', fontSize: '13px' }}>{shopifyArmed.label}</div>
+                        <div style={{ color: 'rgba(148,163,184,0.65)', fontSize: '12px', marginTop: '2px', wordBreak: 'break-all' }}>{shopifyArmed.shop}</div>
+                      </div>
 
-                  <p style={{ color: 'rgba(148,163,184,0.6)', fontSize: '12px', lineHeight: 1.5, marginTop: '18px', paddingTop: '14px', borderTop: '1px solid rgba(148,163,184,0.12)' }}>
-                    Cuando el dueño termine, la tienda aparece sola en esta lista con su nombre real. Si querés otro nombre, editalo con el lápiz de la lista.
-                  </p>
+                      <p style={{ color: 'rgba(148,163,184,0.75)', fontSize: '13px', lineHeight: 1.55, marginBottom: '10px' }}>
+                        Pasale al dueño el <b style={{ color: 'rgba(226,232,240,0.9)' }}>link de instalación de Shopify</b> (Generate link) y <b style={{ color: 'rgba(226,232,240,0.9)' }}>este link</b> para terminar de conectarla:
+                      </p>
+                      <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+                        <input
+                          readOnly
+                          value={typeof window !== 'undefined' ? `${window.location.origin}/api/shopify/connect?shop=${shopifyArmed.shop}` : ''}
+                          onFocus={e => e.currentTarget.select()}
+                          style={{ flex: 1, minWidth: 0, padding: '10px 12px', borderRadius: '10px', border: '1px solid rgba(150,191,72,0.3)', background: 'rgba(0,0,0,0.35)', color: 'rgba(226,232,240,0.92)', fontSize: '12px', outline: 'none', fontFamily: 'monospace' }}
+                        />
+                        <button
+                          onClick={async () => {
+                            try {
+                              await navigator.clipboard.writeText(`${window.location.origin}/api/shopify/connect?shop=${shopifyArmed.shop}`)
+                              setCopiedLink(true); setTimeout(() => setCopiedLink(false), 2000)
+                            } catch { addToast('No se pudo copiar el link', 'error') }
+                          }}
+                          style={{ flexShrink: 0, padding: '10px 16px', borderRadius: '10px', border: 'none', background: copiedLink ? 'linear-gradient(135deg, #00c851, #00a844)' : 'linear-gradient(135deg, #96BF48, #7a9e38)', color: 'white', fontSize: '13px', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}
+                        >
+                          {copiedLink ? '✓ Copiado' : 'Copiar'}
+                        </button>
+                      </div>
+                      <p style={{ color: 'rgba(148,163,184,0.55)', fontSize: '11.5px', lineHeight: 1.5, marginBottom: '16px' }}>
+                        No podés cargar otra app hasta que una tienda se conecte con esta. Cuando el dueño la conecte, se libera sola y este espacio queda listo para la próxima.
+                      </p>
+                      <button
+                        onClick={handleDiscardShopify}
+                        style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid rgba(248,113,113,0.35)', background: 'rgba(248,113,113,0.08)', color: '#f87171', fontSize: '13px', fontWeight: 600, cursor: 'pointer' }}
+                      >
+                        Descartar app cargada
+                      </button>
+                    </>
+                  ) : (
+                    /* Sin bala: instructivo + formulario para cargar la app. */
+                    <>
+                      <p style={{ color: 'rgba(148,163,184,0.7)', fontSize: '13px', textAlign: 'center', marginBottom: '18px', lineHeight: 1.55 }}>
+                        Shopify obliga a crear <b style={{ color: 'rgba(226,232,240,0.9)' }}>una app por cada tienda</b>. Seguí estos pasos:
+                      </p>
+
+                      <ol style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                        {[
+                          <>Entrá a <b style={{ color: '#96BF48' }}>partners.shopify.com</b> → <b>Apps</b> → <b>Create app</b> → <b>Create app manually</b>. Ponele un nombre (ej. &quot;Automatización [Tienda]&quot;).</>,
+                          <>En <b>Configuration</b>, cargá estos valores <b>exactos</b>:
+                            <div style={{ marginTop: '6px', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(150,191,72,0.2)', borderRadius: '8px', padding: '8px 10px', fontSize: '12px', lineHeight: 1.7 }}>
+                              <div><span style={{ color: 'rgba(148,163,184,0.6)' }}>App URL:</span> <code style={{ color: '#96BF48', userSelect: 'all' }}>https://criptoblue.vercel.app/</code></div>
+                              <div><span style={{ color: 'rgba(148,163,184,0.6)' }}>Redirect URL:</span> <code style={{ color: '#96BF48', userSelect: 'all', wordBreak: 'break-all' }}>https://criptoblue.vercel.app/api/shopify/callback</code></div>
+                              <div><span style={{ color: 'rgba(148,163,184,0.6)' }}>Scopes:</span> <code style={{ color: '#96BF48', userSelect: 'all' }}>read_orders, write_orders, read_customers</code></div>
+                              <div><span style={{ color: 'rgba(148,163,184,0.6)' }}>Embed app in Shopify admin:</span> No</div>
+                            </div>
+                          </>,
+                          <>En <b>Distribution</b> elegí <b>Custom distribution</b> y poné el dominio de la tienda (<code style={{ color: '#96BF48', userSelect: 'all' }}>mitienda.myshopify.com</code>). Esto habilita la app para esa tienda.</>,
+                          <>En <b>API credentials</b>, copiá el <b>Client ID</b> y el <b>Client secret</b> — los vas a pegar <b>acá abajo</b>.</>,
+                          <>En <b>Distribution</b>, tocá <b>Generate link</b> y mandale ese link al dueño para que <b>instale</b> la app en su tienda.</>,
+                        ].map((paso, i) => (
+                          <li key={i} style={{ display: 'flex', gap: '10px', fontSize: '13px', color: 'rgba(226,232,240,0.85)', lineHeight: 1.55 }}>
+                            <span style={{ flexShrink: 0, width: '22px', height: '22px', borderRadius: '50%', background: 'rgba(150,191,72,0.15)', border: '1px solid rgba(150,191,72,0.4)', color: '#96BF48', fontSize: '12px', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{i + 1}</span>
+                            <div style={{ minWidth: 0 }}>{paso}</div>
+                          </li>
+                        ))}
+                      </ol>
+
+                      <div style={{ marginTop: '18px', paddingTop: '16px', borderTop: '1px solid rgba(148,163,184,0.12)' }}>
+                        <div style={{ color: '#96BF48', fontWeight: 700, fontSize: '14px', marginBottom: '4px' }}>Cargá la app acá 🔫</div>
+                        <p style={{ color: 'rgba(148,163,184,0.6)', fontSize: '11.5px', lineHeight: 1.5, marginBottom: '12px' }}>
+                          Queda guardada (no hace falta redeploy). Vas a poder cargar la próxima recién cuando una tienda se conecte con esta.
+                        </p>
+                        {[
+                          { k: 'shop', label: 'Dominio de la tienda', ph: 'mitienda.myshopify.com' },
+                          { k: 'clientId', label: 'Client ID', ph: 'Client ID de la app' },
+                          { k: 'clientSecret', label: 'Client secret', ph: 'Client secret de la app' },
+                          { k: 'label', label: 'Nombre (opcional)', ph: 'Ej: Automatización Bambua' },
+                        ].map(f => (
+                          <div key={f.k} style={{ marginBottom: '10px' }}>
+                            <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'rgba(150,191,72,0.75)', marginBottom: '4px' }}>{f.label}</label>
+                            <input
+                              value={shopForm[f.k as keyof typeof shopForm]}
+                              onChange={e => setShopForm(s => ({ ...s, [f.k]: e.target.value }))}
+                              placeholder={f.ph}
+                              disabled={arming}
+                              style={{ width: '100%', padding: '9px 12px', borderRadius: '10px', border: '1px solid rgba(150,191,72,0.3)', background: 'rgba(0,0,0,0.3)', color: 'white', fontSize: '13px', outline: 'none', boxSizing: 'border-box' }}
+                            />
+                          </div>
+                        ))}
+                        <button
+                          onClick={handleArmShopify}
+                          disabled={arming || !shopForm.shop.trim() || !shopForm.clientId.trim() || !shopForm.clientSecret.trim()}
+                          style={{ width: '100%', marginTop: '4px', padding: '11px', borderRadius: '10px', border: 'none', background: (!arming && shopForm.shop.trim() && shopForm.clientId.trim() && shopForm.clientSecret.trim()) ? 'linear-gradient(135deg, #96BF48, #7a9e38)' : 'rgba(255,255,255,0.1)', color: 'white', fontSize: '15px', fontWeight: 700, cursor: (!arming && shopForm.shop.trim() && shopForm.clientId.trim() && shopForm.clientSecret.trim()) ? 'pointer' : 'not-allowed' }}
+                        >
+                          {arming ? 'Cargando…' : 'Cargar app'}
+                        </button>
+                      </div>
+                    </>
+                  )}
                 </>
               )}
             </div>

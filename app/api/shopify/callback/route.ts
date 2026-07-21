@@ -3,6 +3,7 @@ import { createHmac } from 'crypto'
 import { saveStore } from '@/lib/storage'
 import { CONFIG } from '@/lib/config'
 import { getShopName } from '@/lib/shopify'
+import { getArmedShopifyApp, clearArmedShopifyApp, normalizeShopDomain } from '@/lib/shopify-apps'
 
 function verifyHmac(searchParams: URLSearchParams, secret: string): boolean {
   const hmac = searchParams.get('hmac')
@@ -28,7 +29,14 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(new URL('/shopify-success?shopify_error=missing_params', req.nextUrl.origin))
   }
 
-  if (!verifyHmac(searchParams, CONFIG.shopify.clientSecret)) {
+  // Credenciales: la app "cargada" si su dominio coincide con el que se conecta,
+  // sino las de la env (compat). Al conectar con éxito con la app cargada, se libera.
+  const armed = await getArmedShopifyApp()
+  const useArmed = !!armed && normalizeShopDomain(armed.shop) === normalizeShopDomain(shop)
+  const clientId = useArmed ? armed!.clientId : CONFIG.shopify.clientId
+  const clientSecret = useArmed ? armed!.clientSecret : CONFIG.shopify.clientSecret
+
+  if (!verifyHmac(searchParams, clientSecret)) {
     return NextResponse.redirect(new URL('/shopify-success?shopify_error=invalid_hmac', req.nextUrl.origin))
   }
 
@@ -38,8 +46,8 @@ export async function GET(req: NextRequest) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        client_id: CONFIG.shopify.clientId,
-        client_secret: CONFIG.shopify.clientSecret,
+        client_id: clientId,
+        client_secret: clientSecret,
         code,
       }),
     })
@@ -65,7 +73,13 @@ export async function GET(req: NextRequest) {
     accessToken,
     connectedAt: new Date().toISOString(),
     platform: 'shopify',
+    appId: clientId,   // identifica con qué app quedó conectada
   })
+
+  // La bala se consumió: se libera el cupo para cargar la próxima app.
+  if (useArmed) {
+    try { await clearArmedShopifyApp() } catch { /* best-effort: no romper la conexión ya hecha */ }
+  }
 
   return NextResponse.redirect(
     new URL(`/shopify-success?storeId=${encodeURIComponent(shop)}`, req.nextUrl.origin)
