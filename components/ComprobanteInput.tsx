@@ -16,7 +16,24 @@ interface Props {
 }
 
 const MAX_BYTES = 10 * 1024 * 1024
-const ACCEPT = ['image/', 'application/pdf']
+const ACCEPT_MIME = ['image/', 'application/pdf']
+const ACCEPT_EXT = /\.(jpe?g|png|gif|webp|heic|heif|bmp|tiff?|pdf)$/i
+
+// Formato válido = imagen o PDF. En mobile (galería de Android) el picker a veces
+// devuelve file.type VACÍO o genérico para fotos, así que no alcanza con el MIME:
+// se acepta también por extensión del nombre, y se es tolerante si el MIME viene
+// vacío (el bucket no restringe tipos; es peor bloquear un comprobante válido).
+function formatoValido(file: File): boolean {
+  if (ACCEPT_MIME.some(a => file.type.startsWith(a))) return true
+  if (ACCEPT_EXT.test(file.name || '')) return true
+  return !file.type   // MIME vacío + sin extensión conocida → dejar pasar
+}
+
+// ¿Mostrar miniatura? Imagen por MIME o por extensión.
+const IMG_EXT = /\.(jpe?g|png|gif|webp|heic|heif|bmp|tiff?)$/i
+function esImagenArchivo(file: File): boolean {
+  return file.type.startsWith('image/') || IMG_EXT.test(file.name || '')
+}
 
 export default function ComprobanteInput({ uploadUrl, onChange, notify, disabled }: Props) {
   const fileRef = useRef<HTMLInputElement>(null)
@@ -28,7 +45,7 @@ export default function ComprobanteInput({ uploadUrl, onChange, notify, disabled
 
   const subir = useCallback(async (file: File) => {
     if (subiendo || disabled) return
-    if (!ACCEPT.some(a => file.type.startsWith(a))) { notify('Solo se aceptan imágenes o PDF', 'error'); return }
+    if (!formatoValido(file)) { notify('Solo se aceptan imágenes o PDF', 'error'); return }
     if (file.size === 0) { notify('El archivo está vacío', 'error'); return }
     if (file.size > MAX_BYTES) { notify('El archivo supera los 10 MB', 'error'); return }
 
@@ -42,7 +59,7 @@ export default function ComprobanteInput({ uploadUrl, onChange, notify, disabled
 
       // Preview local (no requiere URL firmada)
       if (previewUrl) URL.revokeObjectURL(previewUrl)
-      const isImg = file.type.startsWith('image/')
+      const isImg = esImagenArchivo(file)
       setEsImagen(isImg)
       setPreviewUrl(isImg ? URL.createObjectURL(file) : null)
       setNombre(file.name || 'comprobante')

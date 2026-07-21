@@ -13,9 +13,11 @@ export async function POST(req: NextRequest) {
     if ('error' in auth) return auth.error
 
     const form = await req.formData()
-    const id = Number(form.get('id'))
+    // El id llega por FormData (flujo viejo) o por query (?id=, que usa ComprobanteInput).
+    const idStr = String(form.get('id') ?? req.nextUrl.searchParams.get('id') ?? '')
+    const id = Number(idStr)
     const file = form.get('file')
-    if (!Number.isFinite(id)) return NextResponse.json({ error: 'id inválido' }, { status: 400 })
+    if (!idStr || !Number.isFinite(id) || id <= 0) return NextResponse.json({ error: 'id inválido' }, { status: 400 })
     if (!(file instanceof File)) return NextResponse.json({ error: 'Falta el archivo' }, { status: 400 })
     if (file.size > MAX_BYTES) return NextResponse.json({ error: 'El archivo supera los 10 MB' }, { status: 400 })
 

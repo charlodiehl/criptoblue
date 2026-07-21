@@ -1,9 +1,10 @@
 'use client'
 
-import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
+import { useState, useMemo } from 'react'
 import { motion } from 'framer-motion'
 import TasaInput from '@/components/TasaInput'
 import MontoInput from '@/components/MontoInput'
+import ComprobanteInput from '@/components/ComprobanteInput'
 import type { DescuentoMoneda } from '@/lib/types'
 import type { SolicitudConTienda } from './AdminGeneralTab'
 import type { Toast } from './FinanzasApp'
@@ -86,7 +87,6 @@ export default function SolicitudModal({ solicitud, notify, onClose, onPaid }: P
   const [monto, setMonto] = useState(() => String(solicitud.datos[CAMPO_MONTO_TIPO[solicitud.tipo]] ?? ''))
   const [tasas, setTasas] = useState<Record<string, string>>({})
   const [comprobantePath, setComprobantePath] = useState<string | null>(null)
-  const [subiendo, setSubiendo] = useState(false)
   const [pagando, setPagando] = useState(false)
 
   const setTasa = (k: string, v: string) => setTasas(t => ({ ...t, [k]: v }))
@@ -98,61 +98,6 @@ export default function SolicitudModal({ solicitud, notify, onClose, onPaid }: P
   }, [tasas])
 
   const calc = moneda ? preview(moneda, Number(monto), tasasNum) : null
-
-  // Candado sincrónico: evita dos subidas en paralelo aunque el evento llegue dos
-  // veces en el mismo tick (el estado `subiendo` recién se actualiza en el próximo
-  // render, así que no alcanza para bloquear un doble disparo inmediato).
-  const subiendoRef = useRef(false)
-
-  // Única vía de subida: la usan el input de archivo y el pegado (Ctrl+V).
-  const subirArchivo = useCallback(async (file: File) => {
-    if (subiendoRef.current) return
-    subiendoRef.current = true
-    setSubiendo(true)
-    try {
-      const fd = new FormData()
-      fd.append('id', String(solicitud.id))
-      fd.append('file', file)
-      const res = await fetch('/api/finanzas/comprobante', { method: 'POST', body: fd })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Error')
-      setComprobantePath(data.path)
-      notify('Comprobante adjuntado ✓', 'success')
-    } catch (err) {
-      notify(err instanceof Error ? err.message : 'No se pudo subir', 'error')
-    } finally {
-      subiendoRef.current = false
-      setSubiendo(false)
-    }
-  }, [solicitud.id, notify])
-
-  function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (file) subirArchivo(file)
-  }
-
-  // Pegar el comprobante desde el portapapeles (captura de pantalla o archivo copiado).
-  // Solo actúa si el portapapeles trae un archivo/imagen: un pegado de texto en un
-  // campo sigue funcionando normal. Mientras el modal esté abierto, escucha en toda
-  // la ventana para no obligar a enfocar un lugar puntual.
-  useEffect(() => {
-    function onPaste(e: ClipboardEvent) {
-      if (subiendoRef.current) return
-      const dt = e.clipboardData
-      if (!dt) return
-      let file: File | null = dt.files?.[0] ?? null
-      if (!file) {
-        for (const item of Array.from(dt.items ?? [])) {
-          if (item.kind === 'file') { file = item.getAsFile(); break }
-        }
-      }
-      if (!file) return
-      e.preventDefault()
-      subirArchivo(file)
-    }
-    window.addEventListener('paste', onPaste)
-    return () => window.removeEventListener('paste', onPaste)
-  }, [subirArchivo])
 
   async function handlePagar() {
     if (pagando) return
@@ -216,14 +161,11 @@ export default function SolicitudModal({ solicitud, notify, onClose, onPaid }: P
           {/* Comprobante (opcional) */}
           <div>
             <h4 className="text-[11px] uppercase tracking-widest mb-2" style={{ color: 'rgba(148,163,184,0.55)' }}>Comprobante (opcional)</h4>
-            <label className="flex items-center gap-2 text-xs px-4 py-2.5 rounded-xl cursor-pointer transition-all"
-              style={{ background: comprobantePath ? 'rgba(0,255,136,0.08)' : 'rgba(0,212,255,0.06)', border: `1px solid ${comprobantePath ? 'rgba(0,255,136,0.3)' : 'rgba(0,212,255,0.2)'}`, color: comprobantePath ? '#00ff88' : 'rgba(0,212,255,0.85)' }}>
-              <input type="file" className="hidden" onChange={handleUpload} disabled={subiendo} accept="image/*,application/pdf" />
-              {subiendo ? 'Subiendo…' : comprobantePath ? '✓ Comprobante adjuntado (cambiar)' : '📎 Adjuntar comprobante'}
-            </label>
-            <p className="mt-1.5 text-[11px]" style={{ color: 'rgba(148,163,184,0.5)' }}>
-              También podés pegar una captura desde el portapapeles con <kbd style={{ fontFamily: 'monospace', color: 'rgba(0,212,255,0.75)' }}>Ctrl</kbd>+<kbd style={{ fontFamily: 'monospace', color: 'rgba(0,212,255,0.75)' }}>V</kbd>.
-            </p>
+            <ComprobanteInput
+              uploadUrl={`/api/finanzas/comprobante?id=${solicitud.id}`}
+              onChange={setComprobantePath}
+              notify={notify}
+            />
           </div>
 
           {/* Descuento */}
