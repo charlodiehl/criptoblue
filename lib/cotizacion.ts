@@ -12,7 +12,9 @@
 //                            y pagos de transferencias—: no se cobra margen.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const URL = 'https://criptoya.com/api/binancep2p/USDT/ARS/1'
+// OJO: CriptoYa se volvió case-sensitive (jul 2026): el path con USDT/ARS en
+// MAYÚSCULAS devuelve HTTP 500; en minúsculas responde OK. Mantener en minúsculas.
+const URL = 'https://criptoya.com/api/binancep2p/usdt/ars/1'
 
 // Margen sobre el precio de venta (bid) de Binance P2P que se cobra en los ingresos.
 const MARGEN_VENTA = 0.0075
