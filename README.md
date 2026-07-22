@@ -123,7 +123,7 @@ y `…/orders.json?limit=3&status=any` (prueba el scope `read_orders`).
 ## Cotización del USDT
 
 - **Fuente:** precio de **venta** de Binance P2P (`bid`) vía CriptoYa
-  (`https://criptoya.com/api/binancep2p/USDT/ARS/1`) **+ 0,75%** de margen. Es la
+  (`https://criptoya.com/api/binancep2p/usdt/ars/1`) **+ 0,75%** de margen. Es la
   misma cotización para todas las tiendas y todas las órdenes.
   Único punto de configuración: `lib/cotizacion.ts` (`getUsdtRate` + `MARGEN_VENTA`).
 - **Al emparejar una orden:** el ingreso toma la cotización actual (con cache de 2

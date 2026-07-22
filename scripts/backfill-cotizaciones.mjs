@@ -22,7 +22,7 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
 const MARGEN_VENTA = 0.0075
 async function getUsdtRate() {
   try {
-    const res = await fetch('https://criptoya.com/api/binancep2p/USDT/ARS/1', { signal: AbortSignal.timeout(8000) })
+    const res = await fetch('https://criptoya.com/api/binancep2p/usdt/ars/1', { signal: AbortSignal.timeout(8000) })  // minúsculas: CriptoYa da 500 en mayúsculas
     if (!res.ok) return null
     const data = await res.json()
     const bid = Number(data?.bid)
