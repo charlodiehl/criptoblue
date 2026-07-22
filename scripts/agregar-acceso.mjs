@@ -17,9 +17,15 @@
 import { createClient } from '@supabase/supabase-js'
 import { readFileSync } from 'fs'
 
+// Carga .env.local (saca comillas envolventes: SUPABASE_URL viene entre comillas y
+// createClient las rechaza — sin esto el script falla con "Invalid supabaseUrl").
 for (const l of readFileSync(new URL('../.env.local', import.meta.url), 'utf8').split('\n')) {
-  const [k, ...v] = l.split('=')
-  if (k && v.length) process.env[k.trim()] ??= v.join('=').trim()
+  const i = l.indexOf('=')
+  if (i <= 0) continue
+  const k = l.slice(0, i).trim()
+  let v = l.slice(i + 1).trim()
+  if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) v = v.slice(1, -1)
+  if (k && !(k in process.env)) process.env[k] = v
 }
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY, {
