@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireUser, resolveStoreScope } from '@/lib/auth/server'
+import { requireUser, resolveStoreScope, scopedUser } from '@/lib/auth/server'
 import { crearSolicitud, listarSolicitudesTienda, validarDatosSolicitud } from '@/lib/transferencias'
 import { getStores } from '@/lib/storage'
 import { notifyAdmins } from '@/lib/push'
@@ -42,8 +42,9 @@ export async function POST(req: NextRequest) {
     const storeId = resolveStoreScope(auth.user, req.nextUrl.searchParams.get('storeId') || body.storeId)
     if (!storeId) return NextResponse.json({ error: 'No hay tienda asignada' }, { status: 400 })
 
-    // Permiso: solicitar transferencias. El super-admin (vista espejo) siempre puede.
-    if (!puede(auth.user, 'solicitar_transferencias')) {
+    // Permiso: solicitar transferencias, con los permisos DE ESA tienda (puede ser un
+    // acceso secundario). El super-admin (vista espejo) siempre puede.
+    if (!puede(scopedUser(auth.user, storeId), 'solicitar_transferencias')) {
       return NextResponse.json({ error: 'No tenés permiso para solicitar transferencias' }, { status: 403 })
     }
 

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireUser, resolveStoreScope } from '@/lib/auth/server'
+import { requireUser, resolveStoreScope, scopedUser } from '@/lib/auth/server'
 import { getUsuario, agregarMiembro } from '@/lib/equipo'
 import { getStores } from '@/lib/storage'
 import { puedeGestionarEquipo, sanearPermisos } from '@/lib/permisos'
@@ -17,13 +17,18 @@ export async function POST(req: NextRequest) {
     const auth = await requireUser()
     if ('error' in auth) return auth.error
 
-    if (!puedeGestionarEquipo(auth.user)) {
-      return NextResponse.json({ error: 'No tenés permiso de Administración' }, { status: 403 })
-    }
-
     const body = await req.json().catch(() => null)
     const email = String(body?.email || '').trim().toLowerCase()
     if (!EMAIL_RE.test(email)) return NextResponse.json({ error: 'Email inválido' }, { status: 400 })
+
+    const storeId = resolveStoreScope(auth.user, req.nextUrl.searchParams.get('storeId') || body?.storeId)
+    if (!storeId) return NextResponse.json({ error: 'No hay tienda asignada' }, { status: 400 })
+
+    // Permiso de Administración EN ESA tienda (puede ser un acceso secundario).
+    if (!puedeGestionarEquipo(scopedUser(auth.user, storeId))) {
+      return NextResponse.json({ error: 'No tenés permiso de Administración' }, { status: 403 })
+    }
+
     // El que agrega elige si el nuevo es Administrador (tiene todo) u operador (solo los
     // permisos que le marque). Un Administrador tiene todos los permisos activos.
     const permisos = sanearPermisos(body?.permisos)
@@ -31,9 +36,6 @@ export async function POST(req: NextRequest) {
       permisos.solicitar_transferencias = true
       permisos.solicitar_reembolsos = true
     }
-
-    const storeId = resolveStoreScope(auth.user, req.nextUrl.searchParams.get('storeId') || body?.storeId)
-    if (!storeId) return NextResponse.json({ error: 'No hay tienda asignada' }, { status: 400 })
 
     // El email no puede existir ya (ni en esta tienda ni en otra ni como admin).
     const existente = await getUsuario(email)

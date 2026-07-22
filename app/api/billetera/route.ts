@@ -1,18 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireUser } from '@/lib/auth/server'
+import { requireUser, resolveWalletScope } from '@/lib/auth/server'
 import { getIngresosBilletera, getBilleterasOcultas, getDiasConMovimiento } from '@/lib/billeteras'
 
-// GET /api/billetera[?fecha=YYYY-MM-DD] → total + extracto + días con movimiento,
-// SIEMPRE de la billetera del usuario (app_users.wallet). Ignora cualquier wallet
-// del request: el scoping es server-side, nunca se confía en el cliente.
-// Rol 'billetera' (editor o lectura).
+// GET /api/billetera?wallet=<w>[&fecha=YYYY-MM-DD] → total + extracto + días con
+// movimiento. La wallet pedida se VALIDA contra los accesos del usuario (multi-acceso):
+// solo devuelve datos de una billetera que el usuario tiene asignada — nunca se confía
+// en el cliente. Rol 'billetera' (editor o lectura).
 export async function GET(req: NextRequest) {
   try {
     const auth = await requireUser('billetera')
     if ('error' in auth) return auth.error
 
-    const wallet = auth.user.wallet
-    if (!wallet) return NextResponse.json({ error: 'No hay billetera asignada' }, { status: 400 })
+    const scope = resolveWalletScope(auth.user, req.nextUrl.searchParams.get('wallet'))
+    if (!scope) return NextResponse.json({ error: 'Billetera no autorizada' }, { status: 403 })
+    const wallet = scope.wallet
 
     const ocultas = await getBilleterasOcultas()
     if (ocultas.includes(wallet)) return NextResponse.json({ error: 'Billetera no disponible' }, { status: 404 })

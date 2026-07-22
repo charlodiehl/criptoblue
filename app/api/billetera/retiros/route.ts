@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireUser } from '@/lib/auth/server'
+import { requireUser, resolveWalletScope } from '@/lib/auth/server'
 import { validarDatosSolicitud } from '@/lib/transferencias'
 import {
   registrarRetiro, getSalidasDeWallet, getDatosDeRetiros,
@@ -8,14 +8,15 @@ import {
 import { audit } from '@/lib/audit'
 import type { TransferTipo } from '@/lib/types'
 
-// GET /api/billetera/retiros → retiros ya asentados de la billetera del usuario.
-// Rol 'billetera' (editor o lectura). Fuerza su propia billetera.
-export async function GET() {
+// GET /api/billetera/retiros?wallet=<w> → retiros ya asentados de esa billetera.
+// Rol 'billetera' (editor o lectura). La wallet se valida contra los accesos del usuario.
+export async function GET(req: NextRequest) {
   try {
     const auth = await requireUser('billetera')
     if ('error' in auth) return auth.error
-    const wallet = auth.user.wallet
-    if (!wallet) return NextResponse.json({ error: 'No hay billetera asignada' }, { status: 400 })
+    const scope = resolveWalletScope(auth.user, req.nextUrl.searchParams.get('wallet'))
+    if (!scope) return NextResponse.json({ error: 'Billetera no autorizada' }, { status: 403 })
+    const wallet = scope.wallet
 
     const [salidas, datos] = await Promise.all([getSalidasDeWallet(wallet), getDatosDeRetiros(wallet)])
     return NextResponse.json({
@@ -32,14 +33,18 @@ export async function POST(req: NextRequest) {
   try {
     const auth = await requireUser('billetera')
     if ('error' in auth) return auth.error
-    if (auth.user.billeteraPermiso !== 'editor') {
-      return NextResponse.json({ error: 'Tu permiso es de solo lectura: no podés registrar retiros' }, { status: 403 })
-    }
-    const wallet = auth.user.wallet
-    if (!wallet) return NextResponse.json({ error: 'No hay billetera asignada' }, { status: 400 })
 
     const body = await req.json().catch(() => null)
     if (!body || typeof body !== 'object') return NextResponse.json({ error: 'JSON inválido' }, { status: 400 })
+
+    // La wallet viene en el body; se valida contra los accesos del usuario y se toma
+    // el permiso (editor/lectura) DE ESA billetera — no del acceso primario.
+    const scope = resolveWalletScope(auth.user, body.wallet)
+    if (!scope) return NextResponse.json({ error: 'Billetera no autorizada' }, { status: 403 })
+    if (scope.permiso !== 'editor') {
+      return NextResponse.json({ error: 'Tu permiso es de solo lectura: no podés registrar retiros' }, { status: 403 })
+    }
+    const wallet = scope.wallet
 
     const tipo = body.tipo as TransferTipo
     if (!TIPOS_SALIDA.includes(tipo)) return NextResponse.json({ error: 'Tipo de retiro inválido' }, { status: 400 })

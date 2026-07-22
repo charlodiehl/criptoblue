@@ -23,6 +23,10 @@ interface Props {
   // Vista espejo del admin (O2): sin header propio, y las llamadas a /api/tienda/**
   // van con ?storeId= explícito.
   admin?: boolean
+  // Multi-acceso: igual que `admin` en layout (sin header, manda ?storeId=), pero el
+  // gating de pestañas usa el rol 'tienda' con los permisos reales del usuario en ESA
+  // tienda — no el "puede todo" del admin. Lo usa MultiAccesoApp al embeber el portal.
+  embedded?: boolean
   // Señal de refresco en tiempo real (desde FinanzasApp): al marcar una orden, el
   // BalanceTab re-consulta el saldo. Solo se usa en la vista espejo del admin.
   refreshKey?: number
@@ -39,7 +43,9 @@ const TABS: { key: Tab; label: string; permiso?: PermisoKey }[] = [
   { key: 'reembolso', label: 'Solicitar reembolsos', permiso: 'solicitar_reembolsos' },
 ]
 
-export default function TiendaPortal({ storeId, userEmail, permisos, admin = false, refreshKey = 0 }: Props) {
+export default function TiendaPortal({ storeId, userEmail, permisos, admin = false, embedded = false, refreshKey = 0 }: Props) {
+  // Layout embebido (sin header propio): vista espejo del admin O multi-acceso.
+  const sinHeader = admin || embedded
   // Perfil para el gating visual. El admin (vista espejo) puede todo por su rol; el
   // gating REAL igual lo hace el backend en cada endpoint —esto es solo la UI.
   const perfil: UsuarioConPermisos = { role: admin ? 'admin' : 'tienda', permisos: permisos ?? {} }
@@ -69,8 +75,9 @@ export default function TiendaPortal({ storeId, userEmail, permisos, admin = fal
     window.location.href = '/login'
   }
 
-  // Sufijo de query para que la vista espejo del admin apunte a la tienda correcta.
-  const qs = admin ? `?storeId=${encodeURIComponent(storeId)}` : ''
+  // Sufijo de query para que la vista embebida (espejo del admin o multi-acceso)
+  // apunte a la tienda correcta. El backend igual valida el storeId contra los accesos.
+  const qs = sinHeader ? `?storeId=${encodeURIComponent(storeId)}` : ''
 
   const content = (
     <AnimatePresence mode="wait">
@@ -133,8 +140,9 @@ export default function TiendaPortal({ storeId, userEmail, permisos, admin = fal
     </button>
   )
 
-  // Modo espejo (admin): sin header ni dropdown — el botón Equipo va junto a las pestañas.
-  if (admin) {
+  // Layout embebido (espejo del admin o multi-acceso): sin header ni dropdown — el
+  // botón Equipo va junto a las pestañas (el shell lo pone MultiAccesoApp / FinanzasApp).
+  if (sinHeader) {
     return (
       <div className="space-y-4">
         <div className="flex items-center justify-between gap-3 flex-wrap">

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireUser, resolveStoreScope } from '@/lib/auth/server'
+import { requireUser, resolveStoreScope, scopedUser } from '@/lib/auth/server'
 import { listarEquipo } from '@/lib/equipo'
 import { puedeGestionarEquipo } from '@/lib/permisos'
 
@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       miembros,
       yoEmail: auth.user.email,
-      puedeGestionar: puedeGestionarEquipo(auth.user),   // si puede editar permisos / agregar
+      puedeGestionar: puedeGestionarEquipo(scopedUser(auth.user, storeId)),   // gestión EN esa tienda
       soySuperAdmin: auth.user.role === 'admin',          // el super-admin puede editarse y quitar Administración
     })
   } catch (err) {

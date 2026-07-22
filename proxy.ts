@@ -100,27 +100,27 @@ export async function proxy(req: NextRequest) {
     return isApi ? deny(401, 'Se requiere completar el 2FA') : redirect('/auth/mfa')
   }
 
-  // Gate por rol: una tienda solo ve su portal y sus APIs. Las notificaciones son
-  // de los dos roles: su página y las rutas /api/push/** (suscripción del dispositivo
-  // y preferencias) operan SIEMPRE sobre el propio usuario de la sesión, y la página
-  // solo muestra los grupos de su rol — no hay nada de otra tienda ahí.
-  if (role === 'tienda') {
+  // Gate por rol: un no-admin ve los portales de tienda y billetera (un mismo usuario
+  // puede tener accesos a ambas superficies — multi-acceso). El scoping REAL de qué
+  // tienda/billetera puede operar es server-side: cada ruta /api/** valida el storeId
+  // o la wallet pedida contra los accesos del usuario (resolveStoreScope /
+  // resolveWalletScope) — nunca se confía en el cliente, así que abrir la superficie
+  // acá no expone datos de otra tienda/billetera. Las notificaciones (/notificaciones
+  // y /api/push/**) operan siempre sobre el propio usuario de la sesión.
+  if (role === 'tienda' || role === 'billetera') {
     const permitido = pathname === '/tienda'
       || pathname.startsWith('/tienda/')
       || pathname.startsWith('/api/tienda/')
-      || pathname === '/notificaciones'
-      || pathname.startsWith('/api/push/')
-    if (!permitido) return isApi ? deny(403, 'Solo Super Admin') : redirect('/tienda')
-  }
-
-  // Dueño de billetera: solo su portal y sus APIs (scoping real de la billetera se
-  // hace server-side leyendo app_users.wallet — nunca se confía en el cliente).
-  if (role === 'billetera') {
-    const permitido = pathname === '/billetera'
+      || pathname === '/billetera'
       || pathname.startsWith('/billetera/')
       || pathname === '/api/billetera'
       || pathname.startsWith('/api/billetera/')
-    if (!permitido) return isApi ? deny(403, 'Sin permiso') : redirect('/billetera')
+      || pathname === '/notificaciones'
+      || pathname.startsWith('/api/push/')
+    if (!permitido) {
+      const home = role === 'billetera' ? '/billetera' : '/tienda'
+      return isApi ? deny(403, 'Sin permiso') : redirect(home)
+    }
   }
 
   return res

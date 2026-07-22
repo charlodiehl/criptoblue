@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireUser, resolveStoreScope } from '@/lib/auth/server'
+import { requireUser, resolveStoreScope, scopedUser } from '@/lib/auth/server'
 import { getUsuario, setPermisos } from '@/lib/equipo'
 import { puedeGestionarEquipo, sanearPermisos } from '@/lib/permisos'
 
@@ -22,10 +22,6 @@ export async function POST(req: NextRequest) {
     const yo = auth.user
     const esSuperAdmin = yo.role === 'admin'
 
-    if (!puedeGestionarEquipo(yo)) {
-      return NextResponse.json({ error: 'No tenés permiso de Administración' }, { status: 403 })
-    }
-
     const body = await req.json().catch(() => null)
     const emailTarget = String(body?.email || '').trim().toLowerCase()
     if (!emailTarget) return NextResponse.json({ error: 'Falta el email' }, { status: 400 })
@@ -33,6 +29,11 @@ export async function POST(req: NextRequest) {
 
     const storeId = resolveStoreScope(yo, req.nextUrl.searchParams.get('storeId') || body?.storeId)
     if (!storeId) return NextResponse.json({ error: 'No hay tienda asignada' }, { status: 400 })
+
+    // Permiso de Administración EN ESA tienda (puede ser un acceso secundario).
+    if (!puedeGestionarEquipo(scopedUser(yo, storeId))) {
+      return NextResponse.json({ error: 'No tenés permiso de Administración' }, { status: 403 })
+    }
 
     // No editar los propios permisos (salvo super-admin del sistema).
     if (emailTarget === yo.email && !esSuperAdmin) {

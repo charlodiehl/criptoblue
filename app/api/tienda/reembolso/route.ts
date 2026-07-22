@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireUser, resolveStoreScope } from '@/lib/auth/server'
+import { requireUser, resolveStoreScope, scopedUser } from '@/lib/auth/server'
 import { getStores, loadLogs, saveLogs, appendActivity } from '@/lib/storage'
 import { buscarOrdenEnTienda } from '@/lib/buscar-orden'
 import { resumenReembolsos, crearRefundRequest, listarRefundRequestsTienda } from '@/lib/reembolsos'
@@ -33,8 +33,9 @@ export async function POST(req: NextRequest) {
     const storeId = resolveStoreScope(auth.user, req.nextUrl.searchParams.get('storeId') || body?.storeId)
     if (!storeId) return NextResponse.json({ error: 'No hay tienda asignada' }, { status: 400 })
 
-    // Permiso: solicitar reembolsos. El super-admin (vista espejo) siempre puede.
-    if (!puede(auth.user, 'solicitar_reembolsos')) {
+    // Permiso: solicitar reembolsos, con los permisos DE ESA tienda (puede ser un
+    // acceso secundario). El super-admin (vista espejo) siempre puede.
+    if (!puede(scopedUser(auth.user, storeId), 'solicitar_reembolsos')) {
       return NextResponse.json({ error: 'No tenés permiso para solicitar reembolsos' }, { status: 403 })
     }
 
