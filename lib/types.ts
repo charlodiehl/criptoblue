@@ -295,6 +295,10 @@ export interface RefundRequest {
   createdAt: string
   processedAt?: string | null
   processedBy?: string | null
+  // Solo en solicitudes 'procesada': puente al reembolso ejecutado vinculado, para poder
+  // descargar su comprobante desde "Mis solicitudes". Los completa listarRefundRequestsTienda.
+  refundId?: number | null
+  comprobanteDisponible?: boolean
 }
 
 // ─── Audit Log ──────────────────────────────────────────────────────────────

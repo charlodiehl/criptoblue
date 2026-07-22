@@ -18,10 +18,12 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Comprobante no encontrado' }, { status: 404 })
     }
 
-    // Scope: el reembolso debe pertenecer a la tienda del scope resuelto. A una tienda
-    // se le responde 404 (no 403) para no revelar que ese id existe en otra tienda.
+    // Scope: el reembolso debe pertenecer a la tienda del scope resuelto. A un no-admin
+    // se le responde 404 (no 403) para no revelar que ese id existe en otra tienda. Se
+    // chequea !== 'admin' (no === 'tienda') para cubrir multi-acceso: un usuario billetera-
+    // primario con acceso extra a una tienda igual queda scopeado por resolveStoreScope.
     const storeId = resolveStoreScope(auth.user, req.nextUrl.searchParams.get('storeId'))
-    if (auth.user.role === 'tienda' && refund.storeId !== storeId) {
+    if (auth.user.role !== 'admin' && refund.storeId !== storeId) {
       return NextResponse.json({ error: 'Comprobante no encontrado' }, { status: 404 })
     }
 

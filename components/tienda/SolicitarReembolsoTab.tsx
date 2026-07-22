@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ARS, fmtDate } from '@/lib/utils'
 import MontoInput from '@/components/MontoInput'
+import BotonComprobante from './BotonComprobante'
 import type { RefundRequest } from '@/lib/types'
 import type { Toast } from './TiendaPortal'
 
@@ -214,6 +215,12 @@ export default function SolicitarReembolsoTab({ qs, notify }: Props) {
                     {s.createdBy && (
                       <div className="text-[11px] mt-0.5 break-all" style={{ color: 'rgba(148,163,184,0.5)' }}>
                         Solicitado por: <span style={{ color: 'rgba(148,163,184,0.75)' }}>{s.createdBy}</span>
+                      </div>
+                    )}
+                    {/* Reembolsada → descargar el comprobante del reembolso ejecutado. */}
+                    {s.estado === 'procesada' && s.refundId && s.comprobanteDisponible && (
+                      <div className="mt-3">
+                        <BotonComprobante href={`/api/tienda/comprobante-reembolso?id=${s.refundId}${qs ? `&${qs.slice(1)}` : ''}`} />
                       </div>
                     )}
                   </motion.div>

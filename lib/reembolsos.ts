@@ -171,7 +171,28 @@ export async function listarRefundRequestsTienda(storeId: string): Promise<Refun
     .eq('store_id', storeId)
     .order('created_at', { ascending: false })
   if (error) throw new Error(`listarRefundRequestsTienda falló: ${error.message} [${error.code}]`)
-  return (data ?? []).map(rowToRequest)
+  const solicitudes = (data ?? []).map(rowToRequest)
+
+  // Puente a los reembolsos ejecutados: para las solicitudes ya procesadas, traigo el
+  // refund vinculado (por request_id) para exponer el id de su comprobante descargable.
+  const idsProcesadas = solicitudes.filter(s => s.estado === 'procesada').map(s => s.id)
+  if (idsProcesadas.length) {
+    const { data: refs, error: refErr } = await getClient()
+      .from(REFUNDS)
+      .select('id, request_id, comprobante_path')
+      .eq('store_id', storeId)
+      .in('request_id', idsProcesadas)
+    if (refErr) throw new Error(`listarRefundRequestsTienda (refunds) falló: ${refErr.message} [${refErr.code}]`)
+    const porRequest = new Map<number, { refundId: number; comprobante: boolean }>()
+    for (const r of refs ?? []) {
+      if (r.request_id != null) porRequest.set(r.request_id as number, { refundId: r.id as number, comprobante: !!r.comprobante_path })
+    }
+    for (const s of solicitudes) {
+      const m = porRequest.get(s.id)
+      if (m) { s.refundId = m.refundId; s.comprobanteDisponible = m.comprobante }
+    }
+  }
+  return solicitudes
 }
 
 export async function getRefundRequestById(id: number): Promise<RefundRequest | null> {

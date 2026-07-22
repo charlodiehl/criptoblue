@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { fmtDate } from '@/lib/utils'
 import MontoInput from '@/components/MontoInput'
+import BotonComprobante from './BotonComprobante'
 import type { TransferRequest, TransferTipo } from '@/lib/types'
 import type { Toast } from './TiendaPortal'
 
@@ -248,9 +249,12 @@ export default function SolicitarTab({ qs, notify }: Props) {
                   <div className="text-[11px] mt-2 px-3 py-2 rounded-lg"
                     style={{ background: 'rgba(0,0,0,0.25)', color: 'rgba(226,232,240,0.7)' }}>
                     Descontado del saldo: <span style={{ color: '#f87171' }}>−{Number(s.descuento.usdtDescontado).toLocaleString('es-AR', { maximumFractionDigits: 2 })} USDT</span>
-                    {s.comprobantePath && (
-                      <> · <a href={`/api/tienda/comprobante?id=${s.id}${qs ? `&${qs.slice(1)}` : ''}`} target="_blank" rel="noopener noreferrer" style={{ color: '#00d4ff', textDecoration: 'underline' }}>Ver comprobante</a></>
-                    )}
+                  </div>
+                )}
+                {/* Realizada → descargar el comprobante de la transferencia. */}
+                {s.estado === 'pagada' && s.comprobantePath && (
+                  <div className="mt-3">
+                    <BotonComprobante href={`/api/tienda/comprobante?id=${s.id}${qs ? `&${qs.slice(1)}` : ''}`} />
                   </div>
                 )}
               </div>
