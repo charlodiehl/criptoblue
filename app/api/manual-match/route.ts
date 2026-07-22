@@ -3,7 +3,7 @@ import { loadHotState, saveHotState, loadLogs, saveLogs, getStores, incrementPer
 import { appendRegistroEntry, isOrderAlreadyPaid, isPaymentAlreadyUsed } from '@/lib/registro'
 import { markOrderAsPaid as markTNOrderAsPaid, getPendingOrders as getTNOrders } from '@/lib/tiendanube'
 import { markOrderAsPaid as markShopifyOrderAsPaid, getPendingOrders as getShopifyOrders } from '@/lib/shopify'
-import { HARD_CUTOFF_ORDERS } from '@/lib/config'
+import { HARD_CUTOFF_ORDERS, esOrdenDeTercero } from '@/lib/config'
 import type { LogEntry } from '@/lib/types'
 import { audit, auditMatch } from '@/lib/audit'
 import { requireUser } from '@/lib/auth/server'
@@ -30,6 +30,10 @@ export async function POST(req: NextRequest) {
     ])
     const store = stores[storeId]
     if (!store) return NextResponse.json({ error: 'Store not found' }, { status: 404 })
+    // Tiendas de terceros: sus órdenes no emparejan con las billeteras actuales.
+    if (esOrdenDeTercero(storeId)) {
+      return NextResponse.json({ error: 'Las órdenes de esta tienda (terceros) no emparejan con las billeteras actuales.' }, { status: 409 })
+    }
 
     const unmatchedIndex = hot.unmatchedPayments.findIndex(
       u => (u.mpPaymentId || u.payment?.mpPaymentId || '') === mpPaymentId

@@ -10,10 +10,10 @@ import PaymentsListTab from '@/components/PaymentsListTab'
 import RegistroTab from '@/components/RegistroTab'
 import { useRealtimeSync } from '@/hooks/useRealtimeSync'
 import type { Order, UnmatchedPayment, Store, LogEntry, Payment, RecentMatch, ErrorEntry } from '@/lib/types'
-import { HARD_CUTOFF_PAYMENTS, HARD_CUTOFF_ORDERS, WALLETS_SIN_VENCIMIENTO } from '@/lib/config'
+import { HARD_CUTOFF_PAYMENTS, HARD_CUTOFF_ORDERS, WALLETS_SIN_VENCIMIENTO, esOrdenDeTercero } from '@/lib/config'
 import { paymentWalletId } from '@/lib/utils'
 
-type Tab = 'manual' | 'ordenes' | 'pagos' | 'sin-coincidencia' | 'registro'
+type Tab = 'manual' | 'ordenes' | 'pagos' | 'sin-coincidencia' | 'registro' | 'terceros'
 
 interface Stats {
   matchedCount: number        // pagos emparejados desde Emparejamiento (MP real)
@@ -697,6 +697,11 @@ export default function Dashboard() {
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
   }, [orders, logEntries, recentMatches, cutoff48, HARD_CUTOFF_ORDERS_MS])
 
+  // División tiendas de terceros (ej. Hemat): sus órdenes NO participan del emparejamiento
+  // (ni auto ni manual con la cola) y van a su propia pestaña. El resto usa ordenesPropias.
+  const ordenesPropias = useMemo(() => allRecentOrders.filter(o => !esOrdenDeTercero(o.storeId)), [allRecentOrders])
+  const ordenesTerceros = useMemo(() => allRecentOrders.filter(o => esOrdenDeTercero(o.storeId)), [allRecentOrders])
+
   // Todos los pagos de las últimas 48hs (macheados + no macheados)
   const allRecentPayments = useMemo((): Payment[] => {
     const seenIds = new Set<string>()
@@ -765,7 +770,7 @@ export default function Dashboard() {
     unmatchedPayments.filter(u => !matchedPaymentIds.has(u.payment.mpPaymentId)),
     [unmatchedPayments, matchedPaymentIds])
   const filteredOrders = useMemo(() =>
-    orders.filter(o => !matchedOrderIds.has(`${o.storeId}-${o.orderId}`)),
+    orders.filter(o => !matchedOrderIds.has(`${o.storeId}-${o.orderId}`) && !esOrdenDeTercero(o.storeId)),
     [orders, matchedOrderIds])
 
   // Mapa de órdenes duplicadas: compara dentro de la misma tienda por email/CUIT/nombre + monto
@@ -774,10 +779,10 @@ export default function Dashboard() {
     const WINDOW_48H = 48 * 60 * 60 * 1000
     const WINDOW_24H = 24 * 60 * 60 * 1000
 
-    for (let i = 0; i < allRecentOrders.length; i++) {
-      for (let j = i + 1; j < allRecentOrders.length; j++) {
-        const a = allRecentOrders[i]
-        const b = allRecentOrders[j]
+    for (let i = 0; i < ordenesPropias.length; i++) {
+      for (let j = i + 1; j < ordenesPropias.length; j++) {
+        const a = ordenesPropias[i]
+        const b = ordenesPropias[j]
 
         // Solo dentro de la misma tienda
         if (a.storeId !== b.storeId) continue
@@ -815,7 +820,7 @@ export default function Dashboard() {
       }
     }
     return map
-  }, [allRecentOrders])
+  }, [ordenesPropias])
 
   // Pagos de las últimas 48hs sin coincidencia con ninguna orden
   const paymentsWithoutMatch = useMemo((): Payment[] => {
@@ -859,10 +864,11 @@ export default function Dashboard() {
 
   const tabs: { id: Tab; label: string; primary?: boolean; badge?: number; badgeColor?: string }[] = [
     { id: 'manual', label: 'Emparejamiento', primary: true },
-    { id: 'ordenes', label: `Órdenes (${allRecentOrders.length})` },
+    { id: 'ordenes', label: `Órdenes (${ordenesPropias.length})` },
     { id: 'pagos', label: `Pagos (${allRecentPayments.length})` },
     { id: 'sin-coincidencia', label: `Sin coincidencia (${paymentsWithoutMatch.length})` },
     { id: 'registro', label: 'Registro' },
+    { id: 'terceros', label: `Órdenes de terceros (${ordenesTerceros.length})` },
   ]
 
   return (
@@ -1545,9 +1551,10 @@ export default function Dashboard() {
         {/* Tab content */}
         <div>
           {tab === 'manual' && <ManualMatchTab unmatchedPayments={filteredUnmatched} orders={filteredOrders} duplicateMap={duplicateMap} matchedIds={matchedOrderIds} onManualMatch={handleManualMatch} onDismissPayment={handleDismissPayment} onMarkOrderPaid={handleMarkOrderPaid} dismissedPairs={dismissedPairs} loading={actionLoading || systemLocked} lastMPCheck={stats?.lastMPCheck ?? null} refreshKey={matchRefreshKey} />}
-          {tab === 'ordenes' && <OrdersListTab orders={allRecentOrders} stores={stores} matchedIds={matchedOrderIds} duplicateMap={duplicateMap} onMarkExternal={handleMarkOrderExternal} onMarkManual={handleMarkOrderManual} loading={actionLoading || systemLocked} />}
-          {tab === 'pagos' && <PaymentsListTab payments={allRecentPayments} orders={allRecentOrders} stores={stores} matchedIds={matchedPaymentIds} externallyMarkedIds={new Set(stats?.externallyMarkedPayments ?? [])} title="Pagos · últimas 48hs" emptyText="No hay pagos en las últimas 48 horas" onMarkReceived={handleMarkPaymentReceived} onManualLog={handleManualLog} showBuscarPagos onEmparejado={handlePagoEmparejado} loading={actionLoading || systemLocked} />}
-          {tab === 'sin-coincidencia' && <PaymentsListTab payments={paymentsWithoutMatch} orders={allRecentOrders} stores={stores} externallyMarkedIds={new Set(stats?.externallyMarkedPayments ?? [])} title="Pagos sin coincidencia · últimas 48hs" emptyText="Todos los pagos de las últimas 48hs tienen una orden asignada" onMarkReceived={handleMarkPaymentReceived} onManualLog={handleManualLog} loading={actionLoading || systemLocked} />}
+          {tab === 'ordenes' && <OrdersListTab orders={ordenesPropias} stores={stores} matchedIds={matchedOrderIds} duplicateMap={duplicateMap} onMarkExternal={handleMarkOrderExternal} onMarkManual={handleMarkOrderManual} loading={actionLoading || systemLocked} />}
+          {tab === 'pagos' && <PaymentsListTab payments={allRecentPayments} orders={ordenesPropias} stores={stores} matchedIds={matchedPaymentIds} externallyMarkedIds={new Set(stats?.externallyMarkedPayments ?? [])} title="Pagos · últimas 48hs" emptyText="No hay pagos en las últimas 48 horas" onMarkReceived={handleMarkPaymentReceived} onManualLog={handleManualLog} showBuscarPagos onEmparejado={handlePagoEmparejado} loading={actionLoading || systemLocked} />}
+          {tab === 'sin-coincidencia' && <PaymentsListTab payments={paymentsWithoutMatch} orders={ordenesPropias} stores={stores} externallyMarkedIds={new Set(stats?.externallyMarkedPayments ?? [])} title="Pagos sin coincidencia · últimas 48hs" emptyText="Todos los pagos de las últimas 48hs tienen una orden asignada" onMarkReceived={handleMarkPaymentReceived} onManualLog={handleManualLog} loading={actionLoading || systemLocked} />}
+          {tab === 'terceros' && <OrdersListTab orders={ordenesTerceros} stores={stores} matchedIds={matchedOrderIds} duplicateMap={duplicateMap} onMarkExternal={handleMarkOrderExternal} onMarkManual={handleMarkOrderManual} loading={actionLoading || systemLocked} />}
           {tab === 'registro' && <RegistroTab refreshKey={logVersion} onEntryEdited={fetchLog} />}
         </div>
       </main>

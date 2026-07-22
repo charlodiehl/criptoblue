@@ -110,6 +110,18 @@ export const WALLETS_SIN_VENCIMIENTO: readonly string[] = ['Lacar', 'MS']
 // poner en true y MP vuelve a ingresar pagos a la cola.
 export const MERCADOPAGO_ACTIVO = false
 
+// Tiendas de "terceros": sus órdenes NO emparejan con las billeteras actuales —
+// esperan una billetera dedicada que todavía no existe. Quedan FUERA del auto-match
+// y del emparejamiento manual con la cola; se listan aparte en la pestaña "Órdenes de
+// terceros". Cuando exista la billetera dedicada, se mapea la tienda a esa billetera.
+export const TIENDAS_TERCEROS: ReadonlySet<string> = new Set([
+  '7284674', // Hemat
+])
+
+export function esOrdenDeTercero(storeId: string | null | undefined): boolean {
+  return !!storeId && TIENDAS_TERCEROS.has(storeId)
+}
+
 export const CONFIG = {
   tiendanube: {
     // App de Tiendanube (client_id + secret). Configurables por env para poder cambiar

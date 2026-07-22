@@ -5,7 +5,7 @@
  */
 
 import type { Payment, Order, UnmatchedPayment } from './types'
-import { SAMEMONTO_WINDOW_HOURS } from './config'
+import { SAMEMONTO_WINDOW_HOURS, esOrdenDeTercero } from './config'
 import { paymentWalletId, montoCoincide, pctPorDebajo } from './utils'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -231,6 +231,9 @@ export function findAutoMatchCandidates(
   // Filtrar órdenes ya pagadas del universo de candidatos — no deben ser candidatas
   // ni inflar el conteo de sameMontoCount
   orders = orders.filter(o => !confirmedOrderIds.has(`${o.storeId}-${o.orderId}`))
+  // Tiendas de terceros: sus órdenes NO emparejan con las billeteras actuales — se
+  // sacan del universo (ni candidatas ni cuentan para sameMontoCount de las demás).
+  orders = orders.filter(o => !esOrdenDeTercero(o.storeId))
   const candidates: AutoMatchCandidate[] = []
   const diagnostics: AutoMatchDiagnostic[] = []
 
