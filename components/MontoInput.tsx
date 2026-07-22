@@ -98,5 +98,36 @@ export default function MontoInput({ value, onChange, ...rest }: Props) {
     onChange(clean)
   }
 
-  return <input type="text" inputMode="decimal" value={display} onChange={handleChange} {...rest} />
+  // Al copiar/cortar, los puntos de miles son SOLO visuales: se sacan del texto que va
+  // al portapapeles (así "97.485" se pega como "97485"). El separador decimal es coma,
+  // que se conserva. Devuelve el texto seleccionado (o todo) ya sin los puntos, o null
+  // si no había puntos que sacar (comportamiento normal del navegador).
+  function textoSinMiles(input: HTMLInputElement): string | null {
+    const start = input.selectionStart ?? 0
+    const end = input.selectionEnd ?? 0
+    const sel = start !== end ? input.value.slice(start, end) : input.value
+    const limpio = sel.replace(/\./g, '')
+    return limpio === sel ? null : limpio
+  }
+
+  function handleCopy(e: React.ClipboardEvent<HTMLInputElement>) {
+    const limpio = textoSinMiles(e.currentTarget)
+    if (limpio == null) return
+    e.clipboardData.setData('text/plain', limpio)
+    e.preventDefault()
+  }
+
+  function handleCut(e: React.ClipboardEvent<HTMLInputElement>) {
+    const input = e.currentTarget
+    const start = input.selectionStart ?? 0
+    const end = input.selectionEnd ?? 0
+    if (start === end) return // sin selección no hay nada que cortar
+    e.clipboardData.setData('text/plain', input.value.slice(start, end).replace(/\./g, ''))
+    e.preventDefault()
+    // El navegador no toca el input (preventDefault): quito la parte cortada y re-parseo.
+    const { display: d, clean } = parseMontoInput(input.value.slice(0, start) + input.value.slice(end))
+    setDisplay(d); setLastValue(clean); onChange(clean)
+  }
+
+  return <input type="text" inputMode="decimal" value={display} onChange={handleChange} onCopy={handleCopy} onCut={handleCut} {...rest} />
 }
