@@ -45,29 +45,36 @@ export default function ComprobanteInput({ uploadUrl, onChange, notify, disabled
 
   const subir = useCallback(async (file: File) => {
     if (subiendo || disabled) return
-    if (!formatoValido(file)) { notify('Solo se aceptan imágenes o PDF', 'error'); return }
-    if (file.size === 0) { notify('El archivo está vacío', 'error'); return }
-    if (file.size > MAX_BYTES) { notify('El archivo supera los 10 MB', 'error'); return }
+    // Info del archivo en los errores: si un dispositivo rechaza el comprobante,
+    // el mensaje dice EXACTAMENTE por qué (tipo/tamaño/nombre) para poder diagnosticarlo.
+    const info = `(tipo: ${file.type || 'vacío'} · ${Math.round((file.size || 0) / 1024)} KB · "${file.name || 'sin nombre'}")`
+    if (!formatoValido(file)) { notify(`Formato no válido ${info}. Solo imágenes o PDF.`, 'error'); return }
+    if (file.size === 0) { notify(`El archivo llegó vacío ${info}. Probá elegirlo de nuevo desde la galería.`, 'error'); return }
+    if (file.size > MAX_BYTES) { notify(`El archivo supera los 10 MB ${info}.`, 'error'); return }
 
     setSubiendo(true)
     try {
       const fd = new FormData()
       fd.append('file', file)
       const res = await fetch(uploadUrl, { method: 'POST', body: fd })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Error al subir')
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || `Error ${res.status} al subir`)
 
-      // Preview local (no requiere URL firmada)
-      if (previewUrl) URL.revokeObjectURL(previewUrl)
-      const isImg = esImagenArchivo(file)
-      setEsImagen(isImg)
-      setPreviewUrl(isImg ? URL.createObjectURL(file) : null)
+      // El comprobante YA quedó guardado en el server: fijar el path PRIMERO. La
+      // miniatura es secundaria y va aparte, para que un fallo de preview (p. ej.
+      // createObjectURL en algún navegador mobile) NO deshaga una subida exitosa.
       setNombre(file.name || 'comprobante')
       setPath(data.path)
       onChange(data.path)
       notify('Comprobante adjuntado ✓', 'success')
+      try {
+        if (previewUrl) URL.revokeObjectURL(previewUrl)
+        const isImg = esImagenArchivo(file)
+        setEsImagen(isImg)
+        setPreviewUrl(isImg ? URL.createObjectURL(file) : null)
+      } catch { setEsImagen(false); setPreviewUrl(null) }
     } catch (err) {
-      notify(err instanceof Error ? err.message : 'No se pudo subir', 'error')
+      notify(err instanceof Error ? err.message : 'No se pudo subir el comprobante', 'error')
     } finally {
       setSubiendo(false)
     }
@@ -112,9 +119,6 @@ export default function ComprobanteInput({ uploadUrl, onChange, notify, disabled
 
   return (
     <div>
-      <input ref={fileRef} type="file" className="hidden" accept="image/*,application/pdf" disabled={disabled}
-        onChange={e => { const f = e.target.files?.[0]; if (f) subir(f) }} />
-
       {!path ? (
         <div
           tabIndex={0}
@@ -131,11 +135,13 @@ export default function ComprobanteInput({ uploadUrl, onChange, notify, disabled
               style={{ background: 'rgba(0,212,255,0.1)', border: '1px solid rgba(0,212,255,0.3)', color: '#00d4ff', cursor: disabled || subiendo ? 'not-allowed' : 'pointer' }}>
               📋 Pegar del portapapeles
             </button>
-            <button type="button" onClick={() => fileRef.current?.click()} disabled={disabled || subiendo}
-              className="px-4 py-2 rounded-lg text-xs font-bold transition-all disabled:opacity-50"
-              style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(148,163,184,0.2)', color: 'rgba(226,232,240,0.85)', cursor: disabled || subiendo ? 'not-allowed' : 'pointer' }}>
+            <label
+              className="px-4 py-2 rounded-lg text-xs font-bold transition-all inline-flex items-center"
+              style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(148,163,184,0.2)', color: 'rgba(226,232,240,0.85)', cursor: disabled || subiendo ? 'not-allowed' : 'pointer', opacity: disabled || subiendo ? 0.5 : 1, touchAction: 'manipulation', WebkitTapHighlightColor: 'transparent' }}>
+              <input ref={fileRef} type="file" className="hidden" accept="image/*,application/pdf" disabled={disabled || subiendo}
+                onChange={e => { const f = e.target.files?.[0]; if (f) subir(f); e.target.value = '' }} />
               📎 Adjuntar archivo
-            </button>
+            </label>
           </div>
         </div>
       ) : (
