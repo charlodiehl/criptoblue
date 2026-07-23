@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { requireUser } from '@/lib/auth/server'
+import { requireUser, setUnidad } from '@/lib/auth/server'
 import { getIngresosBilleteras } from '@/lib/billeteras'
 
 // GET /api/finanzas/billeteras → un ítem por billetera con ingresos: { wallet, totalArs, cantidad }
@@ -8,6 +8,8 @@ export async function GET() {
   try {
     const auth = await requireUser('admin')
     if ('error' in auth) return auth.error
+    // La unidad de negocio se aplica ACÁ, en el frame del handler (ver lib/unidad.ts).
+    setUnidad(auth.user.unidad)
 
     const billeteras = await getIngresosBilleteras()
     return NextResponse.json({ billeteras })

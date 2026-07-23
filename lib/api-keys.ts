@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from 'crypto'
 import { serviceClient } from '@/lib/auth/server'
 import { getClient, getClientSinUnidad } from '@/lib/storage'
-import { getUnidadOpcional, parseUnidad, setUnidad, UNIDAD_DEFAULT } from '@/lib/unidad'
+import { getUnidadOpcional, parseUnidad, UNIDAD_DEFAULT, type UnidadId } from '@/lib/unidad'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Keys de la API pública de registro (tabla store_api_keys).
@@ -10,8 +10,8 @@ import { getUnidadOpcional, parseUnidad, setUnidad, UNIDAD_DEFAULT } from '@/lib
 //
 // La API pública entra SIN sesión, así que la unidad de negocio la define la propia
 // key: validarApiKey() la busca sin filtro (es la única query que puede mirar todas
-// las unidades) y establece la del request. De ahí en adelante, todo lo que lea la
-// API queda acotado solo.
+// las unidades) y la devuelve; la ruta la aplica y, de ahí en adelante, todo lo que
+// lea la API queda acotado solo.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const PREFIX = 'cb_live_'
@@ -35,14 +35,14 @@ export async function generarApiKey(storeId: string, label?: string): Promise<{ 
 }
 
 export type ValidacionKey =
-  | { ok: true; keyId: number; storeId: string }
+  | { ok: true; keyId: number; storeId: string; unidad: UnidadId }
   | { ok: false; reason: 'invalid' | 'revoked' }
 
 // Valida una key por su hash. No compara texto plano: lookup por el hash indexado.
 //
 // ÚNICA query que mira todas las unidades a la vez (cliente crudo): es la que
-// AVERIGUA la unidad. Si la key es válida, deja establecida la unidad del request,
-// así todo lo que la API lea después sale de la unidad dueña de esa key.
+// AVERIGUA la unidad. La DEVUELVE para que la ruta la aplique en su propio frame
+// (un setUnidad() acá adentro no le llegaría — ver lib/unidad.ts).
 export async function validarApiKey(key: string): Promise<ValidacionKey> {
   if (!key) return { ok: false, reason: 'invalid' }
   const { data } = await serviceClient()
@@ -52,8 +52,7 @@ export async function validarApiKey(key: string): Promise<ValidacionKey> {
     .maybeSingle<{ id: number; store_id: string; unidad: string | null; revoked_at: string | null }>()
   if (!data) return { ok: false, reason: 'invalid' }
   if (data.revoked_at) return { ok: false, reason: 'revoked' }
-  setUnidad(parseUnidad(data.unidad))
-  return { ok: true, keyId: data.id, storeId: data.store_id }
+  return { ok: true, keyId: data.id, storeId: data.store_id, unidad: parseUnidad(data.unidad) }
 }
 
 export async function marcarUso(keyId: number): Promise<void> {

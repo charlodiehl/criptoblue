@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation'
-import { getSessionUser } from '@/lib/auth/server'
+import { getSessionUser, setUnidad } from '@/lib/auth/server'
 import { buildAccesoItems } from '@/lib/multi-acceso'
 import BilleteraPortal from '@/components/billetera/BilleteraPortal'
 import MultiAccesoApp from '@/components/MultiAccesoApp'
@@ -11,6 +11,8 @@ import MultiAccesoApp from '@/components/MultiAccesoApp'
 export default async function BilleteraPage() {
   const user = await getSessionUser()
   if (!user) redirect('/login')
+  // La unidad de negocio se aplica ACÁ, en el frame de la página (ver lib/unidad.ts).
+  setUnidad(user.unidad)
   if (user.accesos.length === 0) redirect('/')
 
   if (user.accesos.length > 1) {

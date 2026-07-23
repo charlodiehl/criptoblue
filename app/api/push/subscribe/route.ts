@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireUser } from '@/lib/auth/server'
+import { requireUser, setUnidad } from '@/lib/auth/server'
 import { savePushSubscription } from '@/lib/push'
 
 // POST /api/push/subscribe — guarda la suscripción Web Push del navegador actual.
@@ -8,6 +8,8 @@ export async function POST(req: NextRequest) {
   try {
     const auth = await requireUser()
     if ('error' in auth) return auth.error
+    // La unidad de negocio se aplica ACÁ, en el frame del handler (ver lib/unidad.ts).
+    setUnidad(auth.user.unidad)
 
     const body = await req.json().catch(() => null)
     const sub = body?.subscription

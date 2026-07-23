@@ -5,7 +5,7 @@ import { markOrderAsPaid as markTNOrderAsPaid } from '@/lib/tiendanube'
 import { markOrderAsPaid as markShopifyOrderAsPaid } from '@/lib/shopify'
 import type { LogEntry, Payment } from '@/lib/types'
 import { auditMatch } from '@/lib/audit'
-import { requireUser } from '@/lib/auth/server'
+import { requireUser, setUnidad } from '@/lib/auth/server'
 import { nowART, toUTCISO } from '@/lib/utils'
 
 const LOCK_HOLDER = 'mark-order-paid-manual'
@@ -19,6 +19,8 @@ export async function POST(req: NextRequest) {
     // Quién carga el pago (trazabilidad). El proxy ya exige sesión; acá tomamos el email.
     const auth = await requireUser('admin')
     if ('error' in auth) return auth.error
+    // La unidad de negocio se aplica ACÁ, en el frame del handler (ver lib/unidad.ts).
+    setUnidad(auth.user.unidad)
     const { orderId, storeId, monto, medioPago, nombrePagador, cuitPagador, order: orderFromClient, fechaPago, billetera, billeteraOtra } = await req.json()
     if (!orderId || !storeId || !monto || !medioPago) {
       return NextResponse.json({ error: 'orderId, storeId, monto y medioPago son requeridos' }, { status: 400 })

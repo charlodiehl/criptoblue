@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireUser } from '@/lib/auth/server'
+import { requireUser, setUnidad } from '@/lib/auth/server'
 import { walletsDeUnidad } from '@/lib/unidad'
 import { validarDatosSolicitud } from '@/lib/transferencias'
 import {
@@ -18,6 +18,8 @@ export async function GET(req: NextRequest) {
   try {
     const auth = await requireUser('admin')
     if ('error' in auth) return auth.error
+    // La unidad de negocio se aplica ACÁ, en el frame del handler (ver lib/unidad.ts).
+    setUnidad(auth.user.unidad)
 
     const wallet = (req.nextUrl.searchParams.get('wallet') || '').trim()
     if (!walletValido(wallet)) return NextResponse.json({ error: 'Billetera inválida' }, { status: 400 })
@@ -46,6 +48,8 @@ export async function POST(req: NextRequest) {
   try {
     const auth = await requireUser('admin')
     if ('error' in auth) return auth.error
+    // La unidad de negocio se aplica ACÁ, en el frame del handler (ver lib/unidad.ts).
+    setUnidad(auth.user.unidad)
 
     const body = await req.json().catch(() => null)
     if (!body || typeof body !== 'object') return NextResponse.json({ error: 'JSON inválido' }, { status: 400 })

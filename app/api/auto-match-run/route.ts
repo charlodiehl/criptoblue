@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { loadHotState, getStores } from '@/lib/storage'
 import { runAutoMatchCore } from '@/lib/auto-match-runner'
 import { porCadaUnidad } from '@/lib/unidad'
-import { requireUnidad } from '@/lib/auth/server'
+import { requireUnidad, setUnidad } from '@/lib/auth/server'
 
 export const maxDuration = 60
 
@@ -48,8 +48,9 @@ export async function GET() {
 
 // POST — disparo manual desde el botón ⚡ del browser. Solo la unidad de quien lo apretó.
 export async function POST() {
-  const errUnidad = await requireUnidad()
-  if (errUnidad) return errUnidad
+  const sesion = await requireUnidad()
+  if ('error' in sesion) return sesion.error
+  setUnidad(sesion.unidad)
   try {
     return NextResponse.json(await runAutoMatch('manual_button'))
   } catch (err) {

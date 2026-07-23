@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireUser } from '@/lib/auth/server'
+import { requireUser, setUnidad } from '@/lib/auth/server'
 import {
   getArmedShopifyApp, setArmedShopifyApp, clearArmedShopifyApp, normalizeShopDomain,
   type ArmedShopifyApp,
@@ -15,6 +15,8 @@ function publicView(app: ArmedShopifyApp | null) {
 export async function GET() {
   const auth = await requireUser('admin')
   if ('error' in auth) return auth.error
+  // La unidad de negocio se aplica ACÁ, en el frame del handler (ver lib/unidad.ts).
+  setUnidad(auth.user.unidad)
   try {
     return NextResponse.json({ armed: publicView(await getArmedShopifyApp()) })
   } catch (err) {
@@ -27,6 +29,8 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const auth = await requireUser('admin')
   if ('error' in auth) return auth.error
+  // La unidad de negocio se aplica ACÁ, en el frame del handler (ver lib/unidad.ts).
+  setUnidad(auth.user.unidad)
   try {
     if (await getArmedShopifyApp()) {
       return NextResponse.json(
@@ -56,6 +60,8 @@ export async function POST(req: NextRequest) {
 export async function DELETE() {
   const auth = await requireUser('admin')
   if ('error' in auth) return auth.error
+  // La unidad de negocio se aplica ACÁ, en el frame del handler (ver lib/unidad.ts).
+  setUnidad(auth.user.unidad)
   try {
     await clearArmedShopifyApp()
     return NextResponse.json({ success: true })

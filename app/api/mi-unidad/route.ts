@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { requireUser } from '@/lib/auth/server'
+import { requireUser, setUnidad } from '@/lib/auth/server'
 import { unidadActiva } from '@/lib/unidad'
 
 // GET /api/mi-unidad → la unidad de negocio de la sesión.
@@ -11,6 +11,8 @@ import { unidadActiva } from '@/lib/unidad'
 export async function GET() {
   const auth = await requireUser()
   if ('error' in auth) return auth.error
+  // La unidad de negocio se aplica ACÁ, en el frame del handler (ver lib/unidad.ts).
+  setUnidad(auth.user.unidad)
 
   const u = unidadActiva()
   return NextResponse.json({

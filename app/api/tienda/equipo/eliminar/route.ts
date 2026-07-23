@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireUser, resolveStoreScope, scopedUser, serviceClient } from '@/lib/auth/server'
+import { requireUser, resolveStoreScope, scopedUser, serviceClient, setUnidad } from '@/lib/auth/server'
 import { getUsuario, eliminarMiembro } from '@/lib/equipo'
 import { puedeGestionarEquipo } from '@/lib/permisos'
 
@@ -31,6 +31,8 @@ export async function POST(req: NextRequest) {
   try {
     const auth = await requireUser()
     if ('error' in auth) return auth.error
+    // La unidad de negocio se aplica ACÁ, en el frame del handler (ver lib/unidad.ts).
+    setUnidad(auth.user.unidad)
     const yo = auth.user
     const esSuperAdmin = yo.role === 'admin'
 

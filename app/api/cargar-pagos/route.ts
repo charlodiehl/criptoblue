@@ -4,7 +4,7 @@ import { getRegistroPaymentsBySource } from '@/lib/registro'
 import { pagoFirma, buildSigSet } from '@/lib/cargar-pagos'
 import type { Payment, UnmatchedPayment } from '@/lib/types'
 import { nowART } from '@/lib/utils'
-import { requireUnidad } from '@/lib/auth/server'
+import { requireUnidad, setUnidad } from '@/lib/auth/server'
 
 export const runtime = 'nodejs'
 
@@ -23,9 +23,10 @@ function hashId(parts: (string | number)[]): string {
 // Empuja cada pago a la cola de no-emparejados (mismo patrón que el webhook de Fiwind),
 // para que el auto-match los empareje con órdenes por nombre + monto + fecha.
 export async function POST(req: NextRequest) {
-  // La unidad de negocio sale de la sesión (el middleware ya validó rol + 2FA).
-  const errUnidad = await requireUnidad()
-  if (errUnidad) return errUnidad
+  // La unidad de negocio sale de la sesion (el middleware ya valido rol + 2FA).
+  const sesion = await requireUnidad()
+  if ('error' in sesion) return sesion.error
+  setUnidad(sesion.unidad)
   try {
     const body = await req.json().catch(() => null)
     const items = body?.payments

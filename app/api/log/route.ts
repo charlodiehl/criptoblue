@@ -3,14 +3,15 @@ import { loadHotState, loadLogs, saveLogs, appendActivity, notifyKeyUpdate } fro
 import { queryRegistro, queryRegistroPaged, queryRegistroUncopied, updateRegistroByTimestamp, markRegistroCopied, claimRegistroUncopied, unclaimRegistro } from '@/lib/registro'
 import type { RegistroSortKey } from '@/lib/registro'
 import { audit } from '@/lib/audit'
-import { requireUnidad } from '@/lib/auth/server'
+import { requireUnidad, setUnidad } from '@/lib/auth/server'
 import { kvKey } from '@/lib/unidad'
 
 // PATCH: edita campos de una entrada, o reclama/devuelve entradas para copiar
 export async function PATCH(request: Request) {
-  // La unidad de negocio sale de la sesión (el middleware ya validó rol + 2FA).
-  const errUnidad = await requireUnidad()
-  if (errUnidad) return errUnidad
+  // La unidad de negocio sale de la sesion (el middleware ya valido rol + 2FA).
+  const sesion = await requireUnidad()
+  if ('error' in sesion) return sesion.error
+  setUnidad(sesion.unidad)
   try {
     const body = await request.json()
 
@@ -82,9 +83,10 @@ export async function PATCH(request: Request) {
 const VALID_SORT_KEYS: RegistroSortKey[] = ['fecha', 'monto', 'cuit', 'nombre', 'tienda', 'orden', 'billetera']
 
 export async function GET(request: Request) {
-  // La unidad de negocio sale de la sesión (el middleware ya validó rol + 2FA).
-  const errUnidad = await requireUnidad()
-  if (errUnidad) return errUnidad
+  // La unidad de negocio sale de la sesion (el middleware ya valido rol + 2FA).
+  const sesion = await requireUnidad()
+  if ('error' in sesion) return sesion.error
+  setUnidad(sesion.unidad)
   try {
     const { searchParams } = new URL(request.url)
     const currentMonth = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString().slice(0, 7)

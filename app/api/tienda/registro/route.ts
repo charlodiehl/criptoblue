@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireUser, resolveStoreScope } from '@/lib/auth/server'
+import { requireUser, resolveStoreScope, setUnidad } from '@/lib/auth/server'
 import { queryRegistroByStoreDay, searchRegistroByStore, querySaldosPersonalizadosByStoreDay, setConceptoRegistro } from '@/lib/registro'
 import { sanearConcepto } from '@/lib/conceptos'
 import { getMovimientosPorRegistroIds } from '@/lib/balance'
@@ -15,6 +15,8 @@ export async function GET(req: NextRequest) {
   try {
     const auth = await requireUser()
     if ('error' in auth) return auth.error
+    // La unidad de negocio se aplica ACÁ, en el frame del handler (ver lib/unidad.ts).
+    setUnidad(auth.user.unidad)
 
     const storeId = resolveStoreScope(auth.user, req.nextUrl.searchParams.get('storeId'))
     if (!storeId) return NextResponse.json({ error: 'No hay tienda asignada' }, { status: 400 })
@@ -90,6 +92,8 @@ export async function POST(req: NextRequest) {
   try {
     const auth = await requireUser()
     if ('error' in auth) return auth.error
+    // La unidad de negocio se aplica ACÁ, en el frame del handler (ver lib/unidad.ts).
+    setUnidad(auth.user.unidad)
 
     const storeId = resolveStoreScope(auth.user, req.nextUrl.searchParams.get('storeId'))
     if (!storeId) return NextResponse.json({ error: 'No hay tienda asignada' }, { status: 400 })

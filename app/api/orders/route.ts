@@ -2,12 +2,13 @@ import { NextResponse } from 'next/server'
 import { loadOrdersCache, saveOrdersCache, getStores } from '@/lib/storage'
 import { getPendingOrders } from '@/lib/tiendanube'
 import { HARD_CUTOFF_ORDERS } from '@/lib/config'
-import { requireUnidad } from '@/lib/auth/server'
+import { requireUnidad, setUnidad } from '@/lib/auth/server'
 
 export async function GET() {
-  // La unidad de negocio sale de la sesión (el middleware ya validó rol + 2FA).
-  const errUnidad = await requireUnidad()
-  if (errUnidad) return errUnidad
+  // La unidad de negocio sale de la sesion (el middleware ya valido rol + 2FA).
+  const sesion = await requireUnidad()
+  if ('error' in sesion) return sesion.error
+  setUnidad(sesion.unidad)
   try {
     const ordersCache = await loadOrdersCache()
 

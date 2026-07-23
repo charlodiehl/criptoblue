@@ -6,6 +6,10 @@ import type { AppUser } from '@/lib/types'
 import { sanearPermisos, type Permisos } from '@/lib/permisos'
 import { parseUnidad, setUnidad, rolCompleto, type UnidadId } from '@/lib/unidad'
 
+// Se re-exporta para que las rutas lo importen del mismo lugar que requireUser: el
+// handler TIENE que aplicar la unidad en su propio frame (ver lib/unidad.ts).
+export { setUnidad }
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Autenticación server-side (rutas API y route handlers).
 //
@@ -122,10 +126,10 @@ export async function getSessionUser(): Promise<SessionUser | null> {
     .maybeSingle<{ email: string; role: AppUser['role']; unidad: string | null; store_id: string | null; wallet: string | null; billetera_permiso: 'editor' | 'lectura' | null; display_name: string | null; permisos: unknown; accesos_extra: unknown }>()
   if (!row) return null
 
-  // Establece la unidad para TODO lo que venga después en esta request: a partir de
-  // acá, cada query a kv_store o a las tablas de negocio queda acotada sola.
+  // Solo RESUELVE la unidad; aplicarla es responsabilidad de quien llama. Un
+  // setUnidad() acá adentro no le llegaría al handler: en Next, el enterWith de una
+  // función anidada muere con ella (ver lib/unidad.ts).
   const unidad = parseUnidad(row.unidad)
-  setUnidad(unidad)
 
   const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
 
@@ -187,12 +191,13 @@ export async function requireUser(role?: 'admin' | 'billetera'): Promise<{ user:
 // Para las rutas que ya están protegidas por el middleware (rol + 2FA) y que no
 // llamaban a requireUser(): sin esto, la primera lectura de datos rompería, porque
 // getUnidad() falla si nadie estableció la unidad (fail-closed a propósito).
-// Uso:  const err = await requireUnidad();  if (err) return err
-export async function requireUnidad(): Promise<NextResponse | null> {
-  const user = await getSessionUser()   // getSessionUser() ya llama a setUnidad()
-  if (!user) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
-  if (!user.aal2) return NextResponse.json({ error: 'Se requiere completar el 2FA' }, { status: 401 })
-  return null
+// Devuelve la unidad para que el handler la APLIQUE en su propio frame.
+// Uso:  const s = await requireUnidad();  if ('error' in s) return s.error;  setUnidad(s.unidad)
+export async function requireUnidad(): Promise<{ unidad: UnidadId } | { error: NextResponse }> {
+  const user = await getSessionUser()
+  if (!user) return { error: NextResponse.json({ error: 'No autorizado' }, { status: 401 }) }
+  if (!user.aal2) return { error: NextResponse.json({ error: 'Se requiere completar el 2FA' }, { status: 401 }) }
+  return { unidad: user.unidad }
 }
 
 // Nombre completo del rol, para mostrar: 'superadmin-criptoblue' | 'superadmin-ms'

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireUser } from '@/lib/auth/server'
+import { requireUser, setUnidad } from '@/lib/auth/server'
 import { getStores } from '@/lib/storage'
 import { walletsDeUnidad } from '@/lib/unidad'
 import { agregarSaldoPersonalizado } from '@/lib/saldo-personalizado'
@@ -24,6 +24,8 @@ export async function POST(req: NextRequest) {
   try {
     const auth = await requireUser('admin')
     if ('error' in auth) return auth.error
+    // La unidad de negocio se aplica ACÁ, en el frame del handler (ver lib/unidad.ts).
+    setUnidad(auth.user.unidad)
 
     const body = await req.json().catch(() => null)
     const storeId = String(body?.storeId || '').trim()

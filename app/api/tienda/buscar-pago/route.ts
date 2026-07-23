@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireUser, resolveStoreScope } from '@/lib/auth/server'
+import { requireUser, resolveStoreScope, setUnidad } from '@/lib/auth/server'
 import { loadHotState } from '@/lib/storage'
 import { nameSimilarity } from '@/lib/auto-match'
 import { billeteraLabel } from '@/lib/utils'
@@ -27,6 +27,8 @@ export async function POST(req: NextRequest) {
   try {
     const auth = await requireUser()
     if ('error' in auth) return auth.error
+    // La unidad de negocio se aplica ACÁ, en el frame del handler (ver lib/unidad.ts).
+    setUnidad(auth.user.unidad)
 
     const body = await req.json().catch(() => null)
     if (!body || typeof body !== 'object') {

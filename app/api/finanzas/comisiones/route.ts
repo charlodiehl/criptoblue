@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireUser } from '@/lib/auth/server'
+import { requireUser, setUnidad } from '@/lib/auth/server'
 import { getComisiones, comisionTienda, comisionBilletera, setComision } from '@/lib/comisiones'
 import { getStores } from '@/lib/storage'
 import { walletsDeUnidad } from '@/lib/unidad'
@@ -9,6 +9,8 @@ export async function GET() {
   try {
     const auth = await requireUser('admin')
     if ('error' in auth) return auth.error
+    // La unidad de negocio se aplica ACÁ, en el frame del handler (ver lib/unidad.ts).
+    setUnidad(auth.user.unidad)
 
     const [cfg, stores] = await Promise.all([getComisiones(), getStores()])
     const tiendas = Object.values(stores)
@@ -29,6 +31,8 @@ export async function POST(req: NextRequest) {
   try {
     const auth = await requireUser('admin')
     if ('error' in auth) return auth.error
+    // La unidad de negocio se aplica ACÁ, en el frame del handler (ver lib/unidad.ts).
+    setUnidad(auth.user.unidad)
 
     const body = await req.json().catch(() => null)
     if (!body || (body.tipo !== 'tienda' && body.tipo !== 'billetera') || !body.id) {

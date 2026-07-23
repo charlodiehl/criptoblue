@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireUser } from '@/lib/auth/server'
+import { requireUser, setUnidad } from '@/lib/auth/server'
 import { getSolicitudById, subirComprobante } from '@/lib/transferencias'
 
 // POST /api/finanzas/comprobante  (multipart: file, id)
@@ -11,6 +11,8 @@ export async function POST(req: NextRequest) {
   try {
     const auth = await requireUser('admin')
     if ('error' in auth) return auth.error
+    // La unidad de negocio se aplica ACÁ, en el frame del handler (ver lib/unidad.ts).
+    setUnidad(auth.user.unidad)
 
     const form = await req.formData()
     // El id llega por FormData (flujo viejo) o por query (?id=, que usa ComprobanteInput).

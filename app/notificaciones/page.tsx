@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation'
-import { getSessionUser } from '@/lib/auth/server'
+import { getSessionUser, setUnidad } from '@/lib/auth/server'
 import NotificacionesPanel from '@/components/pwa/NotificacionesPanel'
 
 // Página de Notificaciones (admin y tienda). Toggle global (suscripción del
@@ -8,6 +8,8 @@ import NotificacionesPanel from '@/components/pwa/NotificacionesPanel'
 export default async function NotificacionesPage() {
   const user = await getSessionUser()
   if (!user) redirect('/login')
+  // La unidad de negocio se aplica ACÁ, en el frame de la página (ver lib/unidad.ts).
+  setUnidad(user.unidad)
 
   return <NotificacionesPanel userEmail={user.email} role={user.role} />
 }

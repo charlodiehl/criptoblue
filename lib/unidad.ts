@@ -100,8 +100,20 @@ export function getUnidadOpcional(): UnidadId | null {
   return almacen.getStore() ?? null
 }
 
-// Establece la unidad para el resto de la ejecución en curso. Lo usan requireUser()
-// y getSessionUser(), que no pueden envolver al handler en un callback.
+// Establece la unidad para el resto de la ejecución en curso.
+//
+// ⚠️ HAY QUE LLAMARLA DESDE EL PROPIO CUERPO DEL HANDLER, no desde una función
+// anidada que el handler haga `await`. En el runtime de Next, el `enterWith` que
+// hace una función anidada NO le llega a quien la llamó: el contexto de la
+// continuación se captura antes, así que el cambio muere con esa función.
+// (Medido: A=anidado → null; B=frame propio → OK; C=runEnUnidad → OK.)
+//
+// Por eso el patrón de las rutas es:
+//     const auth = await requireUser()
+//     if ('error' in auth) return auth.error
+//     setUnidad(auth.user.unidad)     // ← acá, en el frame de la ruta
+//
+// Y por eso los crons y los webhooks usan runEnUnidad(), que no tiene este problema.
 export function setUnidad(unidad: UnidadId): void {
   almacen.enterWith(unidad)
 }

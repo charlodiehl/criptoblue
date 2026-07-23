@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireUser, resolveWalletScope } from '@/lib/auth/server'
+import { requireUser, resolveWalletScope, setUnidad } from '@/lib/auth/server'
 import { getIngresosBilletera, getBilleterasOcultas, getDiasConMovimiento } from '@/lib/billeteras'
 
 // GET /api/billetera?wallet=<w>[&fecha=YYYY-MM-DD] → total + extracto + días con
@@ -10,6 +10,8 @@ export async function GET(req: NextRequest) {
   try {
     const auth = await requireUser('billetera')
     if ('error' in auth) return auth.error
+    // La unidad de negocio se aplica ACÁ, en el frame del handler (ver lib/unidad.ts).
+    setUnidad(auth.user.unidad)
 
     const scope = resolveWalletScope(auth.user, req.nextUrl.searchParams.get('wallet'))
     if (!scope) return NextResponse.json({ error: 'Billetera no autorizada' }, { status: 403 })

@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getStores, saveStores, loadHotState, saveHotState, loadLogs, saveLogs, appendActivity, loadOrdersCache, saveOrdersCache } from '@/lib/storage'
-import { requireUnidad } from '@/lib/auth/server'
+import { requireUnidad, setUnidad } from '@/lib/auth/server'
 
 // Auth manejada por middleware.ts — GET público, PATCH/DELETE requieren sesión
 
 export async function GET() {
-  // La unidad de negocio sale de la sesión (el middleware ya validó rol + 2FA).
-  const errUnidad = await requireUnidad()
-  if (errUnidad) return errUnidad
+  // La unidad de negocio sale de la sesion (el middleware ya valido rol + 2FA).
+  const sesion = await requireUnidad()
+  if ('error' in sesion) return sesion.error
+  setUnidad(sesion.unidad)
   try {
     const stores = await getStores()
     return NextResponse.json(Object.values(stores))
@@ -17,9 +18,10 @@ export async function GET() {
 }
 
 export async function PATCH(req: NextRequest) {
-  // La unidad de negocio sale de la sesión (el middleware ya validó rol + 2FA).
-  const errUnidad = await requireUnidad()
-  if (errUnidad) return errUnidad
+  // La unidad de negocio sale de la sesion (el middleware ya valido rol + 2FA).
+  const sesion = await requireUnidad()
+  if ('error' in sesion) return sesion.error
+  setUnidad(sesion.unidad)
   try {
     // Las tiendas ya no se vinculan a una billetera: solo se puede editar el nombre.
     const { storeId, storeName } = await req.json()
@@ -40,9 +42,10 @@ export async function PATCH(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  // La unidad de negocio sale de la sesión (el middleware ya validó rol + 2FA).
-  const errUnidad = await requireUnidad()
-  if (errUnidad) return errUnidad
+  // La unidad de negocio sale de la sesion (el middleware ya valido rol + 2FA).
+  const sesion = await requireUnidad()
+  if ('error' in sesion) return sesion.error
+  setUnidad(sesion.unidad)
   try {
     const { storeId } = await req.json()
     if (!storeId) return NextResponse.json({ error: 'storeId required' }, { status: 400 })

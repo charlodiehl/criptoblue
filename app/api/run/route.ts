@@ -5,7 +5,7 @@ import { audit } from '@/lib/audit'
 import { cleanupAuditLogs } from '@/lib/audit'
 import { loadHotState, saveHotState, isCronPaused, withStateLock } from '@/lib/storage'
 import { porCadaUnidad } from '@/lib/unidad'
-import { requireUnidad } from '@/lib/auth/server'
+import { requireUnidad, setUnidad } from '@/lib/auth/server'
 
 export const maxDuration = 300
 
@@ -85,8 +85,9 @@ export async function GET() {
 
 // POST — botón manual del panel. Corre SOLO la unidad de quien lo apretó.
 export async function POST() {
-  const errUnidad = await requireUnidad()
-  if (errUnidad) return errUnidad
+  const sesion = await requireUnidad()
+  if ('error' in sesion) return sesion.error
+  setUnidad(sesion.unidad)
   try {
     return NextResponse.json(await runCycle('manual_button'))
   } catch (err) {

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { validarApiKey, llamadasRecientes, marcarUso, auditarRequest } from '@/lib/api-keys'
 import { getRegistroRango } from '@/lib/registro-api'
 import { getStores } from '@/lib/storage'
+import { setUnidad } from '@/lib/unidad'
 
 // GET /api/v1/registro?desde=YYYY-MM-DD&hasta=YYYY-MM-DD
 // API pública (ruta pública en proxy.ts) con su propia auth por API key.
@@ -55,6 +56,9 @@ export async function GET(req: NextRequest) {
     }
     keyId = val.keyId
     storeId = val.storeId
+    // La unidad de negocio la define la propia key, y se aplica ACÁ, en el frame del
+    // handler: de acá en adelante la API solo ve datos de esa unidad (ver lib/unidad.ts).
+    setUnidad(val.unidad)
 
     // 2. Rate limit (10/min por key, contado desde el propio audit log)
     if (await llamadasRecientes(keyId, RATE_WINDOW_SEG) >= RATE_LIMIT) {

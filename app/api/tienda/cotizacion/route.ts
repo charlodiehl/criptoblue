@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { requireUser } from '@/lib/auth/server'
+import { requireUser, setUnidad } from '@/lib/auth/server'
 import { getUsdtRateSinMargen } from '@/lib/cotizacion'
 
 // GET /api/tienda/cotizacion → { rate } ARS por 1 USDT, precio de VENTA de Binance
@@ -12,6 +12,8 @@ export async function GET() {
   try {
     const auth = await requireUser()
     if ('error' in auth) return auth.error
+    // La unidad de negocio se aplica ACÁ, en el frame del handler (ver lib/unidad.ts).
+    setUnidad(auth.user.unidad)
 
     const rate = await getUsdtRateSinMargen()
     if (!rate) return NextResponse.json({ error: 'No se pudo obtener la cotización en este momento' }, { status: 503 })

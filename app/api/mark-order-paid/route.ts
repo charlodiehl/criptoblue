@@ -5,7 +5,7 @@ import { markOrderAsPaid as markTNOrderAsPaid } from '@/lib/tiendanube'
 import { markOrderAsPaid as markShopifyOrderAsPaid } from '@/lib/shopify'
 import type { LogEntry, RecentMatch } from '@/lib/types'
 import { auditMatch } from '@/lib/audit'
-import { requireUser } from '@/lib/auth/server'
+import { requireUser, setUnidad } from '@/lib/auth/server'
 import { nowART } from '@/lib/utils'
 
 const LOCK_HOLDER = 'mark-order-paid'
@@ -19,6 +19,8 @@ export async function POST(req: NextRequest) {
     // Quién marca (trazabilidad): el proxy ya exige sesión; acá tomamos el email.
     const auth = await requireUser('admin')
     if ('error' in auth) return auth.error
+    // La unidad de negocio se aplica ACÁ, en el frame del handler (ver lib/unidad.ts).
+    setUnidad(auth.user.unidad)
     const { storeId, orderId, total } = await req.json()
     if (!storeId || !orderId) {
       return NextResponse.json({ error: 'storeId and orderId required' }, { status: 400 })

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { requireUser } from '@/lib/auth/server'
+import { requireUser, setUnidad } from '@/lib/auth/server'
 import { sendPushNotification } from '@/lib/push'
 
 // POST /api/push/test — envía una notificación de PRUEBA al propio usuario.
@@ -9,6 +9,8 @@ export async function POST() {
   try {
     const auth = await requireUser()
     if ('error' in auth) return auth.error
+    // La unidad de negocio se aplica ACÁ, en el frame del handler (ver lib/unidad.ts).
+    setUnidad(auth.user.unidad)
 
     const r = await sendPushNotification(auth.user.email, {
       title: 'CriptoBlue',

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireUser, resolveStoreScope, scopedUser } from '@/lib/auth/server'
+import { requireUser, resolveStoreScope, scopedUser, setUnidad } from '@/lib/auth/server'
 import { listarEquipo } from '@/lib/equipo'
 import { puedeGestionarEquipo } from '@/lib/permisos'
 
@@ -12,6 +12,8 @@ export async function GET(req: NextRequest) {
   try {
     const auth = await requireUser()
     if ('error' in auth) return auth.error
+    // La unidad de negocio se aplica ACÁ, en el frame del handler (ver lib/unidad.ts).
+    setUnidad(auth.user.unidad)
 
     const storeId = resolveStoreScope(auth.user, req.nextUrl.searchParams.get('storeId'))
     if (!storeId) return NextResponse.json({ error: 'No hay tienda asignada' }, { status: 400 })

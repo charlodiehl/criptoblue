@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireUser, resolveStoreScope, scopedUser } from '@/lib/auth/server'
+import { requireUser, resolveStoreScope, scopedUser, setUnidad } from '@/lib/auth/server'
 import { getStores, loadLogs, saveLogs, appendActivity } from '@/lib/storage'
 import { buscarOrdenEnTienda } from '@/lib/buscar-orden'
 import { resumenReembolsos, crearRefundRequest, listarRefundRequestsTienda } from '@/lib/reembolsos'
@@ -19,6 +19,8 @@ export async function POST(req: NextRequest) {
   try {
     const auth = await requireUser()
     if ('error' in auth) return auth.error
+    // La unidad de negocio se aplica ACÁ, en el frame del handler (ver lib/unidad.ts).
+    setUnidad(auth.user.unidad)
 
     const body = await req.json().catch(() => null)
     const orderNumber = String(body?.orderNumber || '').trim()

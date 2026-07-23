@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { requireUser } from '@/lib/auth/server'
+import { requireUser, setUnidad } from '@/lib/auth/server'
 import { getUsdtRate, getUsdtRateSinMargen } from '@/lib/cotizacion'
 
 // GET /api/finanzas/cotizacion → ARS por 1 USDT para el checkbox "Usar cotización
@@ -10,6 +10,8 @@ export async function GET() {
   try {
     const auth = await requireUser('admin')
     if ('error' in auth) return auth.error
+    // La unidad de negocio se aplica ACÁ, en el frame del handler (ver lib/unidad.ts).
+    setUnidad(auth.user.unidad)
 
     const [rate, rateBase] = await Promise.all([getUsdtRate(), getUsdtRateSinMargen()])
     if (!rate || !rateBase) return NextResponse.json({ error: 'No se pudo obtener la cotización en este momento' }, { status: 503 })
