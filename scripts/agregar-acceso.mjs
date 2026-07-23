@@ -32,7 +32,8 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
   auth: { persistSession: false },
 })
 
-const WALLETS = ['MF', 'Lacar', 'MS', 'Montemar', 'Otras']
+// Mantener en sync con WALLETS de lib/config.ts
+const WALLETS = ['MF', 'Lacar', 'MS', 'Montemar', 'Copter MS', 'Otras']
 
 const USO = 'Uso:\n' +
   '  node scripts/agregar-acceso.mjs <email> tienda <storeId>\n' +

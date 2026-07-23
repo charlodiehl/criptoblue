@@ -71,7 +71,8 @@ if (a === '--borrar') {
   process.exit(0)
 }
 
-const WALLETS = ['MF', 'Lacar', 'MS', 'Montemar', 'Otras']
+// Mantener en sync con WALLETS de lib/config.ts
+const WALLETS = ['MF', 'Lacar', 'MS', 'Montemar', 'Copter MS', 'Otras']
 
 const email = (a || '').toLowerCase().trim()
 const role = (b || '').toLowerCase().trim()

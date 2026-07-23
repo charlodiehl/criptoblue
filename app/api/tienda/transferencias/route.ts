@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireUser, resolveStoreScope, scopedUser } from '@/lib/auth/server'
 import { crearSolicitud, listarSolicitudesTienda, validarDatosSolicitud } from '@/lib/transferencias'
 import { sanearConcepto, usarConcepto } from '@/lib/conceptos'
+import { esOrdenDeTercero } from '@/lib/config'
 import { getStores } from '@/lib/storage'
 import { notifyAdmins } from '@/lib/push'
 import { puede } from '@/lib/permisos'
@@ -42,6 +43,12 @@ export async function POST(req: NextRequest) {
     // así que al admin le fallaba el envío con "No hay tienda asignada".
     const storeId = resolveStoreScope(auth.user, req.nextUrl.searchParams.get('storeId') || body.storeId)
     if (!storeId) return NextResponse.json({ error: 'No hay tienda asignada' }, { status: 400 })
+
+    // Tiendas de terceros (Hemat): su circuito es aparte, no piden transferencias acá.
+    // Guard de servidor: el botón está deshabilitado en la UI, pero esto lo hace efectivo.
+    if (esOrdenDeTercero(storeId)) {
+      return NextResponse.json({ error: 'Esta tienda no solicita transferencias por este medio.' }, { status: 403 })
+    }
 
     // Permiso: solicitar transferencias, con los permisos DE ESA tienda (puede ser un
     // acceso secundario). El super-admin (vista espejo) siempre puede.
