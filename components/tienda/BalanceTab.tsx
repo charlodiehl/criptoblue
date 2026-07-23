@@ -7,6 +7,7 @@ import AnimatedNumber, { NumberSkeleton } from '@/components/AnimatedNumber'
 import SelectorDia from '@/components/SelectorDia'
 import EditarRegistroModal, { type FilaEditable } from './EditarRegistroModal'
 import EditarMovimientoModal, { type MovimientoEditable } from '@/components/EditarMovimientoModal'
+import ConceptoInput from '@/components/ConceptoInput'
 import type { Toast } from './TiendaPortal'
 
 interface Props {
@@ -72,6 +73,7 @@ interface Row {
   enSaldo: boolean       // false = sin movimiento de balance → no aporta al saldo ("No suma")
   usdtRate: number | null
   usdt: number | null
+  concepto: string | null   // solo el saldo personalizado lo usa/edita
 }
 // Saldo personalizado con formato de orden: igual que Row + el id de su movimiento
 // (se edita como movimiento, no como orden).
@@ -99,6 +101,8 @@ type SortKey = 'fecha' | 'monto' | 'comision' | 'usdtRate' | 'usdt' | 'cuit' | '
 export default function BalanceTab({ storeId, qs, notify, admin = false, refreshKey = 0 }: Props) {
   const [editando, setEditando] = useState<FilaEditable | null>(null)
   const [editandoMov, setEditandoMov] = useState<MovimientoEditable | null>(null)
+  const [editConceptoId, setEditConceptoId] = useState<number | null>(null)   // registroId del saldo cuyo concepto se está editando
+  const [guardandoConcepto, setGuardandoConcepto] = useState(false)
   const [balance, setBalance] = useState<Balance | null>(null)
   const [fecha, setFecha] = useState(hoyART())
   const [search, setSearch] = useState('')
@@ -197,6 +201,25 @@ export default function BalanceTab({ storeId, qs, notify, admin = false, refresh
       setLoadingRows(false)
     }
   }, [qs, notify, fecha, debouncedSearch])
+
+  // Editar el concepto de un saldo personalizado. Lo puede hacer la propia tienda (no
+  // solo el admin): el backend valida store_id y que sea de concepto NO fijo.
+  const guardarConcepto = useCallback(async (registroId: number, concepto: string) => {
+    setGuardandoConcepto(true)
+    try {
+      const res = await fetch(`/api/tienda/registro${qs}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ registroId, concepto }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Error')
+      setEditConceptoId(null)
+      fetchRows()
+    } catch (e) {
+      notify(e instanceof Error ? e.message : 'No se pudo guardar el concepto', 'error')
+    } finally {
+      setGuardandoConcepto(false)
+    }
+  }, [qs, notify, fetchRows])
 
   // Debounce del buscador (300ms) para no pegarle al server en cada tecla.
   useEffect(() => {
@@ -422,6 +445,7 @@ export default function BalanceTab({ storeId, qs, notify, admin = false, refresh
                         {col.label}
                       </th>
                     ))}
+                    <th className="text-left px-3 py-3 text-[11px] font-semibold uppercase tracking-wider whitespace-nowrap" style={{ color: 'rgba(148,163,184,0.7)' }}>Concepto</th>
                     {admin && <th className="px-3 py-3" />}
                   </tr>
                 </thead>
@@ -442,6 +466,20 @@ export default function BalanceTab({ storeId, qs, notify, admin = false, refresh
                       <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: 'rgba(226,232,240,0.7)' }}>{r.cuit || '—'}</td>
                       <td className="px-3 py-2.5" style={{ color: 'rgba(226,232,240,0.85)' }}>{r.nombre || '—'}</td>
                       <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: 'rgba(226,232,240,0.7)' }}>{r.orderNumber ? `#${r.orderNumber}` : '—'}</td>
+                      {/* Concepto — lo edita la propia tienda (elige de la lista o agrega uno nuevo). */}
+                      <td className="px-3 py-2.5" style={{ minWidth: 210 }}>
+                        {editConceptoId === r.registroId ? (
+                          <ConceptoInput value={r.concepto || ''} qs={qs} notify={notify} disabled={guardandoConcepto}
+                            onChange={c => guardarConcepto(r.registroId, c)}
+                            style={{ width: '100%', fontSize: '12px', padding: '6px 8px', borderRadius: '8px', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(0,212,255,0.18)', color: 'rgba(226,232,240,0.92)', outline: 'none' }} />
+                        ) : (
+                          <button onClick={() => setEditConceptoId(r.registroId)} title="Editar concepto"
+                            className="inline-flex items-center gap-1.5 text-[11px] font-semibold rounded-lg px-2 py-1 transition-all"
+                            style={{ background: 'rgba(0,212,255,0.06)', border: '1px solid rgba(0,212,255,0.2)', color: '#00d4ff' }}>
+                            {r.concepto || 'Saldo'} <span style={{ opacity: 0.55 }}>✎</span>
+                          </button>
+                        )}
+                      </td>
                       {admin && (
                         <td className="px-3 py-2.5 whitespace-nowrap text-right">
                           {r.movId != null && (

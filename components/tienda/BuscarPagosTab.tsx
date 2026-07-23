@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { ARS, fmtDate } from '@/lib/utils'
 import MontoInput from '@/components/MontoInput'
+import ConceptoInput from '@/components/ConceptoInput'
 import type { Toast } from './TiendaPortal'
 
 interface Props {
@@ -60,6 +61,8 @@ export default function BuscarPagosTab({ qs, notify }: Props) {
   const [enviandoReclamo, setEnviandoReclamo] = useState(false)
   // Prompt "la orden no existe → ¿adjudicar sujeto a confirmación?" para la tarjeta abierta.
   const [confirmacion, setConfirmacion] = useState<{ mpPaymentId: string; orderNumber: string; message: string } | null>(null)
+  // Concepto para el reclamo sin orden válida (no es una venta → lleva etiqueta libre).
+  const [conceptoReclamo, setConceptoReclamo] = useState('')
 
   // Historial de pagos reclamados por la tienda
   const [historial, setHistorial] = useState<Adjudicacion[]>([])
@@ -108,6 +111,7 @@ export default function BuscarPagosTab({ qs, notify }: Props) {
     setReclamando(mpPaymentId)
     setOrdenInput('')
     setConfirmacion(null)
+    setConceptoReclamo('')
   }
 
   function quitarDeResultados(mpPaymentId: string) {
@@ -154,7 +158,7 @@ export default function BuscarPagosTab({ qs, notify }: Props) {
       const res = await fetch(`/api/tienda/reclamar${qs}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mpPaymentId: pago.mpPaymentId, orderNumber: confirmacion.orderNumber, forzar: true }),
+        body: JSON.stringify({ mpPaymentId: pago.mpPaymentId, orderNumber: confirmacion.orderNumber, forzar: true, concepto: conceptoReclamo }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Error')
@@ -266,6 +270,10 @@ export default function BuscarPagosTab({ qs, notify }: Props) {
                   {enConfirmacion && (
                     <div className="mt-3 rounded-xl p-3.5" style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.3)' }}>
                       <p className="text-xs leading-relaxed" style={{ color: '#fbbf24' }}>{confirmacion.message}</p>
+                      <div className="mt-3">
+                        <label style={labelStyle}>Concepto <span style={{ color: 'rgba(148,163,184,0.5)', fontWeight: 400 }}>(opcional)</span></label>
+                        <ConceptoInput value={conceptoReclamo} onChange={setConceptoReclamo} qs={qs} notify={notify} style={inputStyle} />
+                      </div>
                       <div className="flex gap-2 mt-3">
                         <button onClick={() => aceptarAdjudicacion(pago)} disabled={enviandoReclamo}
                           className="px-4 py-2 rounded-lg text-xs font-bold text-white transition-all disabled:opacity-50"

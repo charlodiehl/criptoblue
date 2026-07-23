@@ -67,6 +67,7 @@ export async function agregarSaldoPersonalizado(input: SaldoPersonalizadoInput):
     mpPaymentId: payment.mpPaymentId,
     paymentReceivedAt: toUTCISO(input.fechaHoraISO),
     hechoPor: input.createdBy,
+    concepto: 'Saldo',               // default; la tienda puede cambiarlo desde su registro
   }
   const registroId = await insertRegistroEntry(entry)
 

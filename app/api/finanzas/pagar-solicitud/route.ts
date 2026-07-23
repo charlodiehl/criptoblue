@@ -57,9 +57,13 @@ export async function POST(req: NextRequest) {
     const stores = await getStores()
     const storeName = stores[solicitud.storeId]?.storeName ?? solicitud.storeId
 
-    // Egreso de balance — best-effort (reconstruible desde solicitud.descuento)
+    // Egreso de balance — best-effort (reconstruible desde solicitud.descuento).
+    // El label lleva el concepto de la tienda (reemplaza "solicitud") y el #id como
+    // referencia secundaria: "Transferencia ARS · Impuestos · #157". Sin concepto: "… · #157".
+    const conceptoTxt = (solicitud.concepto || '').trim()
+    const labelEgreso = `Transferencia ${solicitud.tipo.toUpperCase()}${conceptoTxt ? ` · ${conceptoTxt}` : ''} · #${solicitud.id}`
     try {
-      await registrarEgresoTransferencia(solicitud.id, solicitud.storeId, descuento, `Transferencia ${solicitud.tipo.toUpperCase()} · solicitud #${solicitud.id}`)
+      await registrarEgresoTransferencia(solicitud.id, solicitud.storeId, descuento, labelEgreso)
     } catch (err) {
       const logs = await loadLogs()
       appendError(logs, 'finanzas', 'error',

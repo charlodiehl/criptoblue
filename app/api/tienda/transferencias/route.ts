@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireUser, resolveStoreScope, scopedUser } from '@/lib/auth/server'
 import { crearSolicitud, listarSolicitudesTienda, validarDatosSolicitud } from '@/lib/transferencias'
+import { sanearConcepto, usarConcepto } from '@/lib/conceptos'
 import { getStores } from '@/lib/storage'
 import { notifyAdmins } from '@/lib/push'
 import { puede } from '@/lib/permisos'
@@ -60,7 +61,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: e instanceof Error ? e.message : 'Datos inválidos' }, { status: 400 })
     }
 
-    const solicitud = await crearSolicitud(storeId, tipo, datos, auth.user.email)
+    // Concepto opcional (etiqueta): se guarda en la solicitud y se suma a la lista de
+    // conceptos de la tienda (LRU). En blanco → default al armarse el label del egreso.
+    const concepto = sanearConcepto(body.concepto)
+    const solicitud = await crearSolicitud(storeId, tipo, datos, auth.user.email, concepto || null)
+    if (concepto) { try { await usarConcepto(storeId, concepto) } catch { /* la lista es secundaria */ } }
 
     // Notificar a los administradores (best-effort: no debe frenar la respuesta).
     try {

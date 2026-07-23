@@ -86,6 +86,7 @@ function entryToRow(e0: LogEntry): Row {
     copied_at: e.copiedAt ?? null,
     hecho_por: e.hechoPor ?? null,
     adjudicacion: e.adjudicacion ?? null,
+    concepto: e.concepto ?? null,
     payment: e.payment ? stripRawData(e.payment) : null,
     order_data: e.order ?? null,
   }
@@ -113,6 +114,7 @@ function rowToEntry(r: Row): LogEntry {
     copiedAt: r.copied_at ?? undefined,
     hechoPor: r.hecho_por ?? undefined,
     adjudicacion: r.adjudicacion ?? undefined,
+    concepto: r.concepto ?? undefined,
     payment: (r.payment as Payment) ?? undefined,
     order: (r.order_data as Order) ?? undefined,
   }
@@ -138,6 +140,22 @@ export async function insertRegistroEntry(entry: LogEntry): Promise<number> {
   const { data, error } = await (supabase.from(TABLE) as any).insert(entryToRow(entry)).select('id').single()
   if (error) throw new Error(`insertRegistroEntry falló: ${error.message} [${error.code}]`)
   return data.id as number
+}
+
+// Edita el concepto de una entrada del registro. Scopeado por store_id y limitado a las
+// entradas de concepto NO fijo (saldo personalizado / reclamo): las ventas y reembolsos
+// tienen concepto fijo y no se tocan. Devuelve true si actualizó una fila.
+export async function setConceptoRegistro(registroId: number, storeId: string, concepto: string | null): Promise<boolean> {
+  const supabase = getClient()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (supabase.from(TABLE) as any)
+    .update({ concepto: concepto || null })
+    .eq('id', registroId)
+    .eq('store_id', storeId)
+    .in('source', ['saldo_personalizado', 'tienda_buscar'])
+    .select('id')
+  if (error) throw new Error(`setConceptoRegistro falló: ${error.message} [${error.code}]`)
+  return Array.isArray(data) && data.length > 0
 }
 
 export async function appendRegistroEntries(entries: LogEntry[]): Promise<void> {

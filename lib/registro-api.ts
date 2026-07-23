@@ -13,6 +13,7 @@ export interface OrdenIngreso {
   orden: string | null
   hora: string                 // ISO con offset -03:00
   pagador: string | null       // payment.nombrePagador; null si se marcó a mano sin pago
+  concepto: string             // "Ventas" por defecto; o el que puso la tienda (reclamo sin orden)
   ars: number
   cotizacion: number | null    // null = cotización pendiente al momento de la orden
   usdt: number | null
@@ -20,14 +21,15 @@ export interface OrdenIngreso {
 }
 export interface RetiroDetalle {
   descripcion: string
+  concepto: string             // el que puso la tienda; "Transferencia" por defecto
   moneda_retiro: string | null // moneda ORIGINAL del retiro (ARS/USD/USDT/…)
   monto_retiro: number | null  // monto en esa moneda (NO forzado a pesos)
   cotizacion: number | null    // tasa usada; null si el retiro fue en USDT directo
   usdt: number                 // USDT descontado del saldo
 }
-export interface ReembolsoDetalle { orden: string | null; ars: number; usdt: number }
-export interface SaldoPersonalizado { descripcion: string; ars: number; usdt: number; sin_comision: boolean }
-export interface AjusteDetalle { descripcion: string; ars: number; usdt: number }
+export interface ReembolsoDetalle { orden: string | null; concepto: string; ars: number; usdt: number }
+export interface SaldoPersonalizado { descripcion: string; concepto: string; ars: number; usdt: number; sin_comision: boolean }
+export interface AjusteDetalle { descripcion: string; concepto: string | null; ars: number; usdt: number }
 
 export interface RegistroDia {
   fecha: string
@@ -105,22 +107,27 @@ export async function getRegistroRango(storeId: string, tienda: string, desde: s
   }))
 
   // Lookups en bloque: pagador (registro_log) y detalle del retiro (transfer_requests).
-  const regIds = [...new Set(movs.filter(m => m.tipo === 'ingreso_orden' && m.refRegistroId != null).map(m => m.refRegistroId as number))]
+  // Órdenes y saldo personalizado leen su entrada de registro_log (pagador + concepto).
+  const regIds = [...new Set(movs.filter(m => (m.tipo === 'ingreso_orden' || m.tipo === 'ingreso_manual') && m.refRegistroId != null).map(m => m.refRegistroId as number))]
   const trIds = [...new Set(movs.filter(m => m.tipo === 'egreso_transferencia' && m.refTransferId != null).map(m => m.refTransferId as number))]
 
-  const regMap = new Map<number, { orden: string | null; pagador: string | null }>()
+  const regMap = new Map<number, { orden: string | null; pagador: string | null; concepto: string | null }>()
   if (regIds.length) {
     const regs = await inEnLotes(regIds, async (lote) => {
-      const { data } = await sb.from('registro_log').select('id, order_number, nombre:payment->>nombrePagador').in('id', lote)
+      const { data } = await sb.from('registro_log').select('id, order_number, concepto, nombre:payment->>nombrePagador').in('id', lote)
       return data ?? []
     })
-    for (const rr of regs) regMap.set(rr.id as number, { orden: normOrden(rr.order_number as string | null), pagador: (rr.nombre as string | null) || null })
+    for (const rr of regs) regMap.set(rr.id as number, {
+      orden: normOrden(rr.order_number as string | null),
+      pagador: (rr.nombre as string | null) || null,
+      concepto: ((rr.concepto as string | null) || '').trim() || null,
+    })
   }
 
-  const trMap = new Map<number, { moneda: string | null; monto: number | null; cotizacion: number | null }>()
+  const trMap = new Map<number, { moneda: string | null; monto: number | null; cotizacion: number | null; concepto: string | null }>()
   if (trIds.length) {
     const trs = await inEnLotes(trIds, async (lote) => {
-      const { data } = await sb.from('transfer_requests').select('id, descuento').in('id', lote)
+      const { data } = await sb.from('transfer_requests').select('id, descuento, concepto').in('id', lote)
       return data ?? []
     })
     for (const t of trs) {
@@ -130,6 +137,7 @@ export async function getRegistroRango(storeId: string, tienda: string, desde: s
         moneda: (d.moneda ?? null) as string | null,
         monto: Number.isFinite(Number(d.monto)) ? Number(d.monto) : null,
         cotizacion: Number.isFinite(Number(cot)) ? Number(cot) : null,
+        concepto: ((t.concepto as string | null) || '').trim() || null,
       })
     }
   }
@@ -149,8 +157,8 @@ export async function getRegistroRango(storeId: string, tienda: string, desde: s
 
 function armarDia(
   fecha: string, dm: Mov[], pct: number,
-  regMap: Map<number, { orden: string | null; pagador: string | null }>,
-  trMap: Map<number, { moneda: string | null; monto: number | null; cotizacion: number | null }>,
+  regMap: Map<number, { orden: string | null; pagador: string | null; concepto: string | null }>,
+  trMap: Map<number, { moneda: string | null; monto: number | null; cotizacion: number | null; concepto: string | null }>,
 ): RegistroDia {
   const esIngreso = (m: Mov) => m.tipo === 'ingreso_orden'
   const esGravado = (m: Mov) => (m.tipo === 'ingreso_orden' || m.tipo === 'ingreso_manual') && !m.sinComision
@@ -168,6 +176,7 @@ function armarDia(
       orden: reg?.orden ?? ordenDeDescripcion(m.descripcion),
       hora: artHora(m.fecha),
       pagador: reg?.pagador ?? null,
+      concepto: reg?.concepto ?? 'Ventas',   // default venta; o el que puso la tienda (reclamo sin orden)
       ars: r2n(m.ars),
       cotizacion: m.usdtRate == null ? null : r2n(m.usdtRate),
       usdt: m.usdt == null ? null : r2n(m.usdt),
@@ -175,13 +184,16 @@ function armarDia(
     }
   })
 
-  const saldo_personalizado: SaldoPersonalizado[] = dm.filter(m => m.tipo === 'ingreso_manual')
-    .map(m => ({ descripcion: m.descripcion, ars: r2n(m.ars), usdt: r2n(m.usdt ?? 0), sin_comision: m.sinComision }))
+  const saldo_personalizado: SaldoPersonalizado[] = dm.filter(m => m.tipo === 'ingreso_manual').map(m => {
+    const reg = m.refRegistroId != null ? regMap.get(m.refRegistroId) : undefined
+    return { descripcion: m.descripcion, concepto: reg?.concepto ?? 'Saldo', ars: r2n(m.ars), usdt: r2n(m.usdt ?? 0), sin_comision: m.sinComision }
+  })
 
   const retiros_transferencias: RetiroDetalle[] = dm.filter(m => m.tipo === 'egreso_transferencia').map(m => {
     const t = m.refTransferId != null ? trMap.get(m.refTransferId) : undefined
     return {
       descripcion: m.descripcion,
+      concepto: t?.concepto ?? 'Transferencia',
       moneda_retiro: t?.moneda ?? null,
       monto_retiro: t?.monto ?? null,
       cotizacion: t?.cotizacion ?? null,
@@ -190,10 +202,10 @@ function armarDia(
   })
 
   const reembolsos: ReembolsoDetalle[] = dm.filter(m => m.tipo === 'reembolso')
-    .map(m => ({ orden: ordenDeDescripcion(m.descripcion), ars: r2n(Math.abs(m.ars)), usdt: r2n(Math.abs(m.usdt ?? 0)) }))
+    .map(m => ({ orden: ordenDeDescripcion(m.descripcion), concepto: 'Reembolso', ars: r2n(Math.abs(m.ars)), usdt: r2n(Math.abs(m.usdt ?? 0)) }))
 
   const ajustes: AjusteDetalle[] = dm.filter(m => m.tipo === 'ajuste')
-    .map(m => ({ descripcion: m.descripcion, ars: r2n(m.ars), usdt: r2n(m.usdt ?? 0) }))
+    .map(m => ({ descripcion: m.descripcion, concepto: null, ars: r2n(m.ars), usdt: r2n(m.usdt ?? 0) }))
 
   return {
     fecha,

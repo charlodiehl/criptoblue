@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireUser, resolveStoreScope } from '@/lib/auth/server'
-import { queryRegistroByStoreDay, searchRegistroByStore, querySaldosPersonalizadosByStoreDay } from '@/lib/registro'
+import { queryRegistroByStoreDay, searchRegistroByStore, querySaldosPersonalizadosByStoreDay, setConceptoRegistro } from '@/lib/registro'
+import { sanearConcepto } from '@/lib/conceptos'
 import { getMovimientosPorRegistroIds } from '@/lib/balance'
 import { getComisiones, comisionTienda, comisionTiendaSobre } from '@/lib/comisiones'
 import { billeteraLabel } from '@/lib/utils'
@@ -54,6 +55,8 @@ export async function GET(req: NextRequest) {
         nombre: entry.payment?.nombrePagador || entry.order?.customerName || entry.customerName || '',
         orderNumber: entry.orderNumber || entry.order?.orderNumber || '',
         billetera: billeteraLabel(entry.payment?.source),
+        // Concepto (solo el saldo personalizado lo usa/edita; en las órdenes va null → "Ventas").
+        concepto: entry.concepto ?? null,
         // "hecho por" NO se devuelve: es trazabilidad interna (registro_log.hecho_por).
         // No se muestra en la planilla ni viaja al cliente.
         enSaldo: !!mov,
@@ -74,6 +77,31 @@ export async function GET(req: NextRequest) {
     saldosPersonalizados.sort(porFecha)
 
     return NextResponse.json({ fecha, comisionPct, rows, saldosPersonalizados })
+  } catch (err) {
+    return NextResponse.json({ error: String(err) }, { status: 500 })
+  }
+}
+
+// POST /api/tienda/registro  { registroId, concepto } [?storeId=]
+// Edita el concepto de una entrada de concepto NO fijo (saldo personalizado / reclamo).
+// setConceptoRegistro filtra por store_id y por source, así una tienda solo toca lo suyo
+// y nunca un movimiento de concepto fijo (ventas/reembolso).
+export async function POST(req: NextRequest) {
+  try {
+    const auth = await requireUser()
+    if ('error' in auth) return auth.error
+
+    const storeId = resolveStoreScope(auth.user, req.nextUrl.searchParams.get('storeId'))
+    if (!storeId) return NextResponse.json({ error: 'No hay tienda asignada' }, { status: 400 })
+
+    const body = await req.json().catch(() => null)
+    const registroId = Number(body?.registroId)
+    if (!Number.isInteger(registroId)) return NextResponse.json({ error: 'registroId inválido' }, { status: 400 })
+
+    const concepto = sanearConcepto(body?.concepto)   // vacío → null (usa el default de ese tipo)
+    const ok = await setConceptoRegistro(registroId, storeId, concepto || null)
+    if (!ok) return NextResponse.json({ error: 'No se pudo editar el concepto de ese movimiento' }, { status: 404 })
+    return NextResponse.json({ success: true, concepto: concepto || null })
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 })
   }

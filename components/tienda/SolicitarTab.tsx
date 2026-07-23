@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { fmtDate } from '@/lib/utils'
 import MontoInput from '@/components/MontoInput'
+import ConceptoInput from '@/components/ConceptoInput'
 import BotonComprobante from './BotonComprobante'
 import type { TransferRequest, TransferTipo } from '@/lib/types'
 import type { Toast } from './TiendaPortal'
@@ -46,6 +47,7 @@ function montoDeSolicitud(s: TransferRequest): string {
 export default function SolicitarTab({ qs, notify }: Props) {
   const [tipo, setTipo] = useState<TransferTipo | ''>('')
   const [form, setForm] = useState<Record<string, string>>({})
+  const [concepto, setConcepto] = useState('')
   const [enviando, setEnviando] = useState(false)
   const [solicitudes, setSolicitudes] = useState<TransferRequest[]>([])
   const [loadingList, setLoadingList] = useState(true)
@@ -71,6 +73,7 @@ export default function SolicitarTab({ qs, notify }: Props) {
   function cambiarTipo(t: TransferTipo | '') {
     setTipo(t)
     setForm({})
+    setConcepto('')
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -96,7 +99,7 @@ export default function SolicitarTab({ qs, notify }: Props) {
       const res = await fetch(`/api/tienda/transferencias${qs}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tipo, datos }),
+        body: JSON.stringify({ tipo, datos, concepto }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Error')
@@ -204,6 +207,13 @@ export default function SolicitarTab({ qs, notify }: Props) {
         )}
 
         {tipo && (
+          <div>
+            <label style={labelStyle}>Concepto <span style={{ color: 'rgba(148,163,184,0.5)', fontWeight: 400 }}>(opcional)</span></label>
+            <ConceptoInput value={concepto} onChange={setConcepto} qs={qs} notify={notify} style={inputStyle} />
+          </div>
+        )}
+
+        {tipo && (
           <button type="submit" disabled={enviando}
             className="w-full py-3 rounded-xl text-sm font-bold text-white transition-all disabled:opacity-50"
             style={{ background: 'linear-gradient(135deg, #00d4ff, #0070f3)', boxShadow: '0 0 20px rgba(0,212,255,0.25)', cursor: enviando ? 'not-allowed' : 'pointer' }}>
@@ -225,9 +235,15 @@ export default function SolicitarTab({ qs, notify }: Props) {
               <div key={s.id} className="rounded-xl p-4"
                 style={{ background: 'linear-gradient(135deg, #0d1117, #111827)', border: '1px solid rgba(148,163,184,0.1)' }}>
                 <div className="flex items-center justify-between gap-3 flex-wrap">
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-3 flex-wrap">
                     <span className="text-sm font-semibold" style={{ color: 'rgba(226,232,240,0.9)' }}>{TIPO_LABEL[s.tipo]}</span>
                     <span className="text-sm font-bold" style={{ color: '#00d4ff' }}>{montoDeSolicitud(s)}</span>
+                    {s.concepto && (
+                      <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full"
+                        style={{ background: 'rgba(0,212,255,0.1)', border: '1px solid rgba(0,212,255,0.25)', color: 'rgba(0,212,255,0.85)' }}>
+                        {s.concepto}
+                      </span>
+                    )}
                   </div>
                   <span className="text-[11px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wide"
                     style={

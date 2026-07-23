@@ -33,6 +33,7 @@ function rowToTransfer(r: any): TransferRequest {
     paidBy: r.paid_by ?? null,
     comprobantePath: r.comprobante_path ?? null,
     descuento: r.descuento ?? null,
+    concepto: r.concepto ?? null,
   }
 }
 
@@ -101,10 +102,11 @@ export function validarDatosSolicitud(tipo: TransferTipo, datos: Record<string, 
 
 export async function crearSolicitud(
   storeId: string, tipo: TransferTipo, datos: Record<string, string | number>, createdBy: string,
+  concepto?: string | null,
 ): Promise<TransferRequest> {
   const { data, error } = await getClient()
     .from(TABLE)
-    .insert({ store_id: storeId, tipo, estado: 'pendiente', datos, created_by: createdBy })
+    .insert({ store_id: storeId, tipo, estado: 'pendiente', datos, created_by: createdBy, concepto: concepto || null })
     .select('*')
     .single()
   if (error) throw new Error(`crearSolicitud falló: ${error.message} [${error.code}]`)

@@ -5,6 +5,7 @@ import { appendRegistroEntry, isOrderAlreadyPaid, isPaymentAlreadyUsed } from '@
 import { markOrderAsPaid as markTNOrderAsPaid } from '@/lib/tiendanube'
 import { markOrderAsPaid as markShopifyOrderAsPaid } from '@/lib/shopify'
 import { buscarOrdenEnTienda } from '@/lib/buscar-orden'
+import { sanearConcepto, usarConcepto } from '@/lib/conceptos'
 import type { LogEntry } from '@/lib/types'
 import { auditMatch } from '@/lib/audit'
 import { notifyAdmins } from '@/lib/push'
@@ -102,6 +103,10 @@ export async function POST(req: NextRequest) {
       hot.recentMatches = hot.recentMatches ?? []
       hot.recentMatches.push({ mpPaymentId: payment.mpPaymentId, matchedAt: nowART(), storeId, payment })
 
+      // Concepto opcional: el reclamo NO es una venta (la orden no existe), así que la
+      // tienda le pone una etiqueta libre. El texto que tipeó (orderNumber) es la etiqueta;
+      // el concepto va aparte. En el registro se ven los dos ("Mayorista · Impuestos").
+      const conceptoReclamo = sanearConcepto(body.concepto)
       const pendingEntry: LogEntry = {
         timestamp: nowART(),
         action: 'manual_paid',
@@ -117,8 +122,10 @@ export async function POST(req: NextRequest) {
         customerName: payment.nombrePagador,
         paymentReceivedAt: toUTCISO(payment.fechaPago),
         hechoPor: user.email,
+        concepto: conceptoReclamo || null,
       }
       await appendRegistroEntry(pendingEntry)
+      if (conceptoReclamo) { try { await usarConcepto(storeId, conceptoReclamo) } catch { /* lista secundaria */ } }
 
       appendActivity(logs, 'human', 'tienda_adjudicacion_pendiente', {
         mpPaymentId: payment.mpPaymentId, monto: payment.monto, orderNumber: String(orderNumber),

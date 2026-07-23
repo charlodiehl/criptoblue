@@ -78,6 +78,9 @@ export interface LogEntry {
   // 'rechazada' = revertida (el movimiento de balance se borró y action pasó a 'cancelled').
   // null/undefined = reclamo con orden real (firme de una) o entrada normal.
   adjudicacion?: 'pendiente' | 'confirmada' | 'rechazada' | null
+  // Concepto del movimiento (reclamo sin orden / saldo personalizado). Las ventas y
+  // reembolsos no lo usan (su concepto es fijo). null/undefined = sin concepto propio.
+  concepto?: string | null
 }
 
 export interface UnmatchedPayment {
@@ -225,6 +228,7 @@ export interface TransferRequest {
   paidBy?: string | null
   comprobantePath?: string | null // path en el bucket 'comprobantes'
   descuento?: TransferDescuento | null
+  concepto?: string | null         // etiqueta opcional que puso la tienda ("Impuestos", …)
 }
 
 // Movimiento del libro mayor de balance por tienda (tabla balance_movements)
