@@ -12,15 +12,18 @@ const LOCK_HOLDER = 'manual-log'
 
 export async function POST(req: NextRequest) {
   try {
-    const locked = await acquireLock(LOCK_HOLDER)
-    if (!locked) {
-      return NextResponse.json({ error: 'El sistema está procesando otra operación. Esperá unos segundos.' }, { status: 409 })
-    }
     // Quién registra el pago (trazabilidad): el proxy ya exige sesión; acá el email.
     const auth = await requireUser('admin')
     if ('error' in auth) return auth.error
     // La unidad de negocio se aplica ACÁ, en el frame del handler (ver lib/unidad.ts).
     setUnidad(auth.user.unidad)
+    // El lock va DESPUÉS de aplicar la unidad: usa kv_store con key por unidad,
+    // así que tomarlo antes revienta con "Unidad de negocio no establecida".
+    // (Y de paso, un 401 ya no retiene el lock global.)
+    const locked = await acquireLock(LOCK_HOLDER)
+    if (!locked) {
+      return NextResponse.json({ error: 'El sistema está procesando otra operación. Esperá unos segundos.' }, { status: 409 })
+    }
     const { mpPaymentId, storeName, orderNumber, matchedOrder } = await req.json()
     if (!mpPaymentId) return NextResponse.json({ error: 'mpPaymentId required' }, { status: 400 })
 
