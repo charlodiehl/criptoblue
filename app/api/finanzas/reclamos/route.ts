@@ -89,7 +89,7 @@ export async function POST(req: Request) {
       // Restar el volumen del mes y devolver el pago a la cola (queda disponible).
       const monto = Number(entry.amount ?? entry.payment?.monto ?? 0) || 0
       const hot = await loadHotState()
-      decrementPersistedMonthStats(hot, monto, 'emparejamiento')
+      decrementPersistedMonthStats(hot, monto, 'emparejamiento', entry.storeId)
       if (entry.payment) {
         hot.unmatchedPayments.push({
           payment: entry.payment,

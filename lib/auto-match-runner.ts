@@ -187,7 +187,7 @@ export async function runAutoMatchCore(
     }
     freshHot.unmatchedPayments.splice(idx, 1)
 
-    incrementPersistedMonthStats(freshHot, candidate.payment.monto, 'emparejamiento')
+    incrementPersistedMonthStats(freshHot, candidate.payment.monto, 'emparejamiento', candidate.order?.storeId)
 
     freshHot.recentMatches = freshHot.recentMatches ?? []
     freshHot.recentMatches.push({

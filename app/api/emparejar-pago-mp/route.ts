@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { loadHotState, saveHotState, loadLogs, saveLogs, getStores, incrementPersistedMonthStats, appendActivity, acquireLock, releaseLock } from '@/lib/storage'
 import { appendRegistroEntry, isOrderAlreadyPaid, isPaymentAlreadyUsed } from '@/lib/registro'
+import { esOrdenDeTercero, esPagoDeTercero } from '@/lib/config'
 import { markOrderAsPaid as markTNOrderAsPaid } from '@/lib/tiendanube'
 import { markOrderAsPaid as markShopifyOrderAsPaid } from '@/lib/shopify'
 import type { LogEntry, Order, Payment } from '@/lib/types'
@@ -29,6 +30,16 @@ export async function POST(req: NextRequest) {
     if (!order?.orderId || !order?.storeId) return NextResponse.json({ error: 'order.orderId y order.storeId requeridos' }, { status: 400 })
 
     const mpPaymentId = payment.mpPaymentId
+
+    // Terceros: una orden de tienda de terceros SOLO empareja con un pago de billetera de
+    // terceros, y al revés. Los dos universos son exclusivos y nunca se cruzan.
+    if (esOrdenDeTercero(order.storeId) !== esPagoDeTercero(payment.source)) {
+      return NextResponse.json({
+        error: esOrdenDeTercero(order.storeId)
+          ? 'Las órdenes de terceros solo emparejan con pagos de billeteras de terceros.'
+          : 'Un pago de billetera de terceros solo empareja con órdenes de tiendas de terceros.',
+      }, { status: 409 })
+    }
 
     // Validación 1: la orden ya fue registrada como pagada (con cualquier pago)
     if (await isOrderAlreadyPaid(order.orderId)) {
@@ -88,7 +99,7 @@ export async function POST(req: NextRequest) {
     )
     if (idx >= 0) hot.unmatchedPayments.splice(idx, 1)
 
-    incrementPersistedMonthStats(hot, payment.monto, 'manual_pagos')
+    incrementPersistedMonthStats(hot, payment.monto, 'manual_pagos', order.storeId)
 
     hot.recentMatches = hot.recentMatches || []
     hot.recentMatches.push({

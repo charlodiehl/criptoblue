@@ -99,7 +99,7 @@ export async function POST(req: NextRequest) {
       }
 
       hot.unmatchedPayments.splice(unmatchedIndex, 1)
-      incrementPersistedMonthStats(hot, payment.monto, 'emparejamiento')
+      incrementPersistedMonthStats(hot, payment.monto, 'emparejamiento', storeId)
       hot.recentMatches = hot.recentMatches ?? []
       hot.recentMatches.push({ mpPaymentId: payment.mpPaymentId, matchedAt: nowART(), storeId, payment })
 
@@ -203,7 +203,7 @@ export async function POST(req: NextRequest) {
     // Persistencia (mismo orden que manual-match)
     hot.unmatchedPayments.splice(unmatchedIndex, 1)
     // Decisión del usuario: el volumen reclamado por tiendas suma al bucket EMPAREJADO
-    incrementPersistedMonthStats(hot, payment.monto, 'emparejamiento')
+    incrementPersistedMonthStats(hot, payment.monto, 'emparejamiento', storeId)
 
     hot.recentMatches = hot.recentMatches ?? []
     hot.recentMatches.push({ mpPaymentId: payment.mpPaymentId, matchedAt: nowART(), orderId: order.orderId, storeId, order, payment })

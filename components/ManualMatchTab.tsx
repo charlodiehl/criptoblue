@@ -3,7 +3,7 @@
 import { useState, useMemo, useEffect } from 'react'
 import type { UnmatchedPayment, Order } from '@/lib/types'
 import { ARS, fmtDate, billeteraLabel, montoCoincide, pctPorDebajo } from '@/lib/utils'
-import { SAMEMONTO_WINDOW_HOURS } from '@/lib/config'
+import { SAMEMONTO_WINDOW_HOURS, esOrdenDeTercero, esPagoDeTercero } from '@/lib/config'
 
 
 // Quita tildes/diacríticos para comparar "Maria" y "María" como iguales.
@@ -331,9 +331,11 @@ export default function ManualMatchTab({
       const payTime = u.payment.fechaPago ? new Date(u.payment.fechaPago).getTime() : null
       const windowStart = (payTime ?? Date.now()) - SAMEMONTO_WINDOW_HOURS * 60 * 60 * 1000
 
-      // Sin restricción por billetera: cualquier pago puede emparejar con la orden
-      // de cualquier tienda (mismo criterio que el auto-match del servidor).
-      const ordersForWallet = orders
+      // Dentro del grupo no hay restricción por billetera (mismo criterio que el
+      // auto-match del servidor). Terceros con terceros y propios con propios: un pago
+      // de billetera de terceros SOLO ve órdenes de tiendas de terceros, y viceversa.
+      const esTercero = esPagoDeTercero(u.payment.source)
+      const ordersForWallet = orders.filter(o => esOrdenDeTercero(o.storeId) === esTercero)
 
       const totalSameMonto = ordersForWallet.filter(x =>
         Math.abs(x.total - u.payment.monto) <= 10 &&

@@ -53,6 +53,8 @@ export const PAYMENT_SOURCE_NAMES: Record<string, string> = {
   // Los pagos de Montemar pay entran por email (Apps Script → webhook, igual que
   // Fiwind) a la billetera "Montemar".
   montemar: 'Montemar',
+  // Los pagos de ExchangeCopter entran por email (Apps Script → webhook) a "Copter MS".
+  copter: 'Copter MS',
 }
 
 // Billeteras del sistema (para saldos, retiros, reembolsos y comisiones).
@@ -60,7 +62,7 @@ export const PAYMENT_SOURCE_NAMES: Record<string, string> = {
 // PAYMENT_SOURCE_TO_WALLET.
 // "Otras" es un cajón para pagos manuales que no entraron por ninguna billetera
 // conocida: su source se codifica como `otras:<nombre libre>` y NO cobra comisión.
-export const WALLETS = ['MF', 'Lacar', 'MS', 'Montemar', 'Otras'] as const
+export const WALLETS = ['MF', 'Lacar', 'MS', 'Montemar', 'Copter MS', 'Otras'] as const
 
 // SEGURO: todo pago que entra al registro sin una billetera identificable (sin
 // payment, source vacío o desconocido) se guarda con este source → cae en "Otras".
@@ -94,6 +96,23 @@ export const PAYMENT_SOURCE_TO_WALLET: Record<string, string> = {
   lacar: 'Lacar',
   notificador: 'MS',
   montemar: 'Montemar',
+  copter: 'Copter MS',
+}
+
+// ─── Terceros: billeteras cuyo dinero es de terceros ──────────────────────────
+// Sus pagos van a su propia pestaña ("Pagos de terceros"), quedan FUERA de todas las
+// métricas y del conteo del mes, y emparejan EXCLUSIVAMENTE con órdenes de tiendas de
+// terceros (y al revés: una orden de tercero solo empareja con un pago de tercero).
+export const BILLETERAS_TERCEROS: ReadonlySet<string> = new Set([
+  'Copter MS',
+])
+
+export function esBilleteraDeTercero(wallet: string | null | undefined): boolean {
+  return !!wallet && BILLETERAS_TERCEROS.has(wallet)
+}
+// ¿El pago viene de una billetera de terceros? (por su payment.source)
+export function esPagoDeTercero(source: string | null | undefined): boolean {
+  return !!source && esBilleteraDeTercero(PAYMENT_SOURCE_TO_WALLET[source])
 }
 
 // Billeteras cuyos pagos sin emparejar NUNCA vencen: no se purgan de la cola ni
@@ -102,7 +121,7 @@ export const PAYMENT_SOURCE_TO_WALLET: Record<string, string> = {
 // vuelven al comportamiento normal de expiración a las 48hs.
 // MF y Montemar quedaron desconectadas (jul 2026): salen de esta lista para que
 // cualquier pago rezagado de esos medios expire solo por antigüedad.
-export const WALLETS_SIN_VENCIMIENTO: readonly string[] = ['Lacar', 'MS']
+export const WALLETS_SIN_VENCIMIENTO: readonly string[] = ['Lacar', 'MS', 'Copter MS']
 
 // MercadoPago desconectado (jul 2026): se cerró la billetera "MF" (MercadoPago +
 // Fiwind). El ciclo cada 5 min ya NO pide pagos a MercadoPago (ver lib/cycle.ts).
