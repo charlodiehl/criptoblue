@@ -1,10 +1,18 @@
 // Alta/actualización de usuarios de la app (tabla app_users).
 //
+// Cada usuario pertenece a UNA unidad de negocio (criptoblue | ms), que es lo que
+// separa los datos de un negocio del otro. Los super admin se dan por su nombre de
+// rol completo; para tienda/billetera la unidad va con --unidad (default criptoblue).
+//
 // Uso (desde la raíz del proyecto):
-//   node scripts/agregar-usuario.mjs <email> admin
+//   node scripts/agregar-usuario.mjs <email> superadmin-criptoblue
+//   node scripts/agregar-usuario.mjs <email> superadmin-ms
 //   node scripts/agregar-usuario.mjs <email> tienda <storeId> ["Nombre a mostrar"]
+//   node scripts/agregar-usuario.mjs <email> billetera <wallet> <editor|lectura> ["Nombre"]
 //   node scripts/agregar-usuario.mjs --listar
 //   node scripts/agregar-usuario.mjs --borrar <email>
+//
+// Opción común:  --unidad <criptoblue|ms>   (para tienda/billetera)
 //
 // Si el usuario ya se logueó alguna vez (existe en Supabase Auth), también
 // sincroniza el claim del JWT (app_metadata.cb_role) para que el cambio de rol
@@ -12,10 +20,17 @@
 
 import { createClient } from '@supabase/supabase-js'
 import { readFileSync } from 'fs'
+import { UNIDADES, IDS, UNIDAD_DEFAULT, unidadDeRol, parseUnidad, getStores } from './_unidades.mjs'
 
+// Carga .env.local (saca comillas envolventes: SUPABASE_URL viene entre comillas y
+// createClient las rechaza — sin esto el script falla con "Invalid supabaseUrl").
 for (const l of readFileSync(new URL('../.env.local', import.meta.url), 'utf8').split('\n')) {
-  const [k, ...v] = l.split('=')
-  if (k && v.length) process.env[k.trim()] ??= v.join('=').trim()
+  const i = l.indexOf('=')
+  if (i <= 0) continue
+  const k = l.slice(0, i).trim()
+  let v = l.slice(i + 1).trim()
+  if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) v = v.slice(1, -1)
+  if (k && !(k in process.env)) process.env[k] = v
 }
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY, {
@@ -47,12 +62,28 @@ async function sincronizarClaim(email, role, storeId) {
   console.log('  claim del JWT sincronizado (aplica en su próximo refresh de sesión)')
 }
 
-const [, , a, b, c, d, e] = process.argv
+// --unidad <id> se puede pasar en cualquier posición; se saca de los argumentos.
+const argv = process.argv.slice(2)
+let unidadFlag = null
+const iFlag = argv.findIndex(a => a === '--unidad')
+if (iFlag >= 0) {
+  unidadFlag = parseUnidad(argv[iFlag + 1])
+  argv.splice(iFlag, 2)
+}
+
+const [a, b, c, d, e] = argv
 
 if (a === '--listar') {
-  const { data, error } = await supabase.from('app_users').select('*').order('role')
+  const { data, error } = await supabase.from('app_users').select('*').order('unidad').order('role')
   if (error) throw new Error(error.message)
-  console.table(data)
+  console.table(data.map(u => ({
+    email: u.email,
+    rol: u.role === 'admin' ? UNIDADES[parseUnidad(u.unidad)].rol : u.role,
+    unidad: u.unidad ?? UNIDAD_DEFAULT,
+    tienda: u.store_id ?? '',
+    billetera: u.wallet ? `${u.wallet} (${u.billetera_permiso})` : '',
+    extra: (u.accesos_extra ?? []).map(x => `${x.tipo}:${x.id}`).join(' '),
+  })))
   process.exit(0)
 }
 
@@ -71,21 +102,25 @@ if (a === '--borrar') {
   process.exit(0)
 }
 
-// Mantener en sync con WALLETS de lib/config.ts
-const WALLETS = ['MF', 'Lacar', 'MS', 'Montemar', 'Copter MS', 'Otras']
-
 const email = (a || '').toLowerCase().trim()
-const role = (b || '').toLowerCase().trim()
+const rolPedido = (b || '').toLowerCase().trim()
 
 const USO = 'Uso:\n' +
-  '  node scripts/agregar-usuario.mjs <email> admin\n' +
-  '  node scripts/agregar-usuario.mjs <email> tienda <storeId> ["Nombre"]\n' +
-  '  node scripts/agregar-usuario.mjs <email> billetera <wallet> <editor|lectura> ["Nombre"]'
+  `  node scripts/agregar-usuario.mjs <email> ${IDS.map(i => UNIDADES[i].rol).join(' | ')}\n` +
+  '  node scripts/agregar-usuario.mjs <email> tienda <storeId> ["Nombre"] [--unidad criptoblue|ms]\n' +
+  '  node scripts/agregar-usuario.mjs <email> billetera <wallet> <editor|lectura> ["Nombre"] [--unidad criptoblue|ms]'
+
+// El rol de super admin trae la unidad puesta ('superadmin-ms' → unidad ms).
+const unidadDelRolSuper = unidadDeRol(rolPedido)
+const role = unidadDelRolSuper ? 'admin' : rolPedido
 
 if (!email || !['admin', 'tienda', 'billetera'].includes(role)) {
   console.error(USO)
   process.exit(1)
 }
+
+const unidad = unidadDelRolSuper ?? unidadFlag ?? UNIDAD_DEFAULT
+console.log(`Unidad de negocio: ${UNIDADES[unidad].nombre} (${unidad})`)
 
 let fila
 let storeIdClaim = null
@@ -93,34 +128,38 @@ let storeIdClaim = null
 if (role === 'tienda') {
   const storeId = (c || '').trim()
   if (!storeId) { console.error(USO); process.exit(1) }
-  // Validar que la tienda exista en el directorio.
-  const { data: stores } = await supabase.from('kv_store').select('value').eq('key', 'criptoblue:stores').maybeSingle()
-  const tienda = stores?.value?.[storeId]
+  // Validar que la tienda exista en el directorio DE SU UNIDAD.
+  const stores = await getStores(supabase, unidad)
+  const tienda = stores[storeId]
   if (!tienda) {
-    console.error(`storeId "${storeId}" no existe en criptoblue:stores. Tiendas disponibles:`)
-    for (const [id, s] of Object.entries(stores?.value ?? {})) console.error(`  ${id} → ${s.storeName}`)
+    console.error(`storeId "${storeId}" no existe en las tiendas de ${UNIDADES[unidad].nombre}. Disponibles:`)
+    for (const [id, s] of Object.entries(stores)) console.error(`  ${id} → ${s.storeName}`)
     process.exit(1)
   }
   console.log(`Tienda: ${tienda.storeName} (${storeId})`)
   // No se tocan los permisos del integrante (los administra su tienda).
-  fila = { email, role, store_id: storeId, wallet: null, billetera_permiso: null, display_name: d || null }
+  fila = { email, role, unidad, store_id: storeId, wallet: null, billetera_permiso: null, display_name: d || null }
   storeIdClaim = storeId
 } else if (role === 'billetera') {
   const wallet = (c || '').trim()
   const permiso = (d || '').toLowerCase().trim()
-  if (!WALLETS.includes(wallet)) { console.error(`Billetera inválida. Opciones: ${WALLETS.join(', ')}`); process.exit(1) }
+  const wallets = UNIDADES[unidad].wallets
+  if (!wallets.includes(wallet)) {
+    console.error(`Billetera inválida para ${UNIDADES[unidad].nombre}. Opciones: ${wallets.join(', ') || '(esta unidad todavía no tiene billeteras)'}`)
+    process.exit(1)
+  }
   if (!['editor', 'lectura'].includes(permiso)) { console.error('Permiso inválido (editor | lectura)'); process.exit(1) }
   console.log(`Billetera: ${wallet} · permiso ${permiso}`)
   // Limpia restos de un rol anterior: sin tienda ni permisos de tienda.
-  fila = { email, role, store_id: null, wallet, billetera_permiso: permiso, permisos: {}, display_name: e || null }
+  fila = { email, role, unidad, store_id: null, wallet, billetera_permiso: permiso, permisos: {}, display_name: e || null }
 } else {
-  // admin
-  fila = { email, role, store_id: null, wallet: null, billetera_permiso: null, display_name: c || null }
+  // Super admin de una unidad: ve y opera TODO lo de su unidad, y nada de la otra.
+  fila = { email, role, unidad, store_id: null, wallet: null, billetera_permiso: null, display_name: c || null }
 }
 
 const { error } = await supabase.from('app_users').upsert(fila)
 if (error) throw new Error(error.message)
-console.log(`OK: ${email} → rol ${role}` +
+console.log(`OK: ${email} → rol ${unidadDelRolSuper ? UNIDADES[unidad].rol : role}` +
   (fila.store_id ? ` · tienda ${fila.store_id}` : '') +
   (fila.wallet ? ` · billetera ${fila.wallet} (${fila.billetera_permiso})` : ''))
 await sincronizarClaim(email, role, storeIdClaim)

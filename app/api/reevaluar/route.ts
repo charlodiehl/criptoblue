@@ -3,6 +3,8 @@ import { processMPPayments } from '@/lib/cycle'
 import { loadHotState, saveHotState, loadProcessed, saveProcessed, loadLogs, saveLogs, getStores, appendError, appendActivity, withStateLock } from '@/lib/storage'
 import { runAutoMatchCore } from '@/lib/auto-match-runner'
 import { audit } from '@/lib/audit'
+import { porCadaUnidad } from '@/lib/unidad'
+import { requireUnidad } from '@/lib/auth/server'
 
 export const maxDuration = 300
 
@@ -91,23 +93,29 @@ export async function GET() {
     return NextResponse.json({ skipped: true, reason: 'cron disabled on non-production deployments' })
   }
 
-  try {
-    return await runFullCycle('cron')
-  } catch (err) {
+  // Una pasada por cada unidad de negocio, con su propio estado y su propia cola.
+  const porUnidad = await porCadaUnidad(async () => {
     try {
-      const [hot, logs] = await Promise.all([loadHotState(), loadLogs()])
-      hot.currentPhase = 'idle'
-      appendError(logs, 'reevaluar', 'error', `Error inesperado en ciclo automático (GET): ${String(err)}`)
-      await withStateLock('reevaluar', 'get-error', () =>
-        Promise.all([saveHotState(hot), saveLogs(logs)])
-      )
-    } catch { /* no bloquear si falla el logging */ }
-    return NextResponse.json({ success: false, error: String(err) }, { status: 500 })
-  }
+      return await (await runFullCycle('cron')).json()
+    } catch (err) {
+      try {
+        const [hot, logs] = await Promise.all([loadHotState(), loadLogs()])
+        hot.currentPhase = 'idle'
+        appendError(logs, 'reevaluar', 'error', `Error inesperado en ciclo automático (GET): ${String(err)}`)
+        await withStateLock('reevaluar', 'get-error', () =>
+          Promise.all([saveHotState(hot), saveLogs(logs)])
+        )
+      } catch { /* no bloquear si falla el logging */ }
+      return { success: false, error: String(err) }
+    }
+  })
+  return NextResponse.json({ porUnidad })
 }
 
-// POST — botón manual: sync + auto-match completo
+// POST — botón manual: sync + auto-match completo. Solo la unidad de quien lo apretó.
 export async function POST() {
+  const errUnidad = await requireUnidad()
+  if (errUnidad) return errUnidad
   try {
     return await runFullCycle('manual_button')
   } catch (err) {

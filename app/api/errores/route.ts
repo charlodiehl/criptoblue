@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { loadLogs, saveLogs } from '@/lib/storage'
 import type { ErrorEntry } from '@/lib/types'
+import { requireUnidad } from '@/lib/auth/server'
 
 // Centro de errores del header (campana). Lee/marca el errorLog de criptoblue:logs.
 // Auth por sesión (proxy.ts) — lo consume el humano logueado, no un servicio externo.
@@ -14,6 +15,9 @@ function esAlerta(e: ErrorEntry): boolean {
 
 // GET → { errores: [...max 50, más reciente primero], noVistos: N }
 export async function GET() {
+  // La unidad de negocio sale de la sesión (el middleware ya validó rol + 2FA).
+  const errUnidad = await requireUnidad()
+  if (errUnidad) return errUnidad
   try {
     const logs = await loadLogs()
     const alertas = (logs.errorLog ?? [])
@@ -29,6 +33,9 @@ export async function GET() {
 
 // POST { action: 'marcar_vistos' } → marca todas las alertas como vistas (baja el badge a 0)
 export async function POST(request: Request) {
+  // La unidad de negocio sale de la sesión (el middleware ya validó rol + 2FA).
+  const errUnidad = await requireUnidad()
+  if (errUnidad) return errUnidad
   try {
     const body = await request.json().catch(() => ({}))
     if (body.action !== 'marcar_vistos') {

@@ -12,6 +12,7 @@ import { useRealtimeSync } from '@/hooks/useRealtimeSync'
 import type { Order, UnmatchedPayment, Store, LogEntry, Payment, RecentMatch, ErrorEntry } from '@/lib/types'
 import { HARD_CUTOFF_PAYMENTS, HARD_CUTOFF_ORDERS, WALLETS_SIN_VENCIMIENTO, esOrdenDeTercero, esPagoDeTercero } from '@/lib/config'
 import { paymentWalletId } from '@/lib/utils'
+import { useUnidad } from '@/hooks/useUnidad'
 
 type Tab = 'manual' | 'ordenes' | 'pagos' | 'sin-coincidencia' | 'registro' | 'terceros' | 'pagos-terceros'
 
@@ -38,6 +39,10 @@ interface Toast {
 
 export default function Dashboard() {
   const router = useRouter()
+  // Unidad de negocio de la sesión: se muestra en el header y viaja en los links
+  // de conexión de tiendas (el callback del OAuth vuelve sin sesión).
+  const unidad = useUnidad()
+  const unidadId = unidad?.id ?? 'criptoblue'
   const [tab, setTab] = useState<Tab>('manual')
   const [stats, setStats] = useState<Stats | null>(null)
   const [orders, setOrders] = useState<Order[]>([])
@@ -1069,6 +1074,14 @@ export default function Dashboard() {
             >
               Automatización de Procesos
             </span>
+            {/* Unidad de negocio: solo se muestra si NO es la original, así CriptoBlue
+                se ve exactamente igual que siempre y el otro negocio queda identificado. */}
+            {unidad && unidad.id !== 'criptoblue' && (
+              <span className="text-[9px] sm:text-[10px] font-bold whitespace-nowrap rounded-full px-2 py-0.5"
+                style={{ background: 'rgba(255,184,0,0.12)', border: '1px solid rgba(255,184,0,0.35)', color: '#ffb800', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                {unidad.nombre}
+              </span>
+            )}
           </div>
 
           {/* RIGHT: Sync info + Actualizar + Tiendas dropdown */}
@@ -1418,14 +1431,14 @@ export default function Dashboard() {
                   <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
                     <input
                       readOnly
-                      value={typeof window !== 'undefined' ? `${window.location.origin}/api/tn/connect` : '/api/tn/connect'}
+                      value={typeof window !== 'undefined' ? `${window.location.origin}/api/tn/connect?unidad=${unidadId}` : `/api/tn/connect?unidad=${unidadId}`}
                       onFocus={e => e.currentTarget.select()}
                       style={{ flex: 1, minWidth: 0, padding: '10px 12px', borderRadius: '10px', border: '1px solid rgba(0,100,255,0.3)', background: 'rgba(0,0,0,0.35)', color: 'rgba(226,232,240,0.92)', fontSize: '13px', outline: 'none', fontFamily: 'monospace' }}
                     />
                     <button
                       onClick={async () => {
                         try {
-                          await navigator.clipboard.writeText(`${window.location.origin}/api/tn/connect`)
+                          await navigator.clipboard.writeText(`${window.location.origin}/api/tn/connect?unidad=${unidadId}`)
                           setCopiedLink(true)
                           setTimeout(() => setCopiedLink(false), 2000)
                         } catch { addToast('No se pudo copiar el link', 'error') }
@@ -1467,14 +1480,14 @@ export default function Dashboard() {
                       <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
                         <input
                           readOnly
-                          value={typeof window !== 'undefined' ? `${window.location.origin}/api/shopify/connect?shop=${shopifyArmed.shop}` : ''}
+                          value={typeof window !== 'undefined' ? `${window.location.origin}/api/shopify/connect?shop=${shopifyArmed.shop}&unidad=${unidadId}` : ''}
                           onFocus={e => e.currentTarget.select()}
                           style={{ flex: 1, minWidth: 0, padding: '10px 12px', borderRadius: '10px', border: '1px solid rgba(150,191,72,0.3)', background: 'rgba(0,0,0,0.35)', color: 'rgba(226,232,240,0.92)', fontSize: '12px', outline: 'none', fontFamily: 'monospace' }}
                         />
                         <button
                           onClick={async () => {
                             try {
-                              await navigator.clipboard.writeText(`${window.location.origin}/api/shopify/connect?shop=${shopifyArmed.shop}`)
+                              await navigator.clipboard.writeText(`${window.location.origin}/api/shopify/connect?shop=${shopifyArmed.shop}&unidad=${unidadId}`)
                               setCopiedLink(true); setTimeout(() => setCopiedLink(false), 2000)
                             } catch { addToast('No se pudo copiar el link', 'error') }
                           }}

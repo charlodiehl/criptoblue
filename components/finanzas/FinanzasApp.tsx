@@ -10,6 +10,7 @@ import BilleteraTab from './BilleteraTab'
 import AnimatedNumber, { NumberSkeleton } from '@/components/AnimatedNumber'
 import { useRealtimeSync } from '@/hooks/useRealtimeSync'
 import { ARS } from '@/lib/utils'
+import { useUnidad } from '@/hooks/useUnidad'
 
 export type Toast = { id: number; msg: string; type: 'success' | 'error' | 'info' }
 export interface BalanceCard { storeId: string; storeName: string; ars: number; usdt: number; pendientes: number }
@@ -19,6 +20,7 @@ const fmtUsdt = (n: number) => n.toLocaleString('es-AR', { minimumFractionDigits
 const fmtArs = (n: number) => ARS.format(n)  // usado en el menú lateral de billeteras (siguen en ARS)
 
 export default function FinanzasApp({ userEmail }: { userEmail?: string }) {
+  const unidad = useUnidad()   // unidad de negocio de la sesión (se muestra en el header)
   const [cards, setCards] = useState<BalanceCard[]>([])
   const [billeteras, setBilleteras] = useState<BilleteraItem[]>([])
   const [loadingCards, setLoadingCards] = useState(true)
@@ -153,6 +155,14 @@ export default function FinanzasApp({ userEmail }: { userEmail?: string }) {
               style={{ color: 'rgba(0,212,255,0.85)', letterSpacing: '0.12em', textTransform: 'uppercase', textShadow: '0 0 12px rgba(0,212,255,0.4)' }}>
               Adm. Financiera
             </span>
+            {/* Unidad de negocio: solo se muestra si NO es la original, así CriptoBlue
+                se ve exactamente igual que siempre y el otro negocio queda identificado. */}
+            {unidad && unidad.id !== 'criptoblue' && (
+              <span className="text-[9px] sm:text-[10px] font-bold whitespace-nowrap rounded-full px-2 py-0.5"
+                style={{ background: 'rgba(255,184,0,0.12)', border: '1px solid rgba(255,184,0,0.35)', color: '#ffb800', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                {unidad.nombre}
+              </span>
+            )}
           </div>
 
           {/* RIGHT: volver a la gestión de órdenes */}

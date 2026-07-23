@@ -3,8 +3,12 @@ import { getStores, loadOrdersCache } from '@/lib/storage'
 import { findRegistroByStoreSince } from '@/lib/registro'
 import { buscarOrdenEnTienda } from '@/lib/buscar-orden'
 import type { Order, LogEntry } from '@/lib/types'
+import { requireUnidad } from '@/lib/auth/server'
 
 export async function POST(req: NextRequest) {
+  // La unidad de negocio sale de la sesión (el middleware ya validó rol + 2FA).
+  const errUnidad = await requireUnidad()
+  if (errUnidad) return errUnidad
   try {
     const { orderNumber, storeId } = await req.json()
     if (!orderNumber || !storeId) {

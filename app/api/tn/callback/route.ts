@@ -1,19 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { saveStore } from '@/lib/storage'
 import { CONFIG } from '@/lib/config'
+import { parseUnidad, runEnUnidad, type UnidadId } from '@/lib/unidad'
 
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl
   const code = searchParams.get('code')
   const stateParam = searchParams.get('state') || ''
 
-  // "state" empaqueta { name } elegido antes del OAuth (JSON). Si no es JSON
-  // válido, es un state legacy: el texto plano ES el nombre.
+  // "state" empaqueta { name, unidad } elegidos antes del OAuth (JSON). Si no es
+  // JSON válido, es un state legacy: el texto plano ES el nombre.
   let stateName = ''
+  let unidad: UnidadId = parseUnidad(null)   // default: criptoblue
   if (stateParam) {
     try {
       const parsed = JSON.parse(stateParam)
       stateName = typeof parsed.name === 'string' ? parsed.name : ''
+      unidad = parseUnidad(parsed.unidad)
     } catch {
       stateName = stateParam
     }
@@ -89,14 +92,14 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // Guardar en Supabase
-  await saveStore({
+  // Guardar en Supabase, en el directorio de tiendas de SU unidad de negocio.
+  await runEnUnidad(unidad, () => saveStore({
     storeId,
     storeName,
     accessToken,
     connectedAt: new Date().toISOString(),
     appId: CONFIG.tiendanube.clientId,   // app por la que quedó conectada (para identificar la migración)
-  })
+  }))
 
   return NextResponse.redirect(new URL(`/tn-success?storeId=${storeId}`, req.nextUrl.origin))
 }

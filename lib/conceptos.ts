@@ -1,14 +1,15 @@
 import { kvGet, kvSet } from './storage'
+import { kvKey } from './unidad'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Conceptos por tienda (etiquetas de transferencias / reclamos / saldo personalizado).
-// Lista LRU de máximo 10, por tienda, en kv_store: criptoblue:conceptos:<storeId>.
+// Lista LRU de máximo 10, por tienda, en kv_store: <unidad>:conceptos:<storeId>.
 // Aislada por tienda: cada integrante ve solo los de la suya.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const MAX = 10
 const LARGO_MAX = 40
-const key = (storeId: string) => `criptoblue:conceptos:${storeId}`
+const key = (storeId: string) => kvKey(`conceptos:${storeId}`)
 
 export async function getConceptos(storeId: string): Promise<string[]> {
   const list = await kvGet<string[]>(key(storeId))

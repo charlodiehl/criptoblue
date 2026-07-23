@@ -9,8 +9,10 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { kvGet, kvSet } from './storage'
+import { kvKey } from './unidad'
 
-const KEY = 'criptoblue:comisiones'
+// Cada unidad de negocio tiene su propia tabla de comisiones.
+const KEY = () => kvKey('comisiones')
 
 export const DEFAULT_COMISION_TIENDA = 3.5
 export const DEFAULT_COMISION_BILLETERA = 1
@@ -21,7 +23,7 @@ export interface ComisionesConfig {
 }
 
 export async function getComisiones(): Promise<ComisionesConfig> {
-  const c = await kvGet<ComisionesConfig>(KEY)
+  const c = await kvGet<ComisionesConfig>(KEY())
   return { tiendas: c?.tiendas ?? {}, billeteras: c?.billeteras ?? {} }
 }
 
@@ -56,5 +58,5 @@ export async function setComision(tipo: 'tienda' | 'billetera', id: string, pct:
   const cfg = await getComisiones()
   if (tipo === 'tienda') cfg.tiendas[id] = pct
   else cfg.billeteras[id] = pct
-  await kvSet(KEY, cfg)
+  await kvSet(KEY(), cfg)
 }

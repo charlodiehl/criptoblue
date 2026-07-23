@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireUser } from '@/lib/auth/server'
-import { WALLETS } from '@/lib/config'
+import { walletsDeUnidad } from '@/lib/unidad'
 import { validarDatosSolicitud } from '@/lib/transferencias'
 import {
   registrarRetiro, getSalidasDeWallet, getDatosDeRetiros,
@@ -10,7 +10,7 @@ import { audit } from '@/lib/audit'
 import type { TransferTipo } from '@/lib/types'
 
 function walletValido(w: string): boolean {
-  return !!w && (WALLETS as readonly string[]).includes(w)
+  return !!w && walletsDeUnidad().includes(w)
 }
 
 // GET /api/finanzas/billetera/retiros?wallet=Lacar → retiros ya asentados

@@ -20,7 +20,8 @@
 
 import { getClient, getStores, loadHotState } from './storage'
 import { getComisiones, comisionTienda, comisionTiendaSobre, comisionBilletera } from './comisiones'
-import { WALLETS, esOrdenDeTercero, esPagoDeTercero, esBilleteraDeTercero } from './config'
+import { esOrdenDeTercero, esPagoDeTercero, esBilleteraDeTercero } from './config'
+import { walletsDeUnidad } from './unidad'
 import { resolveWallet, getCortesBilletera } from './billeteras'
 import { getUsdtRateSinMargen } from './cotizacion'
 
@@ -183,7 +184,7 @@ export async function getMetricas(desdeMs: number, hastaMs: number): Promise<Met
   // ── Armar billeteras ──
   // Con corte: el saldo inicial (neto previo) se suma UNA vez, si la fecha de corte cae
   // dentro del período. Los movimientos previos al corte no se contaron (ya están adentro).
-  const walletSet = new Set<string>([...WALLETS, ...ingBilletera.keys(), ...salidasBill.keys(), ...reembBill.keys()])
+  const walletSet = new Set<string>([...walletsDeUnidad(), ...ingBilletera.keys(), ...salidasBill.keys(), ...reembBill.keys()])
   const billeteras: MetricaBilletera[] = [...walletSet]
     .filter(w => !esBilleteraDeTercero(w))   // billeteras de terceros: fuera de las métricas y del total
     .map(w => {
@@ -198,7 +199,7 @@ export async function getMetricas(desdeMs: number, hastaMs: number): Promise<Met
     const comision = ingresos * comisionBilletera(cfg, w) / 100
     return { wallet: w, netoArs: saldoInicial + ingresos - comision - (reembBill.get(w) ?? 0) - (salidasBill.get(w) ?? 0) }
   })
-    .filter(b => (WALLETS as readonly string[]).includes(b.wallet) || b.netoArs !== 0)
+    .filter(b => walletsDeUnidad().includes(b.wallet) || b.netoArs !== 0)
     .sort((a, b) => b.netoArs - a.netoArs)
 
   const reembolsosPorTienda: MetricaReembolsos[] = [...reembReq.entries()]

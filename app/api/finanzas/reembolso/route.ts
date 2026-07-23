@@ -4,7 +4,7 @@ import { getStores, loadLogs, saveLogs, appendError, appendActivity } from '@/li
 import { buscarOrdenEnTienda } from '@/lib/buscar-orden'
 import { registrarReembolso } from '@/lib/balance'
 import { resumenReembolsos, crearRefund, setRefundMovement, getRefundRequestById, marcarRefundRequestProcesada } from '@/lib/reembolsos'
-import { WALLETS } from '@/lib/config'
+import { walletsDeUnidad } from '@/lib/unidad'
 import { fechaEgresoSaldo } from '@/lib/utils'
 import { notifyTienda } from '@/lib/push'
 import { audit } from '@/lib/audit'
@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
 
     // Quién paga: 'externo' (ninguna billetera) o una billetera válida. Obligatorio.
     const esExterno = walletSel === 'externo'
-    if (!esExterno && !WALLETS.includes(walletSel as typeof WALLETS[number])) {
+    if (!esExterno && !walletsDeUnidad().includes(walletSel)) {
       return NextResponse.json({ error: 'Elegí quién paga el reembolso (una billetera o "Pago por afuera")' }, { status: 400 })
     }
     // "Otras" es un cajón, no una billetera: se guarda con su nombre libre

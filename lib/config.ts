@@ -57,7 +57,15 @@ export const PAYMENT_SOURCE_NAMES: Record<string, string> = {
   copter: 'Copter MS',
 }
 
-// Billeteras del sistema (para saldos, retiros, reembolsos y comisiones).
+// CATÁLOGO GLOBAL de billeteras del sistema: todos los nombres que existen, de
+// cualquier unidad de negocio. Sirve para reconocer un source y mandarlo a la
+// billetera correcta (resolveWallet en lib/utils.ts).
+//
+// OJO: NO es la lista que ve un usuario. Cada unidad de negocio opera solo las
+// suyas — esa lista vive en UNIDADES[...].wallets (lib/unidad.ts) y se lee con
+// walletsDeUnidad(). Al agregar una billetera nueva hay que sumarla en los dos
+// lados: acá (catálogo) y en su unidad.
+//
 // Para agregar una billetera nueva: sumarla acá y mapear sus fuentes de pago en
 // PAYMENT_SOURCE_TO_WALLET.
 // "Otras" es un cajón para pagos manuales que no entraron por ninguna billetera

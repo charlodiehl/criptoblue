@@ -4,6 +4,7 @@ import { createServerClient } from '@supabase/ssr'
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import type { AppUser } from '@/lib/types'
 import { sanearPermisos, type Permisos } from '@/lib/permisos'
+import { parseUnidad, setUnidad, rolCompleto, type UnidadId } from '@/lib/unidad'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Autenticación server-side (rutas API y route handlers).
@@ -70,6 +71,9 @@ export interface SessionUser {
   userId: string
   email: string
   role: 'admin' | 'tienda' | 'billetera'
+  // Unidad de negocio a la que pertenece. Un usuario vive en UNA sola: es lo que
+  // separa los datos de CriptoBlue de los de MS. Ver lib/unidad.ts.
+  unidad: UnidadId
   storeId: string | null
   wallet: string | null                                  // solo rol 'billetera': su billetera
   billeteraPermiso: 'editor' | 'lectura' | null          // solo rol 'billetera'
@@ -109,12 +113,19 @@ export async function getSessionUser(): Promise<SessionUser | null> {
   if (!user?.email) return null
 
   const email = user.email.toLowerCase()
+  // serviceClient() es el cliente CRUDO (sin filtro de unidad): tiene que serlo, porque
+  // esta consulta es justamente la que averigua en qué unidad está el usuario.
   const { data: row } = await serviceClient()
     .from('app_users')
-    .select('email, role, store_id, wallet, billetera_permiso, display_name, permisos, accesos_extra')
+    .select('email, role, unidad, store_id, wallet, billetera_permiso, display_name, permisos, accesos_extra')
     .eq('email', email)
-    .maybeSingle<{ email: string; role: AppUser['role']; store_id: string | null; wallet: string | null; billetera_permiso: 'editor' | 'lectura' | null; display_name: string | null; permisos: unknown; accesos_extra: unknown }>()
+    .maybeSingle<{ email: string; role: AppUser['role']; unidad: string | null; store_id: string | null; wallet: string | null; billetera_permiso: 'editor' | 'lectura' | null; display_name: string | null; permisos: unknown; accesos_extra: unknown }>()
   if (!row) return null
+
+  // Establece la unidad para TODO lo que venga después en esta request: a partir de
+  // acá, cada query a kv_store o a las tablas de negocio queda acotada sola.
+  const unidad = parseUnidad(row.unidad)
+  setUnidad(unidad)
 
   const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
 
@@ -141,6 +152,7 @@ export async function getSessionUser(): Promise<SessionUser | null> {
     userId: user.id,
     email,
     role: row.role,
+    unidad,
     storeId: row.store_id ?? null,
     wallet: row.wallet ?? null,
     billeteraPermiso: row.billetera_permiso ?? null,
@@ -168,6 +180,25 @@ export async function requireUser(role?: 'admin' | 'billetera'): Promise<{ user:
     return { error: NextResponse.json({ error: 'Solo dueños de billetera' }, { status: 403 }) }
   }
   return { user }
+}
+
+// Establece la unidad de negocio de la sesión, sin exigir nada más.
+//
+// Para las rutas que ya están protegidas por el middleware (rol + 2FA) y que no
+// llamaban a requireUser(): sin esto, la primera lectura de datos rompería, porque
+// getUnidad() falla si nadie estableció la unidad (fail-closed a propósito).
+// Uso:  const err = await requireUnidad();  if (err) return err
+export async function requireUnidad(): Promise<NextResponse | null> {
+  const user = await getSessionUser()   // getSessionUser() ya llama a setUnidad()
+  if (!user) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  if (!user.aal2) return NextResponse.json({ error: 'Se requiere completar el 2FA' }, { status: 401 })
+  return null
+}
+
+// Nombre completo del rol, para mostrar: 'superadmin-criptoblue' | 'superadmin-ms'
+// para los admin, y 'tienda' / 'billetera' para el resto.
+export function rolDeUsuario(user: SessionUser): string {
+  return rolCompleto(user.role, user.unidad)
 }
 
 // storeId efectivo para rutas /api/tienda/**. Valida el storeId pedido contra los

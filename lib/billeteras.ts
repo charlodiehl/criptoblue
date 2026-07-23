@@ -25,17 +25,18 @@
 
 import { getClient, kvGet, loadHotState, getStores } from './storage'
 import { resolveWallet } from './utils'
-import { WALLETS } from './config'
+
 import { getComisiones, comisionBilletera } from './comisiones'
 import { sumRefundsByWallet, getRefundsDeWallet, getOrdenesReembolsadas } from './reembolsos'
 import { sumSalidasByWallet, getSalidasDeWallet, type SalidaBilletera } from './billetera-salidas'
+import { kvKey, walletsDeUnidad } from './unidad'
 
 export type { SalidaBilletera }
 
-const OCULTAS_KEY = 'criptoblue:billeteras-ocultas'
+const OCULTAS_KEY = () => kvKey('billeteras-ocultas')
 const EXTRACTO_LIMIT = 200
 const MATCHED_ACTIONS = ['auto_paid', 'manual_paid']
-const CORTES_KEY = 'criptoblue:billetera-cortes'
+const CORTES_KEY = () => kvKey('billetera-cortes')
 
 // Corte por billetera: fecha desde la que se cuenta y saldo inicial (NETO) previo,
 // que se suma al total. Espejo del BALANCE_CUTOFF de tiendas pero por billetera y
@@ -53,7 +54,7 @@ const CORTES_KEY = 'criptoblue:billetera-cortes'
 // no viene, la etiqueta es el propio `desde`.
 export interface CorteBilletera { desde: number; saldoInicial: number; soloInicial?: boolean; etiqueta?: number } // desde/etiqueta = epoch ms
 export async function getCortesBilletera(): Promise<Record<string, CorteBilletera>> {
-  const raw = await kvGet<Record<string, { desde: string; saldoInicial: number; soloInicial?: boolean; etiqueta?: string }>>(CORTES_KEY)
+  const raw = await kvGet<Record<string, { desde: string; saldoInicial: number; soloInicial?: boolean; etiqueta?: string }>>(CORTES_KEY())
   const out: Record<string, CorteBilletera> = {}
   for (const [w, c] of Object.entries(raw ?? {})) {
     const t = new Date(c?.desde).getTime()
@@ -162,7 +163,7 @@ export function detalleOtras(source?: string | null): string {
 
 // Billeteras que el usuario pidió ocultar (se eliminan del menú y su panel).
 export async function getBilleterasOcultas(): Promise<string[]> {
-  const list = await kvGet<string[]>(OCULTAS_KEY)
+  const list = await kvGet<string[]>(OCULTAS_KEY())
   return Array.isArray(list) ? list : []
 }
 
@@ -282,7 +283,7 @@ export async function getIngresosBilleteras(): Promise<IngresoBilletera[]> {
 
   // Arranca todas las billeteras en 0 → siempre aparecen, con su saldo de hoy.
   const acc = new Map<string, { totalArs: number; cantidad: number }>()
-  for (const w of WALLETS) acc.set(w, { totalArs: 0, cantidad: 0 })
+  for (const w of walletsDeUnidad()) acc.set(w, { totalArs: 0, cantidad: 0 })
   const sumar = (wallet: string | null, monto: number, fechaDia: string) => {
     if (!wallet) return
     // Con corte, los ingresos previos ya están en el saldo inicial: no se recuentan.

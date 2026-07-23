@@ -6,7 +6,7 @@ import { ARS, fmtDate } from '@/lib/utils'
 import ComprobanteInput from '@/components/ComprobanteInput'
 import TasaInput from '@/components/TasaInput'
 import MontoInput from '@/components/MontoInput'
-import { WALLETS } from '@/lib/config'
+import { useWallets } from '@/hooks/useUnidad'
 import type { RefundRequest } from '@/lib/types'
 import type { Toast } from './FinanzasApp'
 
@@ -294,6 +294,7 @@ export function ReembolsosSolicitados() {
 
 // ─── Herramienta de gestión de reembolsos (solapa desplegable) ────────────────
 export function GestionReembolsos() {
+  const wallets = useWallets()   // billeteras de la unidad de negocio de la sesión
   const {
     notify, tiendas, storeId, setStoreId, orden, setOrden, buscando, resultado,
     monto, setMonto, cotizacion, setCotizacion, comprobantePath, setComprobantePath, pagador, setPagador,
@@ -463,7 +464,7 @@ export function GestionReembolsos() {
                     <select value={pagador} onChange={e => setPagador(e.target.value)} disabled={ejecutando}
                       style={{ ...inputStyle, colorScheme: 'dark', cursor: 'pointer' }}>
                       <option value="" style={optionStyle}>Elegí quién paga…</option>
-                      {WALLETS.map(w => <option key={w} value={w} style={optionStyle}>{w}</option>)}
+                      {wallets.map(w => <option key={w} value={w} style={optionStyle}>{w}</option>)}
                       <option value={PAGO_EXTERNO} style={optionStyle}>Pago por afuera (ninguna billetera)</option>
                     </select>
                     {/* "Otras" es un cajón: el nombre libre es lo que después identifica

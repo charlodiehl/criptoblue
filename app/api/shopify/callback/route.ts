@@ -4,6 +4,7 @@ import { saveStore } from '@/lib/storage'
 import { CONFIG } from '@/lib/config'
 import { getShopName } from '@/lib/shopify'
 import { getArmedShopifyApp, clearArmedShopifyApp, normalizeShopDomain } from '@/lib/shopify-apps'
+import { parseUnidad, runEnUnidad } from '@/lib/unidad'
 
 function verifyHmac(searchParams: URLSearchParams, secret: string): boolean {
   const hmac = searchParams.get('hmac')
@@ -21,6 +22,14 @@ function verifyHmac(searchParams: URLSearchParams, secret: string): boolean {
 }
 
 export async function GET(req: NextRequest) {
+  // El state viene como 'shopify:<unidad>' (lo arma /api/shopify/connect). Es la
+  // única forma de saber a qué unidad de negocio va la tienda: el callback vuelve
+  // sin sesión. Un state viejo ('shopify' pelado) cae en criptoblue.
+  const unidad = parseUnidad((req.nextUrl.searchParams.get('state') || '').split(':')[1])
+  return runEnUnidad(unidad, () => procesar(req))
+}
+
+async function procesar(req: NextRequest) {
   const { searchParams } = req.nextUrl
   const shop = searchParams.get('shop')
   const code = searchParams.get('code')

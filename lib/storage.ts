@@ -1,7 +1,8 @@
-import { createClient } from '@supabase/supabase-js'
+import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import type { AppState, Store, Payment, Order, UnmatchedPayment, RecentMatch, DismissedPair, ExternalPaymentMark, PersistedMonthStats, ErrorEntry, ActivityEntry } from './types'
 import { HARD_CUTOFF_PAYMENTS, HARD_CUTOFF_ORDERS, WALLETS_SIN_VENCIMIENTO, esOrdenDeTercero } from './config'
 import { nowART, monthKeyART, paymentWalletId } from './utils'
+import { getUnidad, kvKey, TABLAS_POR_UNIDAD } from './unidad'
 
 // ─────────────────────────────────────────────
 // Supabase schema required:
@@ -13,26 +14,86 @@ import { nowART, monthKeyART, paymentWalletId } from './utils'
 // ─────────────────────────────────────────────
 
 // Cliente Supabase cacheado a nivel de módulo — reutiliza conexiones HTTP (#9)
-let _client: ReturnType<typeof createClient> | null = null
-export function getClient() {
-  if (_client) return _client
+let _raw: SupabaseClient | null = null
+let _client: SupabaseClient | null = null
+
+// Cliente SIN filtro de unidad. Solo para lo que tiene que ver todas las unidades a
+// la vez (resolver a qué unidad pertenece una API key antes de saber cuál es).
+// Para todo lo demás va getClient().
+export function getClientSinUnidad(): SupabaseClient {
+  if (_raw) return _raw
   const url = process.env.SUPABASE_URL
   const key = process.env.SUPABASE_SERVICE_KEY
   if (!url || !key) throw new Error('Missing SUPABASE_URL or SUPABASE_SERVICE_KEY')
-  _client = createClient(url, key)
+  _raw = createClient(url, key)
+  return _raw
+}
+
+// Acota un query builder a la unidad activa: filtro en las lecturas y borrados,
+// valor en las escrituras. Se aplica solo a las tablas de TABLAS_POR_UNIDAD.
+//
+// Va acá y no en cada query a propósito: son ~90 queries repartidas en 10 archivos,
+// y olvidarse el filtro en UNA sola alcanza para mostrarle a una unidad los datos de
+// la otra. Envolviendo el cliente, ninguna query puede quedar sin acotar.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function acotarAUnidad(qb: any, unidad: string): any {
+  return new Proxy(qb, {
+    get(target, prop, receiver) {
+      const val = Reflect.get(target, prop, receiver)
+      if (typeof val !== 'function') return val
+      // select/update/delete devuelven un filter builder → se le encadena el .eq().
+      if (prop === 'select' || prop === 'update' || prop === 'delete') {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        return (...args: any[]) => val.apply(target, args).eq('unidad', unidad)
+      }
+      // insert/upsert reciben las filas → se les inyecta la unidad.
+      if (prop === 'insert' || prop === 'upsert') {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        return (rows: any, ...rest: any[]) => val.call(
+          target,
+          Array.isArray(rows) ? rows.map(r => ({ ...r, unidad })) : { ...rows, unidad },
+          ...rest,
+        )
+      }
+      return val.bind(target)
+    },
+  })
+}
+
+// Cliente de datos: idéntico al de Supabase, pero sus queries a las tablas de
+// negocio quedan acotadas a la unidad de la request (ver lib/unidad.ts).
+export function getClient(): SupabaseClient {
+  if (_client) return _client
+  const raw = getClientSinUnidad()
+  _client = new Proxy(raw, {
+    get(target, prop, receiver) {
+      if (prop === 'from') {
+        return (table: string) => {
+          const qb = target.from(table)
+          // getUnidad() tira error si no hay contexto: preferimos romper antes que
+          // devolver datos de la unidad equivocada.
+          return TABLAS_POR_UNIDAD.has(table) ? acotarAUnidad(qb, getUnidad()) : qb
+        }
+      }
+      const val = Reflect.get(target, prop, receiver)
+      return typeof val === 'function' ? val.bind(target) : val
+    },
+  }) as SupabaseClient
   return _client
 }
 
 // ─────────────────────────────────────────────
-// Keys de Supabase — cada una almacena una parte del estado
+// Keys de Supabase — cada una almacena una parte del estado.
+// Son funciones (no constantes) porque el prefijo sale de la unidad activa:
+// 'criptoblue:state' o 'ms:state'. Ver kvKey() en lib/unidad.ts.
 // ─────────────────────────────────────────────
-const HOT_KEY        = 'criptoblue:state'
-const PROCESSED_KEY  = 'criptoblue:processed'
-const ORDERS_KEY     = 'criptoblue:orders-cache'
-const LOGS_KEY       = 'criptoblue:logs'
-const STORES_KEY     = 'criptoblue:stores'
-const LOCK_KEY       = 'criptoblue:lock'
-const CRON_PAUSED_KEY = 'criptoblue:cron-paused'
+const HOT_KEY        = () => kvKey('state')
+const PROCESSED_KEY  = () => kvKey('processed')
+const ORDERS_KEY     = () => kvKey('orders-cache')
+const LOGS_KEY       = () => kvKey('logs')
+const STORES_KEY     = () => kvKey('stores')
+const LOCK_KEY       = () => kvKey('lock')
+const CRON_PAUSED_KEY = () => kvKey('cron-paused')
 
 // NOTA: el registro (antes registroLog en criptoblue:logs y el blob
 // criptoblue:match-log) vive ahora en la tabla relacional `registro_log`
@@ -280,7 +341,7 @@ function cleanProcessedData(state: ProcessedState): ProcessedState {
 // ─────────────────────────────────────────────
 
 export async function getStores(): Promise<Record<string, Store>> {
-  const stores = await kvGet<Record<string, Store>>(STORES_KEY)
+  const stores = await kvGet<Record<string, Store>>(STORES_KEY())
   if (!stores) return {}
 
   let modified = false
@@ -291,7 +352,7 @@ export async function getStores(): Promise<Record<string, Store>> {
       modified = true
     }
   }
-  if (modified) await kvSetConRetry(STORES_KEY, stores)
+  if (modified) await kvSetConRetry(STORES_KEY(), stores)
 
   return stores
 }
@@ -299,11 +360,11 @@ export async function getStores(): Promise<Record<string, Store>> {
 export async function saveStore(store: Store): Promise<void> {
   const stores = await getStores()
   stores[store.storeId] = store
-  await kvSetConRetry(STORES_KEY, stores)
+  await kvSetConRetry(STORES_KEY(), stores)
 }
 
 export async function saveStores(stores: Record<string, Store>): Promise<void> {
-  await kvSetConRetry(STORES_KEY, stores)
+  await kvSetConRetry(STORES_KEY(), stores)
 }
 
 // ─────────────────────────────────────────────
@@ -311,13 +372,13 @@ export async function saveStores(stores: Record<string, Store>): Promise<void> {
 // ─────────────────────────────────────────────
 
 export async function loadHotState(): Promise<HotState> {
-  const data = await kvGet<HotState>(HOT_KEY)
+  const data = await kvGet<HotState>(HOT_KEY())
   if (!data) return { ...DEFAULT_HOT_STATE }
   return { ...DEFAULT_HOT_STATE, ...data }
 }
 
 export async function loadLogs(): Promise<LogsState> {
-  const data = await kvGet<LogsState>(LOGS_KEY)
+  const data = await kvGet<LogsState>(LOGS_KEY())
   if (!data) return { ...DEFAULT_LOGS_STATE }
   return {
     errorLog: data.errorLog ?? [],
@@ -326,13 +387,13 @@ export async function loadLogs(): Promise<LogsState> {
 }
 
 export async function loadProcessed(): Promise<ProcessedState> {
-  const data = await kvGet<ProcessedState>(PROCESSED_KEY)
+  const data = await kvGet<ProcessedState>(PROCESSED_KEY())
   if (!data) return { ...DEFAULT_PROCESSED_STATE }
   return { processedPayments: data.processedPayments ?? [] }
 }
 
 export async function loadOrdersCache(): Promise<OrdersCacheState> {
-  const data = await kvGet<OrdersCacheState>(ORDERS_KEY)
+  const data = await kvGet<OrdersCacheState>(ORDERS_KEY())
   if (!data) return { ...DEFAULT_ORDERS_STATE }
   return {
     cachedOrders: data.cachedOrders ?? [],
@@ -352,7 +413,7 @@ export async function saveHotState(state: HotState): Promise<void> {
   // que teníamos en memoria puede estar desactualizado y pisaría esos cambios.
   // Cargamos el valor actual de HOT_KEY y mergeamos los overrides que no tenemos,
   // descartando los que ya no tienen un pago activo.
-  const current = await kvGet<HotState>(HOT_KEY)
+  const current = await kvGet<HotState>(HOT_KEY())
   if (current) {
     // Merge paymentOverrides — preservar overrides de procesos concurrentes
     if (current.paymentOverrides && Object.keys(current.paymentOverrides).length > 0) {
@@ -468,14 +529,14 @@ export async function saveHotState(state: HotState): Promise<void> {
     }
   }
 
-  await kvSetConRetry(HOT_KEY, cleaned)
+  await kvSetConRetry(HOT_KEY(), cleaned)
 }
 
 export async function saveLogs(state: LogsState): Promise<void> {
   // criptoblue:logs conserva solo errorLog + activityLog. El registro vive
   // en la tabla registro_log (ver lib/registro.ts).
   // Merge con Supabase para no perder entradas escritas por procesos concurrentes.
-  const current = await kvGet<LogsState>(LOGS_KEY)
+  const current = await kvGet<LogsState>(LOGS_KEY())
   const mergedState: LogsState = current
     ? cleanLogsData({
         errorLog: mergeByField(state.errorLog, current.errorLog ?? []),
@@ -486,15 +547,15 @@ export async function saveLogs(state: LogsState): Promise<void> {
         activityLog: state.activityLog ?? [],
       })
 
-  await kvSetConRetry(LOGS_KEY, mergedState)
+  await kvSetConRetry(LOGS_KEY(), mergedState)
 }
 
 export async function saveProcessed(state: ProcessedState): Promise<void> {
-  await kvSetConRetry(PROCESSED_KEY, cleanProcessedData(state))
+  await kvSetConRetry(PROCESSED_KEY(), cleanProcessedData(state))
 }
 
 export async function saveOrdersCache(state: OrdersCacheState): Promise<void> {
-  await kvSetConRetry(ORDERS_KEY, state)
+  await kvSetConRetry(ORDERS_KEY(), state)
 }
 
 // ─────────────────────────────────────────────
@@ -504,7 +565,7 @@ export async function saveOrdersCache(state: OrdersCacheState): Promise<void> {
 
 export async function isCronPaused(): Promise<boolean> {
   try {
-    const val = await kvGet<unknown>(CRON_PAUSED_KEY)
+    const val = await kvGet<unknown>(CRON_PAUSED_KEY())
     return val === true || val === 'true'
   } catch {
     // Si la lectura falla, NO pausar — preferir que el cron siga corriendo
@@ -576,9 +637,9 @@ export async function saveState(state: AppState): Promise<void> {
   await Promise.all([
     saveHotState(hotInput),
     saveLogs(cycleLogs),
-    kvSetConRetry(ORDERS_KEY, orders),
+    kvSetConRetry(ORDERS_KEY(), orders),
   ])
-  await kvSetConRetry(PROCESSED_KEY, processed)
+  await kvSetConRetry(PROCESSED_KEY(), processed)
 }
 
 // ─────────────────────────────────────────────
@@ -689,7 +750,7 @@ export async function acquireLock(
   timeoutMs = DEFAULT_LOCK_TIMEOUT_MS,
 ): Promise<boolean> {
   // Paso 1: verificar si hay lock activo
-  const current = await kvGet<LockState>(LOCK_KEY)
+  const current = await kvGet<LockState>(LOCK_KEY())
   if (current?.acquiredAt) {
     const age = Date.now() - new Date(current.acquiredAt).getTime()
     if (age < timeoutMs) {
@@ -700,10 +761,10 @@ export async function acquireLock(
   // Paso 2: escribir nuestro lock con ID único
   const lockId = `${holder}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
   const lock: LockState = { lockId, holder, acquiredAt: new Date().toISOString(), detail }
-  await kvSet(LOCK_KEY, lock)
+  await kvSet(LOCK_KEY(), lock)
 
   // Paso 3: leer de vuelta y verificar que nuestro ID ganó
-  const verify = await kvGet<LockState>(LOCK_KEY)
+  const verify = await kvGet<LockState>(LOCK_KEY())
   if (verify?.lockId === lockId) {
     return true // Nuestro write ganó
   }
@@ -714,9 +775,9 @@ export async function acquireLock(
 
 export async function releaseLock(holder: string): Promise<void> {
   try {
-    const current = await kvGet<LockState>(LOCK_KEY)
+    const current = await kvGet<LockState>(LOCK_KEY())
     if (current?.holder === holder) {
-      await kvSet(LOCK_KEY, {}) // {} en vez de null — kv_store tiene NOT NULL en value
+      await kvSet(LOCK_KEY(), {}) // {} en vez de null — kv_store tiene NOT NULL en value
     }
   } catch {
     // Si falla la liberación, el lock expirará por timeout (30s)
@@ -724,7 +785,7 @@ export async function releaseLock(holder: string): Promise<void> {
 }
 
 export async function getLockState(): Promise<LockState | null> {
-  const current = await kvGet<LockState>(LOCK_KEY)
+  const current = await kvGet<LockState>(LOCK_KEY())
   if (!current?.acquiredAt) return null
   const age = Date.now() - new Date(current.acquiredAt).getTime()
   if (age >= DEFAULT_LOCK_TIMEOUT_MS) return null // expirado

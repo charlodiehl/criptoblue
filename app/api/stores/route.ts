@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getStores, saveStores, loadHotState, saveHotState, loadLogs, saveLogs, appendActivity, loadOrdersCache, saveOrdersCache } from '@/lib/storage'
+import { requireUnidad } from '@/lib/auth/server'
 
 // Auth manejada por middleware.ts — GET público, PATCH/DELETE requieren sesión
 
 export async function GET() {
+  // La unidad de negocio sale de la sesión (el middleware ya validó rol + 2FA).
+  const errUnidad = await requireUnidad()
+  if (errUnidad) return errUnidad
   try {
     const stores = await getStores()
     return NextResponse.json(Object.values(stores))
@@ -13,6 +17,9 @@ export async function GET() {
 }
 
 export async function PATCH(req: NextRequest) {
+  // La unidad de negocio sale de la sesión (el middleware ya validó rol + 2FA).
+  const errUnidad = await requireUnidad()
+  if (errUnidad) return errUnidad
   try {
     // Las tiendas ya no se vinculan a una billetera: solo se puede editar el nombre.
     const { storeId, storeName } = await req.json()
@@ -33,6 +40,9 @@ export async function PATCH(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
+  // La unidad de negocio sale de la sesión (el middleware ya validó rol + 2FA).
+  const errUnidad = await requireUnidad()
+  if (errUnidad) return errUnidad
   try {
     const { storeId } = await req.json()
     if (!storeId) return NextResponse.json({ error: 'storeId required' }, { status: 400 })

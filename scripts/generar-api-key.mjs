@@ -9,6 +9,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { createHash, randomBytes } from 'crypto'
 import { readFileSync } from 'fs'
+import { UNIDADES, buscarTienda, listarTiendas } from './_unidades.mjs'
 
 for (const l of readFileSync(new URL('../.env.local', import.meta.url), 'utf8').split('\n')) {
   const i = l.indexOf('='); if (i <= 0) continue
@@ -24,7 +25,7 @@ const hashKey = (k) => createHash('sha256').update(k.trim()).digest('hex')
 const [, , cmd, arg2, ...rest] = process.argv
 
 if (cmd === '--listar') {
-  let q = s.from('store_api_keys').select('id, store_id, key_prefix, label, created_at, revoked_at, last_used_at').order('id')
+  let q = s.from('store_api_keys').select('id, unidad, store_id, key_prefix, label, created_at, revoked_at, last_used_at').order('id')
   if (arg2) q = q.eq('store_id', arg2)
   const { data, error } = await q
   if (error) throw new Error(error.message)
@@ -49,23 +50,25 @@ if (!storeId) {
   process.exit(1)
 }
 
-const { data: kv } = await s.from('kv_store').select('value').eq('key', 'criptoblue:stores').maybeSingle()
-const store = kv?.value?.[storeId]
-if (!store) {
-  console.error(`storeId "${storeId}" no existe en criptoblue:stores. Tiendas disponibles:`)
-  for (const [id, st] of Object.entries(kv?.value ?? {})) console.error(`  ${id} → ${st.storeName}`)
+// La unidad de negocio de la key sale de la tienda: es la que después define qué
+// datos devuelve la API pública (ver validarApiKey en lib/api-keys.ts).
+const hit = await buscarTienda(s, storeId)
+if (!hit) {
+  console.error(`storeId "${storeId}" no existe en ninguna unidad. Tiendas disponibles:`)
+  for (const linea of await listarTiendas(s)) console.error(linea)
   process.exit(1)
 }
+const { unidad, store } = hit
 
 const key = PREFIX + randomBytes(24).toString('hex')  // cb_live_ + 48 hex
 const key_prefix = key.slice(0, 12)
 const { data, error } = await s.from('store_api_keys')
-  .insert({ store_id: storeId, key_hash: hashKey(key), key_prefix, label })
+  .insert({ unidad, store_id: storeId, key_hash: hashKey(key), key_prefix, label })
   .select('id').single()
 if (error) throw new Error(error.message)
 
 console.log('')
-console.log(`✅ API key generada para ${store.storeName} (${storeId})`)
+console.log(`✅ API key generada para ${store.storeName} (${storeId}) · unidad ${UNIDADES[unidad].nombre}`)
 console.log(`   key #${data.id}${label ? ` · ${label}` : ''}`)
 console.log('')
 console.log('   ┌─────────────────────────────────────────────────────────────────┐')

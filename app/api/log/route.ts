@@ -3,9 +3,14 @@ import { loadHotState, loadLogs, saveLogs, appendActivity, notifyKeyUpdate } fro
 import { queryRegistro, queryRegistroPaged, queryRegistroUncopied, updateRegistroByTimestamp, markRegistroCopied, claimRegistroUncopied, unclaimRegistro } from '@/lib/registro'
 import type { RegistroSortKey } from '@/lib/registro'
 import { audit } from '@/lib/audit'
+import { requireUnidad } from '@/lib/auth/server'
+import { kvKey } from '@/lib/unidad'
 
 // PATCH: edita campos de una entrada, o reclama/devuelve entradas para copiar
 export async function PATCH(request: Request) {
+  // La unidad de negocio sale de la sesión (el middleware ya validó rol + 2FA).
+  const errUnidad = await requireUnidad()
+  if (errUnidad) return errUnidad
   try {
     const body = await request.json()
 
@@ -21,7 +26,7 @@ export async function PATCH(request: Request) {
       if (claimIds.length) {
         // registro_log no vive en kv_store, así que no dispara Realtime por sí solo:
         // hay que avisar a mano para que los otros admins vean el contador bajar.
-        notifyKeyUpdate('criptoblue:logs').catch(() => {})
+        notifyKeyUpdate(kvKey('logs')).catch(() => {})
         audit({ category: 'user_action', action: 'registro.claim_copy', result: 'success', actor: 'human', component: 'api/log', message: `${claimIds.length} entradas reclamadas para copiar` })
       }
       return NextResponse.json({ entries, claimIds })
@@ -34,7 +39,7 @@ export async function PATCH(request: Request) {
         return NextResponse.json({ error: 'ids requerido' }, { status: 400 })
 
       await unclaimRegistro(ids)
-      notifyKeyUpdate('criptoblue:logs').catch(() => {})
+      notifyKeyUpdate(kvKey('logs')).catch(() => {})
       audit({ category: 'user_action', action: 'registro.unclaim_copy', result: 'success', actor: 'human', component: 'api/log', message: `${ids.length} entradas devueltas a sin copiar` })
       return NextResponse.json({ success: true })
     }
@@ -46,7 +51,7 @@ export async function PATCH(request: Request) {
         return NextResponse.json({ error: 'timestamps requerido' }, { status: 400 })
 
       await markRegistroCopied(timestamps)
-      notifyKeyUpdate('criptoblue:logs').catch(() => {})
+      notifyKeyUpdate(kvKey('logs')).catch(() => {})
 
       audit({ category: 'user_action', action: 'registro.mark_copied', result: 'success', actor: 'human', component: 'api/log', message: `${timestamps.length} entradas copiadas (camino obsoleto)` })
       return NextResponse.json({ success: true })
@@ -77,6 +82,9 @@ export async function PATCH(request: Request) {
 const VALID_SORT_KEYS: RegistroSortKey[] = ['fecha', 'monto', 'cuit', 'nombre', 'tienda', 'orden', 'billetera']
 
 export async function GET(request: Request) {
+  // La unidad de negocio sale de la sesión (el middleware ya validó rol + 2FA).
+  const errUnidad = await requireUnidad()
+  if (errUnidad) return errUnidad
   try {
     const { searchParams } = new URL(request.url)
     const currentMonth = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString().slice(0, 7)

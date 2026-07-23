@@ -3,6 +3,7 @@ import ExcelJS from 'exceljs'
 import { detectColumns, normalizeRow, normalizeHeader, pagoFirma, buildSigSet } from '@/lib/cargar-pagos'
 import { loadHotState } from '@/lib/storage'
 import { getRegistroPaymentsBySource } from '@/lib/registro'
+import { requireUnidad } from '@/lib/auth/server'
 
 const LACAR_SOURCE = 'lacar'
 
@@ -11,6 +12,9 @@ export const runtime = 'nodejs'
 // POST multipart { file } → parsea la planilla, detecta columnas por su header y
 // devuelve la vista previa de los pagos que se cargarían (sin escribir nada).
 export async function POST(req: NextRequest) {
+  // La unidad de negocio sale de la sesión (el middleware ya validó rol + 2FA).
+  const errUnidad = await requireUnidad()
+  if (errUnidad) return errUnidad
   try {
     const form = await req.formData()
     const file = form.get('file')

@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import TasaInput from '@/components/TasaInput'
 import MontoInput from '@/components/MontoInput'
-import { WALLETS } from '@/lib/config'
+import { useWallets } from '@/hooks/useUnidad'
 import type { Toast } from './FinanzasApp'
 
 interface Props {
@@ -26,6 +26,7 @@ function nowARTLocal(): string {
 }
 
 export default function SaldoPersonalizado({ notify, onSaldoAgregado }: Props) {
+  const wallets = useWallets()   // billeteras de la unidad de negocio de la sesión
   const [tiendas, setTiendas] = useState<{ storeId: string; storeName: string }[]>([])
   const [loaded, setLoaded] = useState(false)
 
@@ -138,7 +139,7 @@ export default function SaldoPersonalizado({ notify, onSaldoAgregado }: Props) {
                   <select value={billetera} onChange={e => setBilletera(e.target.value)}
                     style={{ ...inputStyle, colorScheme: 'dark', cursor: 'pointer' }}>
                     <option value="" style={optionStyle}>Elegí la billetera…</option>
-                    {WALLETS.map(w => <option key={w} value={w} style={optionStyle}>{w}</option>)}
+                    {wallets.map(w => <option key={w} value={w} style={optionStyle}>{w}</option>)}
                   </select>
                 </div>
                 {billetera === 'Otras' && (

@@ -3,6 +3,7 @@ import { loadHotState } from '@/lib/storage'
 import { buscarEmparejadosPorMonto } from '@/lib/registro'
 import { billeteraLabel } from '@/lib/utils'
 import type { Payment } from '@/lib/types'
+import { requireUnidad } from '@/lib/auth/server'
 
 // Ventana de fecha alrededor del comprobante. Amplia (±24h) porque la fecha del pago
 // en la app viene del medio (no del segundo exacto del comprobante); el monto exacto
@@ -15,6 +16,9 @@ const VENTANA_MS = 24 * 60 * 60 * 1000
 // que el admin lo empareje y para bloquear reusar uno ya emparejado (impedir que un
 // mismo pago valide más de una orden).
 export async function POST(req: NextRequest) {
+  // La unidad de negocio sale de la sesión (el middleware ya validó rol + 2FA).
+  const errUnidad = await requireUnidad()
+  if (errUnidad) return errUnidad
   try {
     const { monto, fechaISO } = await req.json()
 

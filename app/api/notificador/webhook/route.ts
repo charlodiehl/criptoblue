@@ -3,8 +3,10 @@ import { loadHotState, saveHotState, loadLogs, saveLogs, appendActivity, appendE
 import { isPaymentAlreadyUsed } from '@/lib/registro'
 import type { Payment, UnmatchedPayment } from '@/lib/types'
 import { nowART } from '@/lib/utils'
+import { runEnUnidad, unidadDeBilletera } from '@/lib/unidad'
 
 const LOCK_HOLDER = 'notificador-webhook'
+const BILLETERA = 'MS'
 
 // Registra en el errorLog un pago que llegó autenticado pero NO se pudo cargar.
 // Se muestra en el centro de errores (campana del header). Solo se llama para
@@ -55,7 +57,18 @@ function extraerSecret(req: NextRequest, body: any): string | null {
 //
 // La ruta está exenta del middleware de sesión (ver proxy.ts) porque la llama un
 // servicio externo.
+// Llega sin sesión: la unidad de negocio sale de a qué unidad pertenece la billetera
+// donde entra la plata (ver lib/unidad.ts).
 export async function POST(req: NextRequest) {
+  const unidad = unidadDeBilletera(BILLETERA)
+  if (!unidad) {
+    console.error(`[notificador] la billetera "${BILLETERA}" no pertenece a ninguna unidad de negocio`)
+    return NextResponse.json({ error: `La billetera "${BILLETERA}" no está asignada a ninguna unidad de negocio` }, { status: 500 })
+  }
+  return runEnUnidad(unidad, () => procesar(req))
+}
+
+async function procesar(req: NextRequest) {
   try {
     const expected = process.env.NOTIFICADOR_WEBHOOK_SECRET
     if (!expected) {

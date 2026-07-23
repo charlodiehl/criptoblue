@@ -4,6 +4,8 @@ import { runAutoMatchCore } from '@/lib/auto-match-runner'
 import { audit } from '@/lib/audit'
 import { cleanupAuditLogs } from '@/lib/audit'
 import { loadHotState, saveHotState, isCronPaused, withStateLock } from '@/lib/storage'
+import { porCadaUnidad } from '@/lib/unidad'
+import { requireUnidad } from '@/lib/auth/server'
 
 export const maxDuration = 300
 
@@ -50,32 +52,41 @@ async function runCycle(triggeredBy: 'cron' | 'manual_button') {
   return { success: true, ...syncResult, autoMatch }
 }
 
+// GET — cron de Vercel cada 5 min. UN solo cron para las DOS unidades de negocio:
+// recorre cada una en serie con su propio estado, su propia cola de pagos y su
+// propia pausa. Es el corazón de la infraestructura compartida.
 export async function GET() {
   // Solo permitir cron en producción — preview deployments (otras branches) no deben ejecutar ciclos
   if (process.env.VERCEL_ENV && process.env.VERCEL_ENV !== 'production') {
     return NextResponse.json({ skipped: true, reason: 'cron disabled on non-production deployments' })
   }
 
-  // Pausa de cron (flag kv criptoblue:cron-paused) — usada durante migraciones/mantenimiento.
-  // Evita que el ciclo procese pagos/órdenes mientras se opera la base de datos.
-  if (await isCronPaused()) {
-    return NextResponse.json({ skipped: true, reason: 'cron paused (criptoblue:cron-paused)' })
-  }
+  const porUnidad = await porCadaUnidad(async (unidad) => {
+    // Pausa de cron (flag kv <unidad>:cron-paused) — usada durante migraciones/
+    // mantenimiento. Es por unidad: se puede frenar una sin frenar la otra.
+    if (await isCronPaused()) {
+      return { skipped: true, reason: `cron paused (${unidad}:cron-paused)` }
+    }
+    try {
+      return await runCycle('cron')
+    } catch (err) {
+      await audit({
+        category: 'error', action: 'cron_cycle.error', result: 'failure',
+        actor: 'cron', component: 'run',
+        message: `Error en ciclo cron GET (${unidad}): ${String(err)}`,
+        error: String(err),
+      })
+      return { success: false, error: String(err) }
+    }
+  })
 
-  try {
-    return NextResponse.json(await runCycle('cron'))
-  } catch (err) {
-    await audit({
-      category: 'error', action: 'cron_cycle.error', result: 'failure',
-      actor: 'cron', component: 'run',
-      message: `Error en ciclo cron GET: ${String(err)}`,
-      error: String(err),
-    })
-    return NextResponse.json({ success: false, error: String(err) }, { status: 500 })
-  }
+  return NextResponse.json({ porUnidad })
 }
 
+// POST — botón manual del panel. Corre SOLO la unidad de quien lo apretó.
 export async function POST() {
+  const errUnidad = await requireUnidad()
+  if (errUnidad) return errUnidad
   try {
     return NextResponse.json(await runCycle('manual_button'))
   } catch (err) {

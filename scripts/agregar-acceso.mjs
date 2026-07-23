@@ -16,6 +16,7 @@
 
 import { createClient } from '@supabase/supabase-js'
 import { readFileSync } from 'fs'
+import { UNIDADES, parseUnidad, getStores } from './_unidades.mjs'
 
 // Carga .env.local (saca comillas envolventes: SUPABASE_URL viene entre comillas y
 // createClient las rechaza — sin esto el script falla con "Invalid supabaseUrl").
@@ -32,19 +33,14 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
   auth: { persistSession: false },
 })
 
-// Mantener en sync con WALLETS de lib/config.ts
-const WALLETS = ['MF', 'Lacar', 'MS', 'Montemar', 'Copter MS', 'Otras']
+// Las tiendas y billeteras disponibles salen de la UNIDAD DE NEGOCIO del usuario:
+// un acceso extra nunca puede cruzar de unidad (ver scripts/_unidades.mjs).
 
 const USO = 'Uso:\n' +
   '  node scripts/agregar-acceso.mjs <email> tienda <storeId>\n' +
   '  node scripts/agregar-acceso.mjs <email> billetera <wallet> <editor|lectura>\n' +
   '  node scripts/agregar-acceso.mjs --quitar <email> <tienda|billetera> <id>\n' +
   '  node scripts/agregar-acceso.mjs --listar <email>'
-
-async function getStores() {
-  const { data } = await supabase.from('kv_store').select('value').eq('key', 'criptoblue:stores').maybeSingle()
-  return data?.value ?? {}
-}
 
 async function getRow(email) {
   const { data, error } = await supabase.from('app_users').select('*').eq('email', email).maybeSingle()
@@ -64,10 +60,12 @@ if (a === '--listar') {
   const email = (b || '').toLowerCase().trim()
   const row = await getRow(email)
   if (!row) { console.error('No existe ese usuario en app_users.'); process.exit(1) }
+  const unidad = parseUnidad(row.unidad)
   const primario = row.role === 'tienda' ? `tienda ${row.store_id}`
     : row.role === 'billetera' ? `billetera ${row.wallet} (${row.billetera_permiso})`
-      : row.role
+      : UNIDADES[unidad].rol
   console.log(`${email}`)
+  console.log(`  Unidad:   ${UNIDADES[unidad].nombre} (${unidad})`)
   console.log(`  Primario: ${primario}`)
   console.log(`  Extra:    ${JSON.stringify(row.accesos_extra ?? [])}`)
   process.exit(0)
@@ -96,17 +94,21 @@ if (!email || !['tienda', 'billetera'].includes(tipo)) { console.error(USO); pro
 
 const row = await getRow(email)
 if (!row) { console.error('Ese usuario no existe. Dale primero un acceso primario con agregar-usuario.mjs.'); process.exit(1) }
-if (row.role === 'admin') { console.error('Un admin ya ve todo desde /finanzas: no se le agregan accesos extra.'); process.exit(1) }
+if (row.role === 'admin') { console.error('Un super admin ya ve todo lo de su unidad desde /finanzas: no se le agregan accesos extra.'); process.exit(1) }
+
+// La unidad del usuario acota qué le podés dar: nunca se cruza de negocio.
+const unidad = parseUnidad(row.unidad)
+console.log(`Unidad de negocio: ${UNIDADES[unidad].nombre} (${unidad})`)
 
 const extra = Array.isArray(row.accesos_extra) ? row.accesos_extra : []
 
 if (tipo === 'tienda') {
   const storeId = (c || '').trim()
   if (!storeId) { console.error(USO); process.exit(1) }
-  const stores = await getStores()
+  const stores = await getStores(supabase, unidad)
   const tienda = stores[storeId]
   if (!tienda) {
-    console.error(`storeId "${storeId}" no existe en criptoblue:stores. Tiendas disponibles:`)
+    console.error(`storeId "${storeId}" no existe en las tiendas de ${UNIDADES[unidad].nombre}. Disponibles:`)
     for (const [sid, s] of Object.entries(stores)) console.error(`  ${sid} → ${s.storeName}`)
     process.exit(1)
   }
@@ -118,7 +120,8 @@ if (tipo === 'tienda') {
 } else {
   const wallet = (c || '').trim()
   const permiso = (d || '').toLowerCase().trim()
-  if (!WALLETS.includes(wallet)) { console.error(`Billetera inválida. Opciones: ${WALLETS.join(', ')}`); process.exit(1) }
+  const wallets = UNIDADES[unidad].wallets
+  if (!wallets.includes(wallet)) { console.error(`Billetera inválida para ${UNIDADES[unidad].nombre}. Opciones: ${wallets.join(', ') || '(esta unidad todavía no tiene billeteras)'}`); process.exit(1) }
   if (!['editor', 'lectura'].includes(permiso)) { console.error('Permiso inválido (editor | lectura)'); process.exit(1) }
   if (row.role === 'billetera' && row.wallet === wallet) { console.error('Esa ya es su billetera primaria.'); process.exit(1) }
   const idx = extra.findIndex(x => x?.tipo === 'billetera' && x?.id === wallet)

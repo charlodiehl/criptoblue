@@ -3,8 +3,10 @@ import { loadHotState, saveHotState, loadLogs, saveLogs, appendActivity, appendE
 import { isPaymentAlreadyUsed } from '@/lib/registro'
 import type { Payment, UnmatchedPayment } from '@/lib/types'
 import { nowART } from '@/lib/utils'
+import { runEnUnidad, unidadDeBilletera } from '@/lib/unidad'
 
 const LOCK_HOLDER = 'copter-webhook'
+const BILLETERA = 'Copter MS'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Pagos de ExchangeCopter que entran por EMAIL. Un Google Apps Script en la casilla
@@ -44,7 +46,19 @@ function parsearCuerpo(cuerpo: string, asunto: string): { titular: string; monto
   return null
 }
 
+// El webhook llega SIN sesión, así que la unidad de negocio no sale del usuario:
+// sale de a qué unidad pertenece la billetera. El día que "Copter MS" se mueva de
+// unidad, sus pagos la siguen solos — no hay que tocar nada acá.
 export async function POST(req: NextRequest) {
+  const unidad = unidadDeBilletera(BILLETERA)
+  if (!unidad) {
+    console.error(`[copter] la billetera "${BILLETERA}" no pertenece a ninguna unidad de negocio`)
+    return NextResponse.json({ error: `La billetera "${BILLETERA}" no está asignada a ninguna unidad de negocio` }, { status: 500 })
+  }
+  return runEnUnidad(unidad, () => procesar(req))
+}
+
+async function procesar(req: NextRequest) {
   try {
     const expected = process.env.COPTER_WEBHOOK_SECRET
     if (!expected) {

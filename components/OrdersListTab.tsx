@@ -4,7 +4,8 @@ import { useState, useMemo } from 'react'
 import MontoInput from '@/components/MontoInput'
 import type { Order, Store } from '@/lib/types'
 import { ARS, fmtDate, matchesSearch } from '@/lib/utils'
-import { MONTO_DIFF_WARNING_THRESHOLD, WALLETS } from '@/lib/config'
+import { MONTO_DIFF_WARNING_THRESHOLD } from '@/lib/config'
+import { useWallets } from '@/hooks/useUnidad'
 
 const PAGE_SIZE = 100
 
@@ -57,6 +58,7 @@ const campoBillLabel: React.CSSProperties = { fontSize: '10px', color: 'rgba(148
 // billeteras del sistema, u "Otras" con un nombre libre para pagos que no entraron
 // por ninguna. El pago queda atribuido a esa billetera en Administración Financiera.
 function SelectorBilletera({ form, onChange }: { form: ManualPayForm; onChange: (patch: Partial<ManualPayForm>) => void }) {
+  const wallets = useWallets()   // billeteras de la unidad de negocio de la sesión
   return (
     <div>
       <label style={campoBillLabel}>Billetera del pago</label>
@@ -64,7 +66,7 @@ function SelectorBilletera({ form, onChange }: { form: ManualPayForm; onChange: 
         style={{ ...campoBillStyle, colorScheme: 'dark' }}>
         {/* Sin elegir, el pago NO queda sin billetera: cae en "Otras" (seguro del registro). */}
         <option value="" style={{ background: '#1a2235' }}>— Sin identificar (va a Otras) —</option>
-        {WALLETS.map(w => <option key={w} value={w} style={{ background: '#1a2235' }}>{w}</option>)}
+        {wallets.map(w => <option key={w} value={w} style={{ background: '#1a2235' }}>{w}</option>)}
       </select>
       {form.billetera === 'Otras' && (
         <input type="text" placeholder="Nombre de la billetera (ej: Ualá, Efectivo)"

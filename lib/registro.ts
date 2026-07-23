@@ -9,6 +9,7 @@ import { registrarIngresoOrden, actualizarDescripcionIngreso } from './balance'
 import { BALANCE_CUTOFF, SOURCE_SIN_BILLETERA } from './config'
 import { billeteraLabel, billeteraIdentificada } from './utils'
 import { notifyTienda } from './push'
+import { kvKey } from './unidad'
 
 // Monto en pesos para el texto de las notificaciones.
 const fmtArs = (n: number) => `$${n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -18,7 +19,7 @@ const TABLE = 'registro_log'
 // IDs de reclamos (pagos que una tienda se adjudicó) que el admin ya marcó como OK.
 // Se guardan aparte del registro a propósito: el "OK" es estado del FEED del admin,
 // no del pago — no debe tocar el registro, el hidden ni el balance.
-const RECLAMOS_OK_KEY = 'criptoblue:reclamos-ok'
+const RECLAMOS_OK_KEY = () => kvKey('reclamos-ok')
 
 // Acciones que representan una orden efectivamente pagada.
 const MATCHED_ACTIONS = ['manual_paid', 'auto_paid']
@@ -750,7 +751,7 @@ export async function searchRegistroByStore(
 // Reclamos de pagos hechos por tiendas (source='tienda_buscar') en una ventana.
 // Alimenta el feed informativo de Administración General (solo lectura).
 async function getReclamosOkIds(): Promise<Set<number>> {
-  const v = await kvGet<{ ids: number[] }>(RECLAMOS_OK_KEY)
+  const v = await kvGet<{ ids: number[] }>(RECLAMOS_OK_KEY())
   return new Set(v?.ids ?? [])
 }
 
@@ -762,7 +763,7 @@ export async function marcarReclamoOk(id: number): Promise<void> {
   const actuales = await getReclamosOkIds()
   actuales.add(id)
   const ids = Array.from(actuales).sort((a, b) => b - a).slice(0, 2000)
-  await kvSet(RECLAMOS_OK_KEY, { ids })
+  await kvSet(RECLAMOS_OK_KEY(), { ids })
 }
 
 export interface ReclamoReciente {

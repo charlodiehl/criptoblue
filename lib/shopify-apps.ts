@@ -1,5 +1,6 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import { CONFIG } from './config'
+import { kvKey } from './unidad'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // "Bala cargada" de Shopify: como Shopify obliga a una app por tienda, el admin
@@ -10,7 +11,7 @@ import { CONFIG } from './config'
 // Reemplaza la dependencia de las env CRIPTOBLUE_SHOPIFY_* (que exigían redeploy).
 // ─────────────────────────────────────────────────────────────────────────────
 
-const KEY = 'criptoblue:shopify-armed'
+const KEY = () => kvKey('shopify-armed')
 
 let _client: SupabaseClient | null = null
 function getClient(): SupabaseClient {
@@ -38,7 +39,7 @@ export function normalizeShopDomain(shop: string): string {
 }
 
 export async function getArmedShopifyApp(): Promise<ArmedShopifyApp | null> {
-  const { data, error } = await getClient().from('kv_store').select('value').eq('key', KEY).maybeSingle()
+  const { data, error } = await getClient().from('kv_store').select('value').eq('key', KEY()).maybeSingle()
   if (error) throw new Error(`getArmedShopifyApp falló: ${error.message} [${error.code}]`)
   const v = data?.value as ArmedShopifyApp | undefined
   if (!v || !v.clientId) return null
@@ -49,13 +50,13 @@ export async function setArmedShopifyApp(app: Omit<ArmedShopifyApp, 'armedAt'>):
   const value: ArmedShopifyApp = { ...app, shop: normalizeShopDomain(app.shop), armedAt: new Date().toISOString() }
   const { error } = await getClient()
     .from('kv_store')
-    .upsert({ key: KEY, value, updated_at: new Date().toISOString() }, { onConflict: 'key' })
+    .upsert({ key: KEY(), value, updated_at: new Date().toISOString() }, { onConflict: 'key' })
   if (error) throw new Error(`setArmedShopifyApp falló: ${error.message} [${error.code}]`)
   return value
 }
 
 export async function clearArmedShopifyApp(): Promise<void> {
-  const { error } = await getClient().from('kv_store').delete().eq('key', KEY)
+  const { error } = await getClient().from('kv_store').delete().eq('key', KEY())
   if (error) throw new Error(`clearArmedShopifyApp falló: ${error.message} [${error.code}]`)
 }
 

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import type { Store } from '@/lib/types'
+import { useUnidad } from '@/hooks/useUnidad'
 
 interface Props {
   onToast: (msg: string, type: 'success' | 'error') => void
@@ -16,6 +17,7 @@ function fmtDate(iso: string) {
 }
 
 export default function StoresTab({ onToast }: Props) {
+  const unidadId = useUnidad()?.id ?? 'criptoblue'
   const [stores, setStores] = useState<Store[]>([])
   const [loading, setLoading] = useState(true)
   const [deleting, setDeleting] = useState<string | null>(null)
@@ -60,7 +62,8 @@ export default function StoresTab({ onToast }: Props) {
     if (!name) return
     setModalOpen(false)
     setNewStoreName('')
-    window.location.href = `/api/tn/connect?name=${encodeURIComponent(name)}`
+    // La unidad viaja en el link: el callback del OAuth vuelve sin sesión.
+    window.location.href = `/api/tn/connect?name=${encodeURIComponent(name)}&unidad=${unidadId}`
   }
 
   return (

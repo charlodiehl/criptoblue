@@ -11,8 +11,12 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { loadProcessed, saveProcessed } from '@/lib/storage'
+import { requireUnidad } from '@/lib/auth/server'
 
 export async function POST(req: NextRequest) {
+  // La unidad de negocio sale de la sesión (el middleware ya validó rol + 2FA).
+  const errUnidad = await requireUnidad()
+  if (errUnidad) return errUnidad
   try {
     const { mpPaymentId, secret } = await req.json()
 

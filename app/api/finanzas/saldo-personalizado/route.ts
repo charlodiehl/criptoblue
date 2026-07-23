@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireUser } from '@/lib/auth/server'
 import { getStores } from '@/lib/storage'
-import { WALLETS } from '@/lib/config'
+import { walletsDeUnidad } from '@/lib/unidad'
 import { agregarSaldoPersonalizado } from '@/lib/saldo-personalizado'
 
 // POST /api/finanzas/saldo-personalizado
@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
     // Billetera de origen: una de las billeteras, o "Otras" con nombre libre.
     const billeteraSel = String(body?.billetera || '').trim()
     const nombreOtras = String(body?.billeteraOtra || '').trim()
-    if (billeteraSel !== 'Otras' && !(WALLETS as readonly string[]).includes(billeteraSel)) {
+    if (billeteraSel !== 'Otras' && !walletsDeUnidad().includes(billeteraSel)) {
       return NextResponse.json({ error: 'Elegí desde qué billetera entró el pago' }, { status: 400 })
     }
     if (billeteraSel === 'Otras' && !nombreOtras) {

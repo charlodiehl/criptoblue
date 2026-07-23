@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireUser } from '@/lib/auth/server'
 import { getIngresosBilletera, getBilleterasOcultas, getDiasConMovimiento } from '@/lib/billeteras'
-import { WALLETS } from '@/lib/config'
+import { walletsDeUnidad } from '@/lib/unidad'
 
 // GET /api/finanzas/billetera?wallet=MS[&fecha=YYYY-MM-DD] → total + extracto (del
 // día si se pasa fecha) + los días que tuvieron movimiento (para el calendario).
@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
     if ('error' in auth) return auth.error
 
     const wallet = (req.nextUrl.searchParams.get('wallet') || '').trim()
-    if (!wallet || !(WALLETS as readonly string[]).includes(wallet)) {
+    if (!wallet || !walletsDeUnidad().includes(wallet)) {
       return NextResponse.json({ error: 'Billetera inválida' }, { status: 400 })
     }
 

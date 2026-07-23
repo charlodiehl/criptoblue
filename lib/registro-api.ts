@@ -1,4 +1,4 @@
-import { serviceClient } from '@/lib/auth/server'
+import { getClient } from '@/lib/storage'
 import { getComisiones, comisionTienda, comisionTiendaSobre } from '@/lib/comisiones'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -87,7 +87,7 @@ async function inEnLotes<T>(ids: number[], fn: (lote: number[]) => Promise<T[]>)
 }
 
 export async function getRegistroRango(storeId: string, tienda: string, desde: string, hasta: string): Promise<RegistroRango> {
-  const sb = serviceClient()
+  const sb = getClient()   // acotado a la unidad de la API key (ver validarApiKey)
   const cfg = await getComisiones()
   const pct = comisionTienda(cfg, storeId)
 

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireUser } from '@/lib/auth/server'
 import { getComisiones, comisionTienda, comisionBilletera, setComision } from '@/lib/comisiones'
 import { getStores } from '@/lib/storage'
-import { WALLETS } from '@/lib/config'
+import { walletsDeUnidad } from '@/lib/unidad'
 
 // GET /api/finanzas/comisiones → { tiendas:[{storeId,storeName,pct}], billeteras:[{wallet,pct}] }
 export async function GET() {
@@ -14,7 +14,7 @@ export async function GET() {
     const tiendas = Object.values(stores)
       .map(s => ({ storeId: s.storeId, storeName: s.storeName, pct: comisionTienda(cfg, s.storeId) }))
       .sort((a, b) => a.storeName.localeCompare(b.storeName))
-    const billeteras = (WALLETS as readonly string[])
+    const billeteras = walletsDeUnidad()
       .map(w => ({ wallet: w, pct: comisionBilletera(cfg, w) }))
       .sort((a, b) => a.wallet.localeCompare(b.wallet))
 
