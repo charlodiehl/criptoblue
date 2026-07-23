@@ -5,7 +5,7 @@
  */
 
 import type { Payment, Order, UnmatchedPayment } from './types'
-import { SAMEMONTO_WINDOW_HOURS, esOrdenDeTercero, esPagoDeTercero } from './config'
+import { SAMEMONTO_WINDOW_HOURS } from './config'
 import { paymentWalletId, montoCoincide, pctPorDebajo } from './utils'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -211,8 +211,7 @@ export interface AutoMatchDiagnostic {
   sameMontoCount: number
   orderIdsInWindow: string[]   // todas las órdenes con monto similar dentro de la ventana
   totalOrdersInUniverse: number  // total de órdenes consideradas (post-filtros globales)
-  paymentWalletId: string | null   // billetera del pago (null = sin restricción)
-  ordersInWalletUniverse: number   // cuántas órdenes quedaron tras filtrar por billetera
+  paymentWalletId: string | null   // billetera del pago (solo informativo: no acota el universo)
 }
 
 export interface AutoMatchResult {
@@ -231,11 +230,6 @@ export function findAutoMatchCandidates(
   // Filtrar órdenes ya pagadas del universo de candidatos — no deben ser candidatas
   // ni inflar el conteo de sameMontoCount
   orders = orders.filter(o => !confirmedOrderIds.has(`${o.storeId}-${o.orderId}`))
-  // Terceros: las órdenes de tiendas de terceros y los pagos de billeteras de terceros
-  // emparejan EXCLUSIVAMENTE entre sí. Se parte el universo en dos grupos que nunca se
-  // cruzan (tampoco se contaminan el sameMontoCount entre grupos).
-  const ordenesPropias = orders.filter(o => !esOrdenDeTercero(o.storeId))
-  const ordenesTerceros = orders.filter(o => esOrdenDeTercero(o.storeId))
   const candidates: AutoMatchCandidate[] = []
   const diagnostics: AutoMatchDiagnostic[] = []
 
@@ -257,13 +251,11 @@ export function findAutoMatchCandidates(
     const payTime = u.payment.fechaPago ? new Date(u.payment.fechaPago).getTime() : null
     const windowStart = (payTime ?? Date.now()) - SAMEMONTO_WINDOW_MS
 
-    // Dentro de su grupo no hay restricción por billetera: cualquier pago puede emparejar
-    // con la orden de cualquier tienda del MISMO grupo. (paymentWallet, solo diagnóstico.)
+    // No hay restricción por billetera: cualquier pago puede emparejar con la orden de
+    // cualquier tienda de la unidad. (paymentWallet queda solo para el diagnóstico.)
     const paymentWallet = paymentWalletId(u.payment.source)
-    // Un pago de billetera de terceros solo ve órdenes de tiendas de terceros, y viceversa.
-    const ordersForWallet = esPagoDeTercero(u.payment.source) ? ordenesTerceros : ordenesPropias
 
-    const ordersInWindow = ordersForWallet.filter(o =>
+    const ordersInWindow = orders.filter(o =>
       Math.abs(o.total - u.payment.monto) <= 10 &&
       !dismissedSet.has(`${mpId}|${o.orderId}|${o.storeId}`) &&
       (o.createdAt ? new Date(o.createdAt).getTime() >= windowStart : true) &&
@@ -280,14 +272,13 @@ export function findAutoMatchCandidates(
       orderIdsInWindow: ordersInWindow.map(o => `${o.storeId}-${o.orderId}`),
       totalOrdersInUniverse: orders.length,
       paymentWalletId: paymentWallet,
-      ordersInWalletUniverse: ordersForWallet.length,
     })
 
     let bestOrder: Order | null = null
     let bestGreenCount = -1
     let bestMontoDiff = Infinity  // desempate: menor diferencia de monto gana
 
-    for (const order of ordersForWallet) {
+    for (const order of orders) {
       if (dismissedSet.has(`${mpId}|${order.orderId}|${order.storeId}`)) continue
 
       // Regla dura: el pago no puede ser anterior a la creación de la orden

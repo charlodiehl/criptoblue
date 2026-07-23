@@ -107,22 +107,6 @@ export const PAYMENT_SOURCE_TO_WALLET: Record<string, string> = {
   copter: 'Copter MS',
 }
 
-// ─── Terceros: billeteras cuyo dinero es de terceros ──────────────────────────
-// Sus pagos van a su propia pestaña ("Pagos de terceros"), quedan FUERA de todas las
-// métricas y del conteo del mes, y emparejan EXCLUSIVAMENTE con órdenes de tiendas de
-// terceros (y al revés: una orden de tercero solo empareja con un pago de tercero).
-export const BILLETERAS_TERCEROS: ReadonlySet<string> = new Set([
-  'Copter MS',
-])
-
-export function esBilleteraDeTercero(wallet: string | null | undefined): boolean {
-  return !!wallet && BILLETERAS_TERCEROS.has(wallet)
-}
-// ¿El pago viene de una billetera de terceros? (por su payment.source)
-export function esPagoDeTercero(source: string | null | undefined): boolean {
-  return !!source && esBilleteraDeTercero(PAYMENT_SOURCE_TO_WALLET[source])
-}
-
 // Billeteras cuyos pagos sin emparejar NUNCA vencen: no se purgan de la cola ni
 // desaparecen de la vista por antigüedad (ignoran el rolling de 48hs), mientras
 // sigan sin emparejar y sin marcar "No es de tiendas". Al emparejarse o marcarse,
@@ -137,17 +121,12 @@ export const WALLETS_SIN_VENCIMIENTO: readonly string[] = ['Lacar', 'MS', 'Copte
 // poner en true y MP vuelve a ingresar pagos a la cola.
 export const MERCADOPAGO_ACTIVO = false
 
-// Tiendas de "terceros": sus órdenes NO emparejan con las billeteras actuales —
-// esperan una billetera dedicada que todavía no existe. Quedan FUERA del auto-match
-// y del emparejamiento manual con la cola; se listan aparte en la pestaña "Órdenes de
-// terceros". Cuando exista la billetera dedicada, se mapea la tienda a esa billetera.
-export const TIENDAS_TERCEROS: ReadonlySet<string> = new Set([
-  '7284674', // Hemat
-])
-
-export function esOrdenDeTercero(storeId: string | null | undefined): boolean {
-  return !!storeId && TIENDAS_TERCEROS.has(storeId)
-}
+// NOTA: acá vivía el circuito de "terceros" (Hemat + Copter MS), que mantenía sus
+// órdenes y pagos separados del resto DENTRO de la misma app: fuera de las métricas,
+// en pestañas aparte y emparejando solo entre ellos. Se retiró en jul 2026: ahora
+// Hemat y Copter MS son una UNIDAD DE NEGOCIO propia (ver lib/unidad.ts), que ya no
+// comparte datos con CriptoBlue. Dentro de su unidad son una tienda y una billetera
+// normales, y aquellas restricciones no protegían nada.
 
 export const CONFIG = {
   tiendanube: {

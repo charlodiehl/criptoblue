@@ -1,6 +1,6 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import type { AppState, Store, Payment, Order, UnmatchedPayment, RecentMatch, DismissedPair, ExternalPaymentMark, PersistedMonthStats, ErrorEntry, ActivityEntry } from './types'
-import { HARD_CUTOFF_PAYMENTS, HARD_CUTOFF_ORDERS, WALLETS_SIN_VENCIMIENTO, esOrdenDeTercero } from './config'
+import { HARD_CUTOFF_PAYMENTS, HARD_CUTOFF_ORDERS, WALLETS_SIN_VENCIMIENTO } from './config'
 import { nowART, monthKeyART, paymentWalletId } from './utils'
 import { getUnidad, kvKey, TABLAS_POR_UNIDAD } from './unidad'
 
@@ -686,11 +686,7 @@ export function incrementPersistedMonthStats(
   hot: { persistedMonthStats: Record<string, PersistedMonthStats> },
   amount: number,
   source: 'emparejamiento' | 'manual_pagos' | 'manual_ordenes',
-  // Tiendas de terceros (Hemat): sus órdenes emparejadas/marcadas NO suman a las tarjetas
-  // operativas del mes (solo cuentan en el saldo/administración financiera de SU tienda).
-  storeId?: string | null,
 ): void {
-  if (esOrdenDeTercero(storeId)) return
   const key = monthKeyART()
   hot.persistedMonthStats = hot.persistedMonthStats ?? {}
   const base = hot.persistedMonthStats[key] ?? { matchedCount: 0, matchedVolume: 0, manualCount: 0, manualVolume: 0 }
@@ -710,9 +706,7 @@ export function decrementPersistedMonthStats(
   hot: { persistedMonthStats: Record<string, PersistedMonthStats> },
   amount: number,
   source: 'emparejamiento' | 'manual_pagos' | 'manual_ordenes',
-  storeId?: string | null,   // simétrico con increment: terceros nunca sumaron, no se restan
 ): void {
-  if (esOrdenDeTercero(storeId)) return
   const key = monthKeyART()
   hot.persistedMonthStats = hot.persistedMonthStats ?? {}
   const base = hot.persistedMonthStats[key] ?? { matchedCount: 0, matchedVolume: 0, manualCount: 0, manualVolume: 0 }

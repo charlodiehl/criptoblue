@@ -1,6 +1,9 @@
-import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import { CONFIG } from './config'
 import { kvKey } from './unidad'
+// El cliente sale de lib/storage: es el ÚNICO que acota las queries a la unidad de
+// negocio de la request. Este módulo tenía el suyo propio, crudo, y por eso sus tablas
+// se leían sin filtrar (ver lib/unidad.ts).
+import { getClient } from './storage'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // "Bala cargada" de Shopify: como Shopify obliga a una app por tienda, el admin
@@ -12,16 +15,6 @@ import { kvKey } from './unidad'
 // ─────────────────────────────────────────────────────────────────────────────
 
 const KEY = () => kvKey('shopify-armed')
-
-let _client: SupabaseClient | null = null
-function getClient(): SupabaseClient {
-  if (!_client) {
-    _client = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_KEY!, {
-      auth: { persistSession: false },
-    })
-  }
-  return _client
-}
 
 export interface ArmedShopifyApp {
   clientId: string

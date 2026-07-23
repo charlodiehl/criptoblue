@@ -20,7 +20,6 @@
 
 import { getClient, getStores, loadHotState } from './storage'
 import { getComisiones, comisionTienda, comisionTiendaSobre, comisionBilletera } from './comisiones'
-import { esOrdenDeTercero, esPagoDeTercero, esBilleteraDeTercero } from './config'
 import { walletsDeUnidad } from './unidad'
 import { resolveWallet, getCortesBilletera } from './billeteras'
 import { getUsdtRateSinMargen } from './cotizacion'
@@ -106,9 +105,6 @@ export async function getMetricas(desdeMs: number, hastaMs: number): Promise<Met
   const volTienda = new Map<string, number>()   // volumen ARS emparejado por tienda (base de la comisión)
   const ingBilletera = new Map<string, number>()
   for (const r of matched) {
-    // Tiendas de terceros (Hemat): NO entran en las métricas agregadas (ni órdenes, ni
-    // volumen, ni billetera). Solo cuentan en el saldo/administración de su propia tienda.
-    if (esOrdenDeTercero(r.store_id)) continue
     const ars = Number(r.monto ?? r.amount) || 0
     if (r.store_id) {
       inc(ordenesPorTienda, r.store_id, 1); inc(volTienda, r.store_id, ars)
@@ -121,7 +117,6 @@ export async function getMetricas(desdeMs: number, hastaMs: number): Promise<Met
   for (const u of hot.unmatchedPayments ?? []) {
     const p = u.payment
     if (!p?.source) continue
-    if (esPagoDeTercero(p.source)) continue   // pagos de terceros: fuera de las métricas
     if (!enRango(p.fechaPago ? new Date(p.fechaPago).getTime() : NaN)) continue
     const w = resolveWallet(p.source)
     if (w && !antesDelCorte(w, p.fechaPago)) inc(ingBilletera, w, Number(p.monto) || 0)
@@ -134,7 +129,7 @@ export async function getMetricas(desdeMs: number, hastaMs: number): Promise<Met
   const brutoUsdt = new Map<string, number>()   // Σ usdt signado (ingresos +, egresos −)
   const ingresoUsdt = new Map<string, number>() // solo ingreso_orden (base de la comisión)
   for (const m of bmov) {
-    if (!m.store_id || esOrdenDeTercero(m.store_id)) continue   // terceros fuera de las métricas
+    if (!m.store_id) continue
     const u = Number(m.usdt) || 0
     inc(brutoUsdt, m.store_id, u)
     if (m.tipo === 'ingreso_orden') inc(ingresoUsdt, m.store_id, u)
@@ -163,7 +158,7 @@ export async function getMetricas(desdeMs: number, hastaMs: number): Promise<Met
   const reqs = await fetchAllRows((f, t) =>
     sb.from('refund_requests').select('store_id').gte('created_at', desdeISO).lt('created_at', hastaISO).range(f, t))
   const reembReq = new Map<string, number>()
-  for (const r of reqs) if (r.store_id && !esOrdenDeTercero(r.store_id)) inc(reembReq, r.store_id, 1)
+  for (const r of reqs) if (r.store_id) inc(reembReq, r.store_id, 1)
 
   // ── Armar tiendas ──
   const tiendaIds = new Set<string>([...ordenesPorTienda.keys(), ...brutoUsdt.keys()])
@@ -185,9 +180,7 @@ export async function getMetricas(desdeMs: number, hastaMs: number): Promise<Met
   // Con corte: el saldo inicial (neto previo) se suma UNA vez, si la fecha de corte cae
   // dentro del período. Los movimientos previos al corte no se contaron (ya están adentro).
   const walletSet = new Set<string>([...walletsDeUnidad(), ...ingBilletera.keys(), ...salidasBill.keys(), ...reembBill.keys()])
-  const billeteras: MetricaBilletera[] = [...walletSet]
-    .filter(w => !esBilleteraDeTercero(w))   // billeteras de terceros: fuera de las métricas y del total
-    .map(w => {
+  const billeteras: MetricaBilletera[] = [...walletSet].map(w => {
     // El saldo inicial se suma si la fecha de corte cae dentro del período. El borde
     // superior es INCLUSIVE: si el corte es justo el instante "hasta" (p. ej. hasta =
     // 12/7 00:00 y el corte es 12/7 00:00), el saldo reconciliado ES el de ese momento.

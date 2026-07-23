@@ -1,6 +1,9 @@
-import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import type { Refund, RefundRequest, RefundRequestEstado } from './types'
 import { resolveWallet } from './utils'
+// El cliente sale de lib/storage: es el ÚNICO que acota las queries a la unidad de
+// negocio de la request. Este módulo tenía el suyo propio, crudo, y por eso sus tablas
+// se leían sin filtrar (ver lib/unidad.ts).
+import { getClient } from './storage'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Capa de datos de reembolsos.
@@ -14,16 +17,6 @@ import { resolveWallet } from './utils'
 const REFUNDS = 'refunds'
 const REQUESTS = 'refund_requests'
 const BUCKET = 'comprobantes'
-
-let _client: SupabaseClient | null = null
-function getClient(): SupabaseClient {
-  if (!_client) {
-    _client = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_KEY!, {
-      auth: { persistSession: false },
-    })
-  }
-  return _client
-}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function rowToRefund(r: any): Refund {

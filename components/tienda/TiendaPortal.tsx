@@ -9,7 +9,6 @@ import BuscarPagosTab from './BuscarPagosTab'
 import SolicitarReembolsoTab from './SolicitarReembolsoTab'
 import EquipoTab from './EquipoTab'
 import { puede, type PermisoKey, type Permisos, type UsuarioConPermisos } from '@/lib/permisos'
-import { esOrdenDeTercero } from '@/lib/config'
 
 export type Toast = { id: number; msg: string; type: 'success' | 'error' | 'info' }
 
@@ -37,20 +36,16 @@ type Tab = 'balance' | 'solicitar' | 'buscar' | 'reembolso' | 'equipo'
 
 // Pestañas operativas (con el permiso que exige, si lo tiene). "Equipo" NO va acá:
 // es gestión de cuenta y vive en el menú superior (dropdown del avatar / modo espejo).
-// `soloPropias`: la sección NO aplica a las tiendas de terceros (Hemat) — su circuito
-// es aparte y no piden transferencias ni reembolsos por acá. Se muestran deshabilitadas.
-const TABS: { key: Tab; label: string; permiso?: PermisoKey; soloPropias?: boolean }[] = [
+const TABS: { key: Tab; label: string; permiso?: PermisoKey }[] = [
   { key: 'balance', label: 'Balance de Saldo' },
-  { key: 'solicitar', label: 'Solicitar transferencias', permiso: 'solicitar_transferencias', soloPropias: true },
+  { key: 'solicitar', label: 'Solicitar transferencias', permiso: 'solicitar_transferencias' },
   { key: 'buscar', label: 'Buscar pagos' },
-  { key: 'reembolso', label: 'Solicitar reembolsos', permiso: 'solicitar_reembolsos', soloPropias: true },
+  { key: 'reembolso', label: 'Solicitar reembolsos', permiso: 'solicitar_reembolsos' },
 ]
 
 export default function TiendaPortal({ storeId, userEmail, permisos, admin = false, embedded = false, refreshKey = 0 }: Props) {
   // Layout embebido (sin header propio): vista espejo del admin O multi-acceso.
   const sinHeader = admin || embedded
-  // Tienda de terceros (Hemat): no pide transferencias ni reembolsos por acá.
-  const esTercero = esOrdenDeTercero(storeId)
   // Perfil para el gating visual. El admin (vista espejo) puede todo por su rol; el
   // gating REAL igual lo hace el backend en cada endpoint —esto es solo la UI.
   const perfil: UsuarioConPermisos = { role: admin ? 'admin' : 'tienda', permisos: permisos ?? {} }
@@ -108,15 +103,13 @@ export default function TiendaPortal({ storeId, userEmail, permisos, admin = fal
     <div className="flex flex-wrap gap-1.5">
       {TABS.map(t => {
         const active = tab === t.key
-        const sinPermiso = t.permiso ? !puede(perfil, t.permiso) : false
-        const noAplica = t.soloPropias === true && esTercero   // tienda de terceros
-        const bloqueada = sinPermiso || noAplica
+        const bloqueada = t.permiso ? !puede(perfil, t.permiso) : false
         return (
           <button
             key={t.key}
             onClick={() => { if (!bloqueada) setTab(t.key) }}
             disabled={bloqueada}
-            title={noAplica ? 'No disponible para esta tienda' : bloqueada ? 'No tenés permiso para esta sección' : undefined}
+            title={bloqueada ? 'No tenés permiso para esta sección' : undefined}
             className="rounded-xl px-4 py-2 text-xs font-semibold transition-all"
             style={{
               background: active ? 'rgba(0,212,255,0.12)' : 'rgba(255,255,255,0.03)',

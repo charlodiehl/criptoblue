@@ -1,10 +1,14 @@
-import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import { getUsdtRate } from './cotizacion'
 import { toUTCISO, fechaEgresoSaldo } from './utils'
 import { BALANCE_CUTOFF } from './config'
 import { getComisiones, comisionTienda, comisionTiendaSobre } from './comisiones'
 import { getRefundsByMovementIds } from './reembolsos'
 import type { LogEntry, StoreBalance, DescuentoMoneda, TransferDescuento, BalanceMovement } from './types'
+// El cliente sale de lib/storage: es el ÚNICO que acota las queries a la unidad de
+// negocio de la request. Este módulo tenía el suyo propio, crudo, y por eso sus tablas
+// se leían sin filtrar (ver lib/unidad.ts).
+import { getClient } from './storage'
+import { getUnidad } from './unidad'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Motor de balance por tienda (tabla balance_movements).
@@ -17,16 +21,6 @@ import type { LogEntry, StoreBalance, DescuentoMoneda, TransferDescuento, Balanc
 // ─────────────────────────────────────────────────────────────────────────────
 
 const TABLE = 'balance_movements'
-
-let _client: SupabaseClient | null = null
-function getClient(): SupabaseClient {
-  if (!_client) {
-    _client = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_KEY!, {
-      auth: { persistSession: false },
-    })
-  }
-  return _client
-}
 
 // ─── Ingresos (hook desde lib/registro.ts) ───────────────────────────────────
 
@@ -220,7 +214,9 @@ export async function eliminarIngresoPorRegistro(registroId: number): Promise<vo
 // Balance de TODAS las tiendas con movimientos (una sola llamada RPC).
 // ars/usdt son NETOS: se descuenta la comisión (% de los ingresos por órdenes).
 export async function getBalances(): Promise<StoreBalance[]> {
-  const [rpc, cfg] = await Promise.all([getClient().rpc('balances_tiendas'), getComisiones()])
+  // El RPC no pasa por el proxy que acota por unidad (no es una query normal),
+  // así que la unidad se le manda explícita. Ver migrations/2026-07-balances-tiendas-por-unidad.sql
+  const [rpc, cfg] = await Promise.all([getClient().rpc('balances_tiendas', { p_unidad: getUnidad() }), getComisiones()])
   const { data, error } = rpc
   if (error) throw new Error(`getBalances falló: ${error.message} [${error.code}]`)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

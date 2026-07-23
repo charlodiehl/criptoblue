@@ -1,5 +1,8 @@
-import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import type { TransferRequest, TransferTipo, TransferEstado, TransferDescuento } from './types'
+// El cliente sale de lib/storage: es el ÚNICO que acota las queries a la unidad de
+// negocio de la request. Este módulo tenía el suyo propio, crudo, y por eso sus tablas
+// se leían sin filtrar (ver lib/unidad.ts).
+import { getClient } from './storage'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Capa de datos de solicitudes de transferencia (tabla transfer_requests).
@@ -8,16 +11,6 @@ import type { TransferRequest, TransferTipo, TransferEstado, TransferDescuento }
 // ─────────────────────────────────────────────────────────────────────────────
 
 const TABLE = 'transfer_requests'
-
-let _client: SupabaseClient | null = null
-function getClient(): SupabaseClient {
-  if (!_client) {
-    _client = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_KEY!, {
-      auth: { persistSession: false },
-    })
-  }
-  return _client
-}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function rowToTransfer(r: any): TransferRequest {

@@ -3,7 +3,7 @@ import { loadHotState, saveHotState, loadLogs, saveLogs, getStores, incrementPer
 import { appendRegistroEntry, isOrderAlreadyPaid, isPaymentAlreadyUsed } from '@/lib/registro'
 import { markOrderAsPaid as markTNOrderAsPaid, getPendingOrders as getTNOrders } from '@/lib/tiendanube'
 import { markOrderAsPaid as markShopifyOrderAsPaid, getPendingOrders as getShopifyOrders } from '@/lib/shopify'
-import { HARD_CUTOFF_ORDERS, esOrdenDeTercero, esPagoDeTercero } from '@/lib/config'
+import { HARD_CUTOFF_ORDERS } from '@/lib/config'
 import type { LogEntry } from '@/lib/types'
 import { audit, auditMatch } from '@/lib/audit'
 import { requireUser, setUnidad } from '@/lib/auth/server'
@@ -51,16 +51,6 @@ export async function POST(req: NextRequest) {
 
     const unmatched = hot.unmatchedPayments[unmatchedIndex]
     const payment = unmatched.payment
-
-    // Terceros: una orden de tienda de terceros SOLO empareja con un pago de billetera de
-    // terceros, y al revés. Los dos universos son exclusivos y nunca se cruzan.
-    if (esOrdenDeTercero(storeId) !== esPagoDeTercero(payment.source)) {
-      return NextResponse.json({
-        error: esOrdenDeTercero(storeId)
-          ? 'Las órdenes de terceros solo emparejan con pagos de billeteras de terceros.'
-          : 'Un pago de billetera de terceros solo empareja con órdenes de tiendas de terceros.',
-      }, { status: 409 })
-    }
 
     const platform = store.platform ?? 'tiendanube'
 
@@ -111,7 +101,7 @@ export async function POST(req: NextRequest) {
     }
 
     hot.unmatchedPayments.splice(unmatchedIndex, 1)
-    incrementPersistedMonthStats(hot, payment.monto, 'emparejamiento', storeId)
+    incrementPersistedMonthStats(hot, payment.monto, 'emparejamiento')
 
     hot.recentMatches = hot.recentMatches ?? []
     hot.recentMatches.push({ mpPaymentId: payment.mpPaymentId, matchedAt: nowART(), orderId, storeId, order: order || undefined, payment })

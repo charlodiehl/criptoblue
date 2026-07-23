@@ -72,7 +72,7 @@ export async function POST(req: NextRequest) {
 
     const order = orderFromClient || null
 
-    incrementPersistedMonthStats(hot, Number(monto), 'manual_ordenes', storeId)
+    incrementPersistedMonthStats(hot, Number(monto), 'manual_ordenes')
 
     // recentMatches: para que la orden quede verde en la pestaña Órdenes
     hot.recentMatches = hot.recentMatches || []

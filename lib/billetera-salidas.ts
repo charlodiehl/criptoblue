@@ -13,21 +13,14 @@
 // Convención: `ars` es POSITIVO y dice cuánto SALE. getIngresosBilletera lo resta.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import type { TransferTipo } from './types'
+// El cliente sale de lib/storage: es el ÚNICO que acota las queries a la unidad de
+// negocio de la request. Este módulo tenía el suyo propio, crudo, y por eso sus tablas
+// se leían sin filtrar (ver lib/unidad.ts).
+import { getClient } from './storage'
 
 const TABLE = 'wallet_movements'
 const REQUESTS = 'transfer_requests'
-
-let _client: SupabaseClient | null = null
-function getClient(): SupabaseClient {
-  if (!_client) {
-    _client = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_KEY!, {
-      auth: { persistSession: false },
-    })
-  }
-  return _client
-}
 
 export const TIPOS_SALIDA: TransferTipo[] = ['ars', 'usd', 'usdt', 'usd_billete', 'ars_billete']
 

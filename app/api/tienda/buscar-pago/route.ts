@@ -4,7 +4,6 @@ import { loadHotState } from '@/lib/storage'
 import { nameSimilarity } from '@/lib/auto-match'
 import { billeteraLabel } from '@/lib/utils'
 import { buscarEmparejadosPorMonto } from '@/lib/registro'
-import { esOrdenDeTercero, esPagoDeTercero } from '@/lib/config'
 
 // POST /api/tienda/buscar-pago — { nombre, monto, fechaHora }
 //
@@ -57,12 +56,6 @@ export async function POST(req: NextRequest) {
     // Solo se usa para decidir si se revela el número de orden de un pago ya usado.
     const storeIdScope = resolveStoreScope(auth.user, req.nextUrl.searchParams.get('storeId') || body.storeId)
 
-    // Circuito de terceros: una tienda de terceros (Hemat) SOLO ve pagos de billeteras de
-    // terceros (Copter MS), y una tienda normal NUNCA ve pagos de terceros. Mismo criterio
-    // que el emparejamiento: los dos universos no se cruzan.
-    const esTercero = esOrdenDeTercero(storeIdScope)
-    const mismaClase = (source: string | null | undefined) => esPagoDeTercero(source) === esTercero
-
     const VENTANA_MS = 24 * 60 * 60 * 1000
     const coincideFechaNombre = (fechaPago: string, nombrePagador: string) => {
       if (nameSimilarity(nombre, nombrePagador || '') < 70) return false
@@ -89,7 +82,6 @@ export async function POST(req: NextRequest) {
     const idsUsados = new Set<string>()
     for (const e of emparejados) {
       if (e.monto !== montoNum) continue
-      if (!mismaClase(e.source)) continue
       if (!coincideFechaNombre(e.fechaPago, e.nombrePagador)) continue
       if (e.mpPaymentId) idsUsados.add(e.mpPaymentId)
       usados.push({
@@ -110,7 +102,6 @@ export async function POST(req: NextRequest) {
       .filter(p => {
         if (!p) return false
         if (p.monto !== montoNum) return false
-        if (!mismaClase(p.source)) return false
         if (p.mpPaymentId && idsUsados.has(p.mpPaymentId)) return false
         return coincideFechaNombre(p.fechaPago || '', p.nombrePagador || '')
       })

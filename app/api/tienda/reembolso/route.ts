@@ -5,7 +5,6 @@ import { buscarOrdenEnTienda } from '@/lib/buscar-orden'
 import { resumenReembolsos, crearRefundRequest, listarRefundRequestsTienda } from '@/lib/reembolsos'
 import { notifyAdmins } from '@/lib/push'
 import { puede } from '@/lib/permisos'
-import { esOrdenDeTercero } from '@/lib/config'
 
 // POST /api/tienda/reembolso  { orderNumber, monto, aliasCbu, titular?, storeId? }
 // La tienda solicita un reembolso: valida que la orden exista y que NO esté
@@ -35,12 +34,6 @@ export async function POST(req: NextRequest) {
 
     const storeId = resolveStoreScope(auth.user, req.nextUrl.searchParams.get('storeId') || body?.storeId)
     if (!storeId) return NextResponse.json({ error: 'No hay tienda asignada' }, { status: 400 })
-
-    // Tiendas de terceros (Hemat): su circuito es aparte, no piden reembolsos acá.
-    // Guard de servidor (el botón ya está deshabilitado en la UI).
-    if (esOrdenDeTercero(storeId)) {
-      return NextResponse.json({ error: 'Esta tienda no solicita reembolsos por este medio.' }, { status: 403 })
-    }
 
     // Permiso: solicitar reembolsos, con los permisos DE ESA tienda (puede ser un
     // acceso secundario). El super-admin (vista espejo) siempre puede.

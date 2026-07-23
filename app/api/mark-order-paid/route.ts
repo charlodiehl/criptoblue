@@ -80,7 +80,7 @@ export async function POST(req: NextRequest) {
       hechoPor: auth.user.email,
     }
     await appendRegistroEntry(logEntry)
-    if (total != null) incrementPersistedMonthStats(hot, total, 'manual_ordenes', storeId)
+    if (total != null) incrementPersistedMonthStats(hot, total, 'manual_ordenes')
 
     // recentMatches: para que la orden quede verde en la pestaña Órdenes
     const recentMatch: RecentMatch = {

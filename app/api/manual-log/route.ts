@@ -89,7 +89,7 @@ export async function POST(req: NextRequest) {
 
     hot.unmatchedPayments.splice(unmatchedIndex, 1)
 
-    incrementPersistedMonthStats(hot, payment.monto, 'manual_pagos', matchedOrder?.storeId)
+    incrementPersistedMonthStats(hot, payment.monto, 'manual_pagos')
 
     const order: Order | undefined = matchedOrder || undefined
 

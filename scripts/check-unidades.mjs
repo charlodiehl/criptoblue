@@ -43,6 +43,24 @@ for (const p of ['app/tienda/page.tsx', 'app/billetera/page.tsx', 'app/finanzas/
   }
 }
 
+// Nadie más puede fabricarse un cliente de Supabase con la service key: el único que
+// acota las queries a la unidad es el de lib/storage. Cuatro módulos (balance,
+// reembolsos, transferencias, billetera-salidas) tenían el suyo propio y por eso sus
+// tablas se leían SIN filtrar — un cliente crudo suelto es una fuga silenciosa.
+const CLIENTES_PERMITIDOS = new Set([
+  'lib/storage.ts',      // el proxeado (y su crudo, para resolver la API key)
+  'lib/auth/server.ts',  // serviceClient(): resuelve en qué unidad está el usuario
+  'lib/supabase-browser.ts', // cliente del navegador, con anon key
+])
+for (const f of readdirSync('lib', { recursive: true })) {
+  const p = `lib/${String(f).replace(/\\/g, '/')}`
+  if (!p.endsWith('.ts') || CLIENTES_PERMITIDOS.has(p)) continue
+  const src = readFileSync(p, 'utf8')
+  if (/SUPABASE_SERVICE_KEY/.test(src)) {
+    fallas.push(`${p} — se fabrica su propio cliente con la service key: usá getClient() de lib/storage`)
+  }
+}
+
 if (fallas.length) {
   console.error('❌ Rutas sin aplicar la unidad de negocio:\n')
   for (const f of fallas) console.error('   ' + f)

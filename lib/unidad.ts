@@ -43,15 +43,17 @@ export const UNIDADES: Record<UnidadId, Unidad> = {
     rol: 'superadmin-criptoblue',
     // Prefijo histórico: las keys de kv_store ya se llaman así, no hay nada que migrar.
     kvPrefix: 'criptoblue',
-    wallets: ['MF', 'Lacar', 'MS', 'Montemar', 'Copter MS', 'Otras'],
+    wallets: ['MF', 'Lacar', 'MS', 'Montemar', 'Otras'],
   },
   ms: {
     id: 'ms',
     nombre: 'MS',
     rol: 'superadmin-ms',
     kvPrefix: 'ms',
-    // Arranca sin ninguna billetera conectada. La migración le irá pasando las suyas.
-    wallets: [],
+    // 'Copter MS' pasó acá en la migración de jul 2026 (antes era una "billetera de
+    // terceros" dentro de CriptoBlue). 'Otras' es el cajón de pagos manuales sueltos,
+    // que toda unidad necesita.
+    wallets: ['Copter MS', 'Otras'],
   },
 }
 

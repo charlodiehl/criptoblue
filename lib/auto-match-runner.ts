@@ -69,7 +69,6 @@ export async function runAutoMatchCore(
         orderIdsInWindow: d.orderIdsInWindow,
         totalOrdersInUniverse: d.totalOrdersInUniverse,
         paymentWalletId: d.paymentWalletId,
-        ordersInWalletUniverse: d.ordersInWalletUniverse,
       },
     })
   }
@@ -187,7 +186,7 @@ export async function runAutoMatchCore(
     }
     freshHot.unmatchedPayments.splice(idx, 1)
 
-    incrementPersistedMonthStats(freshHot, candidate.payment.monto, 'emparejamiento', candidate.order?.storeId)
+    incrementPersistedMonthStats(freshHot, candidate.payment.monto, 'emparejamiento')
 
     freshHot.recentMatches = freshHot.recentMatches ?? []
     freshHot.recentMatches.push({
