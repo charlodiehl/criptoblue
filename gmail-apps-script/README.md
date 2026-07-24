@@ -1,4 +1,50 @@
-# Fiwind → CriptoBlue (Google Apps Script)
+# Gmail → CriptoBlue (Google Apps Script)
+
+Scripts que leen avisos de pago desde una casilla de Gmail y los mandan a un
+webhook de la app. Uno por medio de pago:
+
+| Script | Casilla | Webhook | Billetera · unidad |
+|---|---|---|---|
+| `copter-a-criptoblue.gs` | `blue.finanzas.adm@gmail.com` | `/api/copter/webhook` | Copter MS · **ms** |
+| `fiwind-a-criptoblue.gs` | `comprobantespagosblue@gmail.com` | `/api/fiwind/webhook` | MF · criptoblue *(desconectada)* |
+| `montemar-a-criptoblue.gs` | `comprobantespagosblue@gmail.com` | `/api/montemar/webhook` | Montemar · criptoblue *(desconectada)* |
+
+> El secreto real **nunca** va en estos archivos: se pega en el Apps Script y
+> tiene que coincidir con la env var correspondiente en Vercel.
+
+---
+
+## ExchangeCopter → CriptoBlue
+
+Avisos de "Recibiste una transferencia" que ExchangeCopter manda a la casilla de
+Nacho y se reenvían automáticamente a `blue.finanzas.adm@gmail.com`.
+
+**Qué manda:** el asunto y el cuerpo **crudos** + `fechaISO` + `messageId`. El
+pagador y el monto los extrae el servidor (`app/api/copter/webhook/route.ts`),
+así que el parseo se ajusta sin volver a tocar el script.
+
+**La fecha del pago es la del EMAIL** (`message.getDate()`): el aviso no trae la
+hora de la transferencia.
+
+**Instalación:** `script.google.com` con `blue.finanzas.adm@gmail.com` → pegar
+`copter-a-criptoblue.gs` → poner `CONFIG.SECRET` (= `COPTER_WEBHOOK_SECRET` en
+Vercel) → ejecutar `_diagnosticar` para ver qué encuentra sin mandar nada →
+ejecutar `crearTrigger` una vez (corre cada 5 minutos).
+
+**Duplicados:** marca `ok_<idDeMensaje>` en ScriptProperties, y **solo** cuando
+el webhook responde 2xx — si falla, reintenta. El servidor deduplica por el mismo
+id, así que un reenvío nunca entra dos veces.
+
+**Etiquetas:** `copterok` cuando entró; `copter-revisar` cuando falló (esas son
+las que hay que mirar a mano). Son informativas: el dedup real es el de arriba.
+
+**Por qué el `from:` en la búsqueda:** el secreto lo pone el script, no el email.
+Sin filtrar por `info-no-reply@exchangecopter.com`, cualquiera que le mande un
+mail a la casilla con la frase y un monto inyecta un pago falso en la cola.
+
+---
+
+## Fiwind → CriptoBlue
 
 Lee los emails de Fiwind que llegan a `comprobantespagosblue@gmail.com`, extrae los
 datos de cada transferencia y los envía al webhook de CriptoBlue
