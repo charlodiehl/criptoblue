@@ -693,6 +693,38 @@ export async function queryRegistroByStoreDay(
   return (data ?? []).map((r: Row) => ({ registroId: r.id as number, entry: rowToEntry(r) }))
 }
 
+// Igual que queryRegistroByStoreDay pero para un RANGO [desdeART, hastaART] (inclusive,
+// por día ART). Para armar el Excel del registro. Paginado; ordenado por ts ascendente.
+export async function queryRegistroByStoreRango(
+  storeId: string, desdeART: string, hastaART: string,
+): Promise<Array<{ registroId: number; entry: LogEntry }>> {
+  const supabase = getClient()
+  const desdeMs = new Date(`${desdeART}T00:00:00-03:00`).getTime()
+  const hasta = new Date(new Date(`${hastaART}T00:00:00-03:00`).getTime() + 24 * 60 * 60 * 1000).toISOString()
+  const desde = new Date(Math.max(desdeMs, BALANCE_CUTOFF.getTime())).toISOString()
+  const out: Array<{ registroId: number; entry: LogEntry }> = []
+  const PAGE = 1000
+  let from = 0
+  for (;;) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase.from(TABLE) as any)
+      .select('*')
+      .eq('store_id', storeId)
+      .eq('hidden', false)
+      .in('action', ['manual_paid', 'auto_paid'])
+      .neq('source', 'saldo_personalizado')
+      .gte('ts', desde)
+      .lt('ts', hasta)
+      .order('ts', { ascending: true })
+      .range(from, from + PAGE - 1)
+    if (error) throw new Error(`queryRegistroByStoreRango falló: ${error.message} [${error.code}]`)
+    for (const r of (data ?? []) as Row[]) out.push({ registroId: r.id as number, entry: rowToEntry(r) })
+    if (!data || data.length < PAGE) break
+    from += PAGE
+  }
+  return out
+}
+
 // Saldos personalizados (ingresos manuales del admin) acreditados en un día. Mismo
 // rango y corte que queryRegistroByStoreDay, pero solo los source='saldo_personalizado'
 // (que aquélla excluye). Se muestran en su propia tabla —con formato de orden— en el portal.

@@ -6,6 +6,7 @@ import { ARS, fmtDate } from '@/lib/utils'
 import AnimatedNumber, { NumberSkeleton } from '@/components/AnimatedNumber'
 import SelectorDia from '@/components/SelectorDia'
 import EditarRegistroModal, { type FilaEditable } from './EditarRegistroModal'
+import DescargarRegistroModal from './DescargarRegistroModal'
 import EditarMovimientoModal, { type MovimientoEditable } from '@/components/EditarMovimientoModal'
 import ConceptoInput from '@/components/ConceptoInput'
 import type { Toast } from './TiendaPortal'
@@ -104,6 +105,7 @@ export default function BalanceTab({ storeId, qs, notify, admin = false, refresh
   const [editConceptoId, setEditConceptoId] = useState<number | null>(null)   // registroId del saldo cuyo concepto se está editando
   const [guardandoConcepto, setGuardandoConcepto] = useState(false)
   const [balance, setBalance] = useState<Balance | null>(null)
+  const [descargarOpen, setDescargarOpen] = useState(false)
   const [fecha, setFecha] = useState(hoyART())
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
@@ -302,6 +304,11 @@ export default function BalanceTab({ storeId, qs, notify, admin = false, refresh
         <div className="flex items-center gap-3 flex-wrap">
           <label className="text-xs font-semibold uppercase tracking-widest" style={{ color: searching ? 'rgba(148,163,184,0.4)' : 'rgba(0,212,255,0.7)' }}>Día</label>
           <SelectorDia value={fecha} dias={balance?.dias ?? []} onChange={setFecha} disabled={searching || !balance?.dias?.length} />
+          <button onClick={() => setDescargarOpen(true)} title="Descargar el registro de un rango de fechas en Excel"
+            className="inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold transition-all shrink-0"
+            style={{ background: 'rgba(0,212,255,0.08)', border: '1px solid rgba(0,212,255,0.3)', color: '#00d4ff', cursor: 'pointer' }}>
+            <span>⬇</span> Descargar registro
+          </button>
           {searching && <span className="text-xs" style={{ color: 'rgba(0,212,255,0.7)' }}>Mostrando resultados de búsqueda en todo el registro</span>}
         </div>
         {!searching && (
@@ -610,6 +617,10 @@ export default function BalanceTab({ storeId, qs, notify, admin = false, refresh
           onGuardado={() => { fetchRows(); fetchBalance() }}
           notify={notify}
         />
+      )}
+
+      {descargarOpen && (
+        <DescargarRegistroModal qs={qs} fechaInicial={fecha} onClose={() => setDescargarOpen(false)} notify={notify} />
       )}
     </div>
   )

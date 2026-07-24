@@ -3,7 +3,7 @@ import { requireUser, resolveStoreScope, setUnidad } from '@/lib/auth/server'
 import { queryRegistroByStoreDay, searchRegistroByStore, querySaldosPersonalizadosByStoreDay, setConceptoRegistro } from '@/lib/registro'
 import { sanearConcepto } from '@/lib/conceptos'
 import { getMovimientosPorRegistroIds } from '@/lib/balance'
-import { getComisiones, comisionTienda, comisionTiendaSobre } from '@/lib/comisiones'
+import { getComisiones, comisionTiendaEnFecha, comisionTiendaActual, comisionTiendaSobre, diaART } from '@/lib/comisiones'
 import { billeteraLabel } from '@/lib/utils'
 
 // GET /api/tienda/registro?fecha=YYYY-MM-DD[&storeId=]   → órdenes acreditadas ese día
@@ -36,13 +36,18 @@ export async function GET(req: NextRequest) {
     const movimientos = await getMovimientosPorRegistroIds(
       [...entradas, ...entradasSP].map(e => e.registroId),
     )
-    const comisionPct = comisionTienda(await getComisiones(), storeId)
+    const cfg = await getComisiones()
+    // % para el título de la columna: en la vista por día, el vigente ESE día; en la
+    // búsqueda (varios días) el actual, como referencia (cada fila usa el suyo).
+    const comisionPct = fecha ? comisionTiendaEnFecha(cfg, storeId, fecha) : comisionTiendaActual(cfg, storeId)
 
     // Arma una fila con formato de orden (monto, comisión grossed-up, cotización y
     // USDT neto) a partir de una entrada del registro cruzada con su movimiento.
     const filaOrden = ({ registroId, entry }: { registroId: number; entry: typeof entradas[number]['entry'] }) => {
       const mov = movimientos.get(registroId)
       const monto = entry.amount ?? entry.payment?.monto ?? 0
+      // Comisión con el % vigente del día del emparejamiento (respeta los tramos).
+      const pct = comisionTiendaEnFecha(cfg, storeId, diaART(entry.timestamp))
       // Saldo personalizado marcado "sin comisión": no descuenta nada (las órdenes
       // normales nunca lo tienen, así que esto no las afecta).
       const sinCom = mov?.sinComision === true
@@ -52,7 +57,7 @@ export async function GET(req: NextRequest) {
         movId: mov?.id ?? null,
         fecha: entry.paymentReceivedAt || entry.payment?.fechaPago || entry.timestamp,
         monto,
-        comision: sinCom ? 0 : comisionTiendaSobre(monto, comisionPct),
+        comision: sinCom ? 0 : comisionTiendaSobre(monto, pct),
         cuit: entry.payment?.cuitPagador || entry.cuitPagador || '',
         nombre: entry.payment?.nombrePagador || entry.order?.customerName || entry.customerName || '',
         orderNumber: entry.orderNumber || entry.order?.orderNumber || '',
@@ -63,7 +68,7 @@ export async function GET(req: NextRequest) {
         // No se muestra en la planilla ni viaja al cliente.
         enSaldo: !!mov,
         usdtRate: mov?.usdtRate ?? null,
-        usdt: mov?.usdt == null ? null : sinCom ? mov.usdt : mov.usdt - comisionTiendaSobre(mov.usdt, comisionPct),
+        usdt: mov?.usdt == null ? null : sinCom ? mov.usdt : mov.usdt - comisionTiendaSobre(mov.usdt, pct),
       }
     }
 

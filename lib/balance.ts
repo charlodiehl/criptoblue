@@ -458,6 +458,132 @@ async function getDetalleTransferencias(
   return map
 }
 
+// ─── Extracto de movimientos que NO son órdenes (para el Excel del registro) ──────
+
+// Importes FIRMADOS por dirección: negativos los egresos (transferencias, reembolsos),
+// positivos los ingresos. Ajustes y saldo personalizado conservan su signo real.
+export interface MovimientoExtracto {
+  tipo: 'egreso_transferencia' | 'reembolso' | 'ajuste' | 'ingreso_manual'
+  fecha: string
+  ars: number | null   // monto en ARS a mostrar (null si no aplica, p. ej. retiro en USDT)
+  usdt: number         // la plata que se mueve del saldo
+  cotizacion: number | null
+  concepto: string
+  orden: string | null // orden reembolsada, o la del saldo personalizado si tiene
+  comprobante: boolean
+}
+
+// transfer_requests: concepto + monto/moneda del retiro + si tiene comprobante. El
+// monto en ARS de una transferencia NO está en el movimiento (que va en USDT): vive
+// acá. Batched (límite de URL de PostgREST).
+async function getInfoTransferencias(ids: number[]): Promise<Map<number, { concepto: string | null; monto: number | null; moneda: string | null; comprobante: boolean }>> {
+  const map = new Map<number, { concepto: string | null; monto: number | null; moneda: string | null; comprobante: boolean }>()
+  for (let i = 0; i < ids.length; i += 500) {
+    const { data, error } = await getClient().from('transfer_requests').select('id, concepto, descuento, comprobante_path').in('id', ids.slice(i, i + 500))
+    if (error) throw new Error(`getInfoTransferencias falló: ${error.message} [${error.code}]`)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const r of (data ?? []) as any[]) {
+      const d = (r.descuento ?? {}) as Record<string, unknown>
+      map.set(r.id as number, {
+        concepto: (r.concepto as string | null) || null,
+        monto: Number.isFinite(Number(d.monto)) ? Number(d.monto) : null,
+        moneda: (d.moneda as string | null) ?? null,
+        comprobante: !!r.comprobante_path,
+      })
+    }
+  }
+  return map
+}
+
+// registro_log: concepto + n° de orden del saldo personalizado. Batched.
+async function getConceptoRegistro(ids: number[]): Promise<Map<number, { concepto: string | null; orden: string | null }>> {
+  const map = new Map<number, { concepto: string | null; orden: string | null }>()
+  for (let i = 0; i < ids.length; i += 500) {
+    const { data, error } = await getClient().from('registro_log').select('id, concepto, order_number').in('id', ids.slice(i, i + 500))
+    if (error) throw new Error(`getConceptoRegistro falló: ${error.message} [${error.code}]`)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const r of (data ?? []) as any[]) map.set(r.id as number, { concepto: ((r.concepto as string | null) || '').trim() || null, orden: r.order_number != null ? String(r.order_number) : null })
+  }
+  return map
+}
+
+// Movimientos que NO son órdenes (transferencias, reembolsos, ajustes, saldo
+// personalizado) de un rango, enriquecidos con su concepto/orden/comprobante. Para
+// las hojas "Reembolsos" y "Transferencias" del Excel del registro. Montos en absoluto.
+export async function getMovimientosExtractoRango(
+  storeId: string, desdeART: string, hastaART: string,
+): Promise<MovimientoExtracto[]> {
+  const desde = new Date(`${desdeART}T00:00:00-03:00`).toISOString()
+  const hasta = new Date(new Date(`${hastaART}T00:00:00-03:00`).getTime() + 24 * 60 * 60 * 1000).toISOString()
+  const TIPOS = ['egreso_transferencia', 'reembolso', 'ajuste', 'ingreso_manual']
+
+  const movs: BalanceMovement[] = []
+  const PAGE = 1000
+  let from = 0
+  for (;;) {
+    const { data, error } = await getClient().from(TABLE).select('*')
+      .eq('store_id', storeId).in('tipo', TIPOS)
+      .gte('fecha', desde).lt('fecha', hasta)
+      .order('fecha', { ascending: true }).range(from, from + PAGE - 1)
+    if (error) throw new Error(`getMovimientosExtractoRango falló: ${error.message} [${error.code}]`)
+    for (const r of data ?? []) movs.push(rowToMovement(r))
+    if (!data || data.length < PAGE) break
+    from += PAGE
+  }
+
+  const transferIds = movs.filter(m => m.tipo === 'egreso_transferencia' && m.refTransferId != null).map(m => m.refTransferId as number)
+  const reembolsoMovIds = movs.filter(m => m.tipo === 'reembolso').map(m => m.id)
+  const registroIds = movs.filter(m => m.tipo === 'ingreso_manual' && m.refRegistroId != null).map(m => m.refRegistroId as number)
+  const [trMap, refundsMap, regMap] = await Promise.all([
+    getInfoTransferencias(transferIds),
+    getRefundsByMovementIds(reembolsoMovIds),
+    getConceptoRegistro(registroIds),
+  ])
+
+  return movs.map((m): MovimientoExtracto => {
+    // Signo por dirección: transferencias y reembolsos son EGRESOS (negativos).
+    // Ajustes y saldo personalizado conservan su signo real (suelen ser + pero
+    // pueden ser −). Los importes salen firmados listos para la planilla.
+    const rawUsdt = m.usdt ?? 0
+    const out: MovimientoExtracto = {
+      tipo: m.tipo as MovimientoExtracto['tipo'],
+      fecha: m.fecha,
+      ars: m.ars,        // ajuste / saldo personalizado: signo real
+      usdt: rawUsdt,
+      cotizacion: m.usdtRate,
+      concepto: '',
+      orden: null,
+      comprobante: false,
+    }
+    if (m.tipo === 'egreso_transferencia') {
+      const t = m.refTransferId != null ? trMap.get(m.refTransferId) : undefined
+      out.concepto = t?.concepto || m.descripcion || 'Transferencia'
+      out.comprobante = !!t?.comprobante
+      // El monto en ARS del retiro: el original si fue en pesos; si fue en USD/USDT
+      // no hay ARS que mostrar (queda null y se ve el USDT). Egreso → negativo.
+      const esArs = t?.moneda === 'ARS' || t?.moneda === 'ARS_BILLETE'
+      const magArs = esArs && t?.monto != null ? t.monto : (Math.abs(m.ars) || null)
+      out.ars = magArs == null ? null : -magArs
+      out.usdt = -Math.abs(rawUsdt)
+    } else if (m.tipo === 'reembolso') {
+      const rf = refundsMap.get(m.id)
+      out.concepto = 'Reembolso'
+      out.orden = rf?.orderNumber || null
+      out.cotizacion = m.usdtRate ?? rf?.cotizacion ?? null
+      out.comprobante = !!rf?.comprobantePath
+      out.ars = -Math.abs(m.ars)     // egreso → negativo
+      out.usdt = -Math.abs(rawUsdt)
+    } else if (m.tipo === 'ajuste') {
+      out.concepto = m.descripcion || 'Ajuste'
+    } else {
+      const reg = m.refRegistroId != null ? regMap.get(m.refRegistroId) : undefined
+      out.concepto = reg?.concepto || m.descripcion || 'Saldo personalizado'
+      out.orden = reg?.orden || null
+    }
+    return out
+  })
+}
+
 export async function getBalanceDia(storeId: string, diaART: string): Promise<BalanceDia> {
   const [movs, cfg] = await Promise.all([getMovimientosDia(storeId, diaART), getComisiones()])
   // El % vigente ESE día (con tramos, un día pasado conserva su comisión de entonces).
@@ -533,14 +659,20 @@ export async function getBalanceDia(storeId: string, diaART: string): Promise<Ba
 export async function getMovimientosPorRegistroIds(registroIds: number[]): Promise<Map<number, BalanceMovement>> {
   const map = new Map<number, BalanceMovement>()
   if (!registroIds.length) return map
-  const { data, error } = await getClient()
-    .from(TABLE)
-    .select('*')
-    .in('ref_registro_id', registroIds)
-  if (error) throw new Error(`getMovimientosPorRegistroIds falló: ${error.message} [${error.code}]`)
-  for (const r of data ?? []) {
-    const m = rowToMovement(r)
-    if (m.refRegistroId != null) map.set(m.refRegistroId, m)
+  // Se parte en lotes: PostgREST limita el largo de la URL y el Excel del registro
+  // puede pedir cientos de ids (un rango largo). La vista por día trae pocos y entra
+  // en un solo lote, así que no cambia en nada.
+  const LOTE = 500
+  for (let i = 0; i < registroIds.length; i += LOTE) {
+    const { data, error } = await getClient()
+      .from(TABLE)
+      .select('*')
+      .in('ref_registro_id', registroIds.slice(i, i + LOTE))
+    if (error) throw new Error(`getMovimientosPorRegistroIds falló: ${error.message} [${error.code}]`)
+    for (const r of data ?? []) {
+      const m = rowToMovement(r)
+      if (m.refRegistroId != null) map.set(m.refRegistroId, m)
+    }
   }
   return map
 }
