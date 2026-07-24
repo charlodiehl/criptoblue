@@ -5,12 +5,12 @@ import { motion } from 'framer-motion'
 import { ARS } from '@/lib/utils'
 import type { Toast } from './FinanzasApp'
 
-interface MetricaTienda { storeId: string; storeName: string; netoUsdt: number; comisionArs: number; ordenes: number }
+interface MetricaTienda { storeId: string; storeName: string; netoUsdt: number; volumenArs: number; comisionArs: number; ordenes: number }
 interface MetricaBilletera { wallet: string; netoArs: number }
 interface MetricaReembolsos { storeId: string; storeName: string; cantidad: number }
 interface Metricas {
   desde: string; hasta: string
-  ordenesTotal: number; saldoTiendasUsdt: number; saldoTiendasArs: number | null; cotizacion: number | null
+  ordenesTotal: number; volumenTotalArs: number; saldoTiendasUsdt: number; saldoTiendasArs: number | null; cotizacion: number | null
   saldoBilleterasArs: number; reembolsosTotal: number
   tiendas: MetricaTienda[]; billeteras: MetricaBilletera[]; reembolsosPorTienda: MetricaReembolsos[]
 }
@@ -88,6 +88,10 @@ export default function MetricasTab({ notify }: { notify: (msg: string, type?: T
           <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
             <Tarjeta titulo="Órdenes emparejadas" valor={String(data.ordenesTotal)} color="#00d4ff"
               detalle={`en ${data.tiendas.filter(t => t.ordenes > 0).length} tienda${data.tiendas.filter(t => t.ordenes > 0).length === 1 ? '' : 's'}`} />
+            {/* Volumen BRUTO: la plata que entró por las órdenes emparejadas, sin descontar
+                la comisión. Cuenta el mismo conjunto que "Órdenes emparejadas". */}
+            <Tarjeta titulo="Volumen bruto" valor={ARS.format(data.volumenTotalArs)} color="#a78bfa"
+              detalle="total emparejado en el período, sin descontar comisión" />
             <Tarjeta titulo="Saldo adeudado a las tiendas" valor={fmtUsdt(data.saldoTiendasUsdt)} color="#00ff88"
               estimado={data.saldoTiendasArs != null ? `≈ ${ARS.format(data.saldoTiendasArs)}` : undefined}
               detalle={data.cotizacion != null
@@ -111,6 +115,14 @@ export default function MetricasTab({ notify }: { notify: (msg: string, type?: T
             <Panel titulo="Saldo que nos debe cada billetera">
               <BarrasHorizontales items={data.billeteras.map((b, i) => ({ label: b.wallet, value: b.netoArs, color: PALETA[i % PALETA.length] }))}
                 fmt={ARS.format} mostrarTodos />
+            </Panel>
+
+            <Panel titulo="Volumen bruto por tienda">
+              <BarrasHorizontales items={data.tiendas
+                .filter(t => t.volumenArs > 0)
+                .sort((a, b) => b.volumenArs - a.volumenArs)   // primero la que más movió
+                .map((t, i) => ({ label: t.storeName, value: t.volumenArs, color: PALETA[i % PALETA.length] }))}
+                fmt={ARS.format} />
             </Panel>
 
             <Panel titulo="Comisión que aportó cada tienda">

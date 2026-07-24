@@ -154,7 +154,16 @@ if (role === 'tienda') {
   fila = { email, role, unidad, store_id: null, wallet, billetera_permiso: permiso, permisos: {}, display_name: e || null }
 } else {
   // Super admin de una unidad: ve y opera TODO lo de su unidad, y nada de la otra.
-  fila = { email, role, unidad, store_id: null, wallet: null, billetera_permiso: null, display_name: c || null }
+  // Se limpia TODO lo del rol anterior. El upsert solo pisa las columnas que se le
+  // pasan, así que si no van explícitas, a quien era 'tienda' le quedarían colgando
+  // sus permisos y sus accesos extra en la fila (invisibles pero vivos: si mañana
+  // vuelve a rol tienda, reaparecen accesos que nadie le volvió a dar).
+  fila = {
+    email, role, unidad,
+    store_id: null, wallet: null, billetera_permiso: null,
+    permisos: {}, accesos_extra: [],
+    display_name: c || null,
+  }
 }
 
 const { error } = await supabase.from('app_users').upsert(fila)

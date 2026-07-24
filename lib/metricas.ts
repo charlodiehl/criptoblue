@@ -28,6 +28,7 @@ export interface MetricaTienda {
   storeId: string
   storeName: string
   netoUsdt: number      // cambio neto de saldo en el período (lo que se les debe por el período)
+  volumenArs: number    // volumen BRUTO emparejado (ARS), sin descontar la comisión
   comisionArs: number   // comisión aportada = volumen emparejado (ARS) × pct de la tienda
   ordenes: number       // órdenes emparejadas en el período
 }
@@ -38,6 +39,7 @@ export interface Metricas {
   desde: string
   hasta: string
   ordenesTotal: number
+  volumenTotalArs: number       // volumen BRUTO de todas las tiendas sumadas (ARS, sin comisión)
   saldoTiendasUsdt: number      // suma del cambio neto de todas las tiendas
   saldoTiendasArs: number | null  // el saldo USDT valuado a la cotización ACTUAL (null si la API falla)
   cotizacion: number | null     // ARS por 1 USDT usado para el estimado (última cotización, misma que ven las tiendas)
@@ -170,6 +172,9 @@ export async function getMetricas(desdeMs: number, hastaMs: number): Promise<Met
       storeId: id,
       storeName: nombreTienda(id),
       netoUsdt: (brutoUsdt.get(id) ?? 0) - comisionNetoUsdt,
+      // Volumen BRUTO: la plata que entró por sus órdenes emparejadas, tal cual, sin
+      // descontar la comisión. Es la misma base con la que se calcula comisionArs.
+      volumenArs: volTienda.get(id) ?? 0,
       // La comisión "aportada" del gráfico: volumen emparejado (ARS) × pct.
       comisionArs: (volTienda.get(id) ?? 0) * pct / 100,
       ordenes: ordenesPorTienda.get(id) ?? 0,
@@ -204,6 +209,7 @@ export async function getMetricas(desdeMs: number, hastaMs: number): Promise<Met
     desde: desdeISO,
     hasta: hastaISO,
     ordenesTotal: [...ordenesPorTienda.values()].reduce((s, n) => s + n, 0),
+    volumenTotalArs: [...volTienda.values()].reduce((s, n) => s + n, 0),
     saldoTiendasUsdt,
     saldoTiendasArs: cotizacion != null ? saldoTiendasUsdt * cotizacion : null,
     cotizacion: cotizacion ?? null,
