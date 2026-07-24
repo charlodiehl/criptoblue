@@ -1,5 +1,5 @@
 import { getClient } from '@/lib/storage'
-import { getComisiones, comisionTienda, comisionTiendaSobre } from '@/lib/comisiones'
+import { getComisiones, comisionTiendaEnFecha, comisionTiendaSobre } from '@/lib/comisiones'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Motor por RANGO para la API pública (GET /api/v1/registro). Envuelve la misma
@@ -89,7 +89,6 @@ async function inEnLotes<T>(ids: number[], fn: (lote: number[]) => Promise<T[]>)
 export async function getRegistroRango(storeId: string, tienda: string, desde: string, hasta: string): Promise<RegistroRango> {
   const sb = getClient()   // acotado a la unidad de la API key (ver validarApiKey)
   const cfg = await getComisiones()
-  const pct = comisionTienda(cfg, storeId)
 
   const desdeISO = new Date(`${desde}T00:00:00-03:00`).toISOString()
   const hastaISO = new Date(new Date(`${hasta}T00:00:00-03:00`).getTime() + 24 * 3600_000).toISOString()
@@ -151,7 +150,8 @@ export async function getRegistroRango(storeId: string, tienda: string, desde: s
     else porDia.set(dia, [m])
   }
 
-  const dias: RegistroDia[] = rangoDias(desde, hasta).map(dia => armarDia(dia, porDia.get(dia) ?? [], pct, regMap, trMap))
+  // El % vigente de CADA día (con tramos, los días pasados conservan su comisión).
+  const dias: RegistroDia[] = rangoDias(desde, hasta).map(dia => armarDia(dia, porDia.get(dia) ?? [], comisionTiendaEnFecha(cfg, storeId, dia), regMap, trMap))
   return { tienda, storeId, moneda_saldo: 'USDT', desde, hasta, dias }
 }
 

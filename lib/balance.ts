@@ -1,7 +1,7 @@
 import { getUsdtRate } from './cotizacion'
 import { toUTCISO, fechaEgresoSaldo } from './utils'
 import { BALANCE_CUTOFF } from './config'
-import { getComisiones, comisionTienda, comisionTiendaSobre } from './comisiones'
+import { getComisiones, comisionTienda, comisionTiendaSobre, comisionTiendaEnFecha, comisionTiendaActual, comisionTiendaVaria, diaART, type ComisionesConfig } from './comisiones'
 import { getRefundsByMovementIds } from './reembolsos'
 import type { LogEntry, StoreBalance, DescuentoMoneda, TransferDescuento, BalanceMovement } from './types'
 // El cliente sale de lib/storage: es el ÚNICO que acota las queries a la unidad de
@@ -220,20 +220,63 @@ export async function getBalances(): Promise<StoreBalance[]> {
   const { data, error } = rpc
   if (error) throw new Error(`getBalances falló: ${error.message} [${error.code}]`)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return (data ?? []).map((r: any) => {
+  return Promise.all((data ?? []).map(async (r: any) => {
     const grossArs = Number(r.ars) || 0
     const grossUsdt = Number(r.usdt) || 0
-    const pct = comisionTienda(cfg, r.store_id)
-    const comisionArs = comisionTiendaSobre(Number(r.ingreso_ars) || 0, pct)
-    const comisionUsdt = comisionTiendaSobre(Number(r.ingreso_usdt) || 0, pct)
+    // Comisión variable (tramos): se prorratea por día. Con un solo pct (todas las
+    // tiendas de hoy), el camino rápido da idéntico al cálculo histórico.
+    let comisionArs: number, comisionUsdt: number
+    if (comisionTiendaVaria(cfg, r.store_id)) {
+      ({ comisionArs, comisionUsdt } = await comisionNetaTiendaHistorico(r.store_id, cfg))
+    } else {
+      const pct = comisionTiendaActual(cfg, r.store_id)
+      comisionArs = comisionTiendaSobre(Number(r.ingreso_ars) || 0, pct)
+      comisionUsdt = comisionTiendaSobre(Number(r.ingreso_usdt) || 0, pct)
+    }
     return {
       storeId: r.store_id,
       ars: grossArs - comisionArs,     // NETO
       usdt: grossUsdt - comisionUsdt,  // NETO
       pendientes: Number(r.pendientes) || 0,
-      comisionArs, comisionUsdt, comisionPct: pct,
+      comisionArs, comisionUsdt, comisionPct: comisionTiendaActual(cfg, r.store_id),
     }
-  })
+  }))
+}
+
+// Comisión neta histórica de una tienda con comisión variable: trae sus ingresos
+// gravados (órdenes + saldo personalizado, salvo "sin comisión") y los agrupa por el
+// pct vigente del día de cada uno, aplicando la fórmula por grupo. Como comisionTienda-
+// Sobre es lineal para un pct fijo, agrupar por pct da el total exacto. Solo se llama
+// para tiendas que cambiaron la comisión (el resto usa el camino rápido del agregado).
+async function comisionNetaTiendaHistorico(storeId: string, cfg: ComisionesConfig): Promise<{ comisionArs: number; comisionUsdt: number }> {
+  const porPct = new Map<number, { ars: number; usdt: number }>()
+  const PAGE = 1000
+  let from = 0
+  for (;;) {
+    const { data, error } = await getClient()
+      .from(TABLE)
+      .select('ars, usdt, fecha')
+      .eq('store_id', storeId)
+      .in('tipo', ['ingreso_orden', 'ingreso_manual'])
+      .eq('sin_comision', false)
+      .range(from, from + PAGE - 1)
+    if (error) throw new Error(`comisionNetaTiendaHistorico falló: ${error.message} [${error.code}]`)
+    for (const m of data ?? []) {
+      const pct = comisionTiendaEnFecha(cfg, storeId, diaART(m.fecha as string))
+      const g = porPct.get(pct) ?? { ars: 0, usdt: 0 }
+      g.ars += Number(m.ars) || 0
+      g.usdt += Number(m.usdt) || 0
+      porPct.set(pct, g)
+    }
+    if (!data || data.length < PAGE) break
+    from += PAGE
+  }
+  let comisionArs = 0, comisionUsdt = 0
+  for (const [pct, g] of porPct) {
+    comisionArs += comisionTiendaSobre(g.ars, pct)
+    comisionUsdt += comisionTiendaSobre(g.usdt, pct)
+  }
+  return { comisionArs, comisionUsdt }
 }
 
 // Balance de una tienda puntual. Sin movimientos → todo en 0 (pero con su % de comisión).
@@ -417,7 +460,8 @@ async function getDetalleTransferencias(
 
 export async function getBalanceDia(storeId: string, diaART: string): Promise<BalanceDia> {
   const [movs, cfg] = await Promise.all([getMovimientosDia(storeId, diaART), getComisiones()])
-  const pct = comisionTienda(cfg, storeId)
+  // El % vigente ESE día (con tramos, un día pasado conserva su comisión de entonces).
+  const pct = comisionTiendaEnFecha(cfg, storeId, diaART)
 
   const suma = (fn: (m: BalanceMovement) => number, filtro: (m: BalanceMovement) => boolean) =>
     movs.filter(filtro).reduce((s, m) => s + fn(m), 0)

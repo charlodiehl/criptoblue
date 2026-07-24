@@ -129,6 +129,7 @@ export default function ConfiguracionTiendas({ notify, onComisionGuardada }: Pro
 
           <p className="text-[11px] leading-relaxed" style={{ color: 'rgba(148,163,184,0.5)' }}>
             La comisión se descuenta de los ingresos (órdenes de la tienda / pagos de la billetera) y se refleja en el saldo neto de toda la app.
+            En <span style={{ color: 'rgba(0,212,255,0.65)' }}>tiendas</span>, el cambio rige <span style={{ color: 'rgba(0,212,255,0.65)' }}>desde hoy</span>: los días anteriores conservan la comisión que tenían.
             Valores por defecto: tiendas 3,5% · billeteras 1%.
           </p>
         </div>

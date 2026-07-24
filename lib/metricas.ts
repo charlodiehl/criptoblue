@@ -19,7 +19,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { getClient, getStores, loadHotState } from './storage'
-import { getComisiones, comisionTienda, comisionTiendaSobre, comisionBilletera } from './comisiones'
+import { getComisiones, comisionTiendaSobre, comisionBilletera, comisionTiendaEnFecha, comisionTiendaActual, comisionTiendaVaria, diaART } from './comisiones'
 import { walletsDeUnidad } from './unidad'
 import { resolveWallet, getCortesBilletera } from './billeteras'
 import { getUsdtRateSinMargen } from './cotizacion'
@@ -126,7 +126,7 @@ export async function getMetricas(desdeMs: number, hastaMs: number): Promise<Met
 
   // 2) balance_movements en el período (por fecha) → cambio neto + comisión por tienda.
   const bmov = await fetchAllRows((f, t) =>
-    sb.from('balance_movements').select('store_id, tipo, usdt')
+    sb.from('balance_movements').select('store_id, tipo, usdt, fecha')
       .gte('fecha', desdeISO).lt('fecha', hastaISO).range(f, t))
   const brutoUsdt = new Map<string, number>()   // Σ usdt signado (ingresos +, egresos −)
   const ingresoUsdt = new Map<string, number>() // solo ingreso_orden (base de la comisión)
@@ -165,18 +165,37 @@ export async function getMetricas(desdeMs: number, hastaMs: number): Promise<Met
   // ── Armar tiendas ──
   const tiendaIds = new Set<string>([...ordenesPorTienda.keys(), ...brutoUsdt.keys()])
   const tiendas: MetricaTienda[] = [...tiendaIds].map(id => {
-    const pct = comisionTienda(cfg, id)
-    // El cambio neto de saldo usa la comisión real (grossed-up) sobre los ingresos USDT.
-    const comisionNetoUsdt = comisionTiendaSobre(ingresoUsdt.get(id) ?? 0, pct)
+    let comisionNetoUsdt: number     // comisión real (grossed-up) sobre los ingresos USDT
+    let comisionArsAportada: number  // comisión "aportada" del gráfico: volumen ARS × pct
+    if (comisionTiendaVaria(cfg, id)) {
+      // Comisión variable: se prorratea por el pct vigente del día de cada ingreso
+      // (los ingresos USDT desde balance_movements; el volumen ARS desde el registro).
+      const usdtPorPct = new Map<number, number>()
+      for (const m of bmov) {
+        if (m.store_id !== id || m.tipo !== 'ingreso_orden') continue
+        const p = comisionTiendaEnFecha(cfg, id, diaART(m.fecha as string))
+        usdtPorPct.set(p, (usdtPorPct.get(p) ?? 0) + (Number(m.usdt) || 0))
+      }
+      comisionNetoUsdt = 0
+      for (const [p, u] of usdtPorPct) comisionNetoUsdt += comisionTiendaSobre(u, p)
+      comisionArsAportada = 0
+      for (const r of matched) {
+        if (r.store_id !== id) continue
+        comisionArsAportada += (Number(r.monto ?? r.amount) || 0) * comisionTiendaEnFecha(cfg, id, diaART(r.ts as string)) / 100
+      }
+    } else {
+      // Un solo pct para toda la historia (todas las tiendas de hoy): idéntico al viejo.
+      const pct = comisionTiendaActual(cfg, id)
+      comisionNetoUsdt = comisionTiendaSobre(ingresoUsdt.get(id) ?? 0, pct)
+      comisionArsAportada = (volTienda.get(id) ?? 0) * pct / 100
+    }
     return {
       storeId: id,
       storeName: nombreTienda(id),
       netoUsdt: (brutoUsdt.get(id) ?? 0) - comisionNetoUsdt,
-      // Volumen BRUTO: la plata que entró por sus órdenes emparejadas, tal cual, sin
-      // descontar la comisión. Es la misma base con la que se calcula comisionArs.
+      // Volumen BRUTO: la plata que entró por sus órdenes emparejadas, tal cual.
       volumenArs: volTienda.get(id) ?? 0,
-      // La comisión "aportada" del gráfico: volumen emparejado (ARS) × pct.
-      comisionArs: (volTienda.get(id) ?? 0) * pct / 100,
+      comisionArs: comisionArsAportada,
       ordenes: ordenesPorTienda.get(id) ?? 0,
     }
   }).sort((a, b) => b.netoUsdt - a.netoUsdt)
