@@ -4,6 +4,7 @@ import { isPaymentAlreadyUsed } from '@/lib/registro'
 import type { Payment, UnmatchedPayment } from '@/lib/types'
 import { nowART } from '@/lib/utils'
 import { runEnUnidad, unidadDeBilletera } from '@/lib/unidad'
+import { abrirAuditoria } from '@/lib/webhook-audit'
 
 const LOCK_HOLDER = 'copter-webhook'
 const BILLETERA = 'Copter MS'
@@ -59,16 +60,21 @@ export async function POST(req: NextRequest) {
 }
 
 async function procesar(req: NextRequest) {
+  // El cuerpo se lee PRIMERO para poder auditar el payload crudo aunque después
+  // falle el secret o el parseo: sin el payload no se puede reconstruir el pago.
+  const body = await req.json().catch(() => null)
+  const audit = await abrirAuditoria('copter', req, body)
   try {
     const expected = process.env.COPTER_WEBHOOK_SECRET
     if (!expected) {
       await registrarErrorPago('COPTER_WEBHOOK_SECRET no configurado en el servidor — ningún pago de Copter puede procesarse')
-      return NextResponse.json({ error: 'COPTER_WEBHOOK_SECRET no configurado en el servidor' }, { status: 500 })
+      return audit.cerrar('error', 'COPTER_WEBHOOK_SECRET no configurado en el servidor',
+        NextResponse.json({ error: 'COPTER_WEBHOOK_SECRET no configurado en el servidor' }, { status: 500 }))
     }
 
-    const body = await req.json().catch(() => null)
     if (!body || typeof body !== 'object') {
-      return NextResponse.json({ error: 'JSON inválido' }, { status: 400 })
+      return audit.cerrar('rechazado', 'El cuerpo no es un JSON válido',
+        NextResponse.json({ error: 'JSON inválido' }, { status: 400 }))
     }
 
     // Secret por header (Bearer o X-Webhook-Secret) o en el body.
@@ -83,30 +89,37 @@ async function procesar(req: NextRequest) {
         await registrarErrorPago('Llegó un pago de Copter con SECRET inválido — NO se procesó. Revisar COPTER_WEBHOOK_SECRET.',
           { messageId: body.messageId })
       }
-      return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+      return audit.cerrar('rechazado', 'Secret inválido o ausente',
+        NextResponse.json({ error: 'No autorizado' }, { status: 401 }))
     }
 
     // A partir de acá el request está autenticado: cualquier fallo es un pago real que se
     // registra en el centro de errores para no perderlo.
     const { asunto, cuerpo, fechaISO, messageId } = body
+    audit.datos({ idExterno: typeof messageId === 'string' ? messageId : null, fechaOperacion: fechaISO })
     if (!messageId || typeof messageId !== 'string') {
       await registrarErrorPago('Pago de Copter sin messageId', { asunto })
-      return NextResponse.json({ error: 'messageId requerido' }, { status: 400 })
+      return audit.cerrar('rechazado', 'Vino sin messageId',
+        NextResponse.json({ error: 'messageId requerido' }, { status: 400 }))
     }
     const fecha = new Date(fechaISO)
     if (isNaN(fecha.getTime())) {
       await registrarErrorPago(`Pago de Copter con fecha inválida: "${fechaISO}"`, { messageId, asunto })
-      return NextResponse.json({ error: 'fechaISO inválida' }, { status: 400 })
+      return audit.cerrar('rechazado', `Fecha del email inválida: "${fechaISO}"`,
+        NextResponse.json({ error: 'fechaISO inválida' }, { status: 400 }))
     }
     const parsed = parsearCuerpo(cuerpo, asunto)
     if (!parsed || !Number.isFinite(parsed.monto) || parsed.monto <= 0) {
       await registrarErrorPago('No se pudo extraer monto/pagador del email de Copter', { messageId, asunto, cuerpo: String(cuerpo || '').slice(0, 300) })
-      return NextResponse.json({ error: 'No se pudo parsear el email (monto/pagador)' }, { status: 400 })
+      return audit.cerrar('rechazado', 'No se pudo extraer el monto ni el pagador del cuerpo del email',
+        NextResponse.json({ error: 'No se pudo parsear el email (monto/pagador)' }, { status: 400 }))
     }
 
     const paymentId = `copter-${messageId}`
+    audit.datos({ paymentId, monto: parsed.monto, titular: parsed.titular })
     if (await isPaymentAlreadyUsed(paymentId)) {
-      return NextResponse.json({ success: true, duplicate: true, reason: 'ya emparejado en el registro' })
+      return audit.cerrar('duplicado', `El email ${messageId} ya figura emparejado en el registro`,
+        NextResponse.json({ success: true, duplicate: true, reason: 'ya emparejado en el registro' }))
     }
 
     const locked = await waitForLock(LOCK_HOLDER, `pago ${paymentId}`, 6000, 400)
@@ -114,12 +127,14 @@ async function procesar(req: NextRequest) {
       await registrarErrorPago(
         `No se pudo procesar el pago de Copter ${paymentId} ($${parsed.monto} · ${parsed.titular || 'sin titular'}): el sistema quedó ocupado. Recuperarlo a mano si no reintenta.`,
         { messageId, monto: parsed.monto, titular: parsed.titular, fecha: fecha.toISOString(), paymentId })
-      return NextResponse.json({ error: 'El sistema está procesando otra operación. Reintentá en unos segundos.' }, { status: 409 })
+      return audit.cerrar('error', 'El sistema quedó ocupado (no se pudo tomar el lock en 6s)',
+        NextResponse.json({ error: 'El sistema está procesando otra operación. Reintentá en unos segundos.' }, { status: 409 }))
     }
     try {
       const [hot, logs] = await Promise.all([loadHotState(), loadLogs()])
       if (hot.unmatchedPayments.some(u => (u.payment?.mpPaymentId || u.mpPaymentId) === paymentId)) {
-        return NextResponse.json({ success: true, duplicate: true, reason: 'ya estaba en la cola' })
+        return audit.cerrar('duplicado', `El email ${messageId} ya estaba en la cola de pagos`,
+          NextResponse.json({ success: true, duplicate: true, reason: 'ya estaba en la cola' }))
       }
 
       const payment: Payment = {
@@ -141,15 +156,16 @@ async function procesar(req: NextRequest) {
       appendActivity(logs, 'system', 'copter_pago_recibido', { monto: parsed.monto, titular: parsed.titular })
       await Promise.all([saveHotState(hot), saveLogs(logs)])
 
-      return NextResponse.json({
+      return audit.cerrar('aceptado', 'Pago agregado a la cola', NextResponse.json({
         success: true, mpPaymentId: paymentId,
         interpretado: { fecha: fecha.toISOString(), titular: parsed.titular, monto: parsed.monto },
-      })
+      }))
     } finally {
       await releaseLock(LOCK_HOLDER)
     }
   } catch (err) {
     await registrarErrorPago(`Error inesperado procesando un pago de Copter: ${String(err)}`)
-    return NextResponse.json({ error: String(err) }, { status: 500 })
+    return audit.cerrar('error', `Excepción inesperada: ${String(err)}`,
+      NextResponse.json({ error: String(err) }, { status: 500 }))
   }
 }

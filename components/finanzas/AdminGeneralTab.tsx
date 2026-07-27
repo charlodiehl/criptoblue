@@ -7,6 +7,7 @@ import SolicitudModal from './SolicitudModal'
 import { ReembolsosProvider, GestionReembolsos, ReembolsosSolicitados } from './ReembolsosAdmin'
 import SaldoPersonalizado from './SaldoPersonalizado'
 import ConfiguracionTiendas from './ConfiguracionTiendas'
+import WebhooksAudit from './WebhooksAudit'
 import type { Toast } from './FinanzasApp'
 
 export type SolicitudConTienda = TransferRequest & { storeName: string }
@@ -280,6 +281,8 @@ export default function AdminGeneralTab({ notify, onSolicitudPagada, refreshKey 
       </section>
 
       {/* 6) Configuración de Tiendas y billeteras (solapa desplegable) */}
+      <WebhooksAudit notify={notify} />
+
       <ConfiguracionTiendas notify={notify} onComisionGuardada={onSolicitudPagada} />
 
       {modal && (
