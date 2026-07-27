@@ -10,6 +10,7 @@
 
 export type PermisoKey =
   | 'administracion'
+  | 'ver_saldo'
   | 'solicitar_transferencias'
   | 'solicitar_reembolsos'
 
@@ -24,6 +25,11 @@ export const PERMISOS: Permiso[] = [
     key: 'administracion',
     label: 'Administración',
     descripcion: 'Puede dar y quitar permisos a los demás integrantes de la tienda.',
+  },
+  {
+    key: 'ver_saldo',
+    label: 'Ver saldo',
+    descripcion: 'Ve los montos del saldo total y del día. Sin este permiso los ve tapados (***).',
   },
   {
     key: 'solicitar_transferencias',

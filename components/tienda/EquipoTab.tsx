@@ -52,7 +52,7 @@ export default function EquipoTab({ qs, notify }: { qs: string; notify: (m: stri
     if (toggleBloqueado(m, key) || guardando) return
     // Activar Administración otorga todos los permisos.
     const permisos: Permisos = (key === 'administracion' && m.permisos.administracion !== true)
-      ? { administracion: true, solicitar_transferencias: true, solicitar_reembolsos: true }
+      ? { administracion: true, ver_saldo: true, solicitar_transferencias: true, solicitar_reembolsos: true }
       : { ...m.permisos, [key]: m.permisos[key] !== true }
     setGuardando(m.email)
     // optimista

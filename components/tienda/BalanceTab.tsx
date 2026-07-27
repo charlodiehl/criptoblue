@@ -55,10 +55,13 @@ interface BalanceDia {
   movimientos: Movimiento[]
 }
 interface Balance {
-  ars: number; usdt: number; pendientes: number
-  comisionArs: number; comisionUsdt: number; comisionPct: number
+  // Los montos vienen en null cuando el integrante no tiene permiso 'ver_saldo':
+  // el servidor no los manda (ver /api/tienda/balance) y la UI los muestra como ***.
+  ars: number | null; usdt: number | null; pendientes: number
+  comisionArs: number | null; comisionUsdt: number | null; comisionPct: number
   dias: string[]
   dia?: BalanceDia
+  verSaldo?: boolean
 }
 interface Row {
   registroId: number
@@ -167,6 +170,11 @@ export default function BalanceTab({ storeId, qs, notify, admin = false, refresh
   const aArs = (usdt: number | null | undefined): number | null =>
     cotizacion == null || usdt == null ? null : usdt * cotizacion
 
+  // Sin permiso 'ver_saldo' los montos del saldo se muestran tapados (***). Lo decide
+  // el SERVIDOR: manda verSaldo:false y los montos en null. Mientras carga se asume
+  // que sí puede, así se ve el esqueleto normal y no un *** que después desaparece.
+  const sinVerSaldo = balance != null && balance.verSaldo === false
+
   // Trae el saldo total y, en la misma llamada, el balance del día seleccionado.
   const fetchBalance = useCallback(async () => {
     setLoadingBalance(true)
@@ -270,7 +278,7 @@ export default function BalanceTab({ storeId, qs, notify, admin = false, refresh
           El desglose no va acá: vive en la tarjeta del día, más abajo. */}
       <div className="grid grid-cols-1 gap-3 max-w-sm">
         <BalanceCard label="Saldo en USDT" value={balance?.usdt ?? 0} format={fmtUsdt} suffix="USDT" color="#00d4ff" delay={0} loading={loadingBalance}
-          arsValue={aArs(balance?.usdt ?? 0)} cotizacion={cotizacion} />
+          arsValue={aArs(balance?.usdt ?? 0)} cotizacion={cotizacion} tapado={sinVerSaldo} />
       </div>
 
       {balance && balance.pendientes > 0 && (
@@ -333,14 +341,19 @@ export default function BalanceTab({ storeId, qs, notify, admin = false, refresh
           <p className="text-2xl font-black" style={{ color: (balance?.dia?.saldoUsdt ?? 0) < 0 ? '#f87171' : '#00d4ff' }}>
             {loadingBalance && !balance
               ? <NumberSkeleton width={140} height={28} />
-              : <><AnimatedNumber value={balance?.dia?.saldoUsdt ?? 0} format={fmtUsdt} /><span className="text-sm font-bold ml-2" style={{ opacity: 0.7 }}>USDT</span></>}
+              : sinVerSaldo
+                ? <Tapado />
+                : <><AnimatedNumber value={balance?.dia?.saldoUsdt ?? 0} format={fmtUsdt} /><span className="text-sm font-bold ml-2" style={{ opacity: 0.7 }}>USDT</span></>}
           </p>
-          {!(loadingBalance && !balance) && aArs(balance?.dia?.saldoUsdt ?? 0) != null && (
+          {!(loadingBalance && !balance) && !sinVerSaldo && aArs(balance?.dia?.saldoUsdt ?? 0) != null && (
             <p className="text-sm font-bold mt-0.5" style={{ color: 'rgba(226,232,240,0.85)' }}>
               ≈ {ARS.format(aArs(balance?.dia?.saldoUsdt ?? 0)!)}
             </p>
           )}
           <div className="mt-3 space-y-1 text-xs">
+            {sinVerSaldo ? (
+              <p style={{ color: 'rgba(148,163,184,0.5)' }}>No tenés permiso para ver los montos del saldo.</p>
+            ) : (<>
             <Linea
               label={`Ingresos (${balance?.dia?.cantidadIngresos ?? 0} orden${(balance?.dia?.cantidadIngresos ?? 0) === 1 ? '' : 'es'})`}
               valor={fmtUsdt(balance?.dia?.ingresosUsdt ?? 0)}
@@ -363,6 +376,7 @@ export default function BalanceTab({ storeId, qs, notify, admin = false, refresh
                 color={balance!.dia!.ajustesUsdt > 0 ? '#00ff88' : '#f87171'}
                 signo={balance!.dia!.ajustesUsdt > 0 ? '+' : '−'} />
             )}
+            </>)}
           </div>
         </motion.div>
       )}
@@ -649,9 +663,19 @@ function Linea({ label, valor, color, signo }: {
   )
 }
 
-function BalanceCard({ label, value, format, suffix, color, delay, loading, arsValue, cotizacion }: {
+// Monto tapado para quien no tiene el permiso 'ver_saldo'. El servidor ya manda los
+// montos en null (ver /api/tienda/balance): esto es solo cómo se muestra ese vacío.
+function Tapado({ className }: { className?: string }) {
+  return (
+    <span className={className} title="No tenés permiso para ver el saldo"
+      style={{ letterSpacing: '0.15em', opacity: 0.55 }}>***</span>
+  )
+}
+
+function BalanceCard({ label, value, format, suffix, color, delay, loading, arsValue, cotizacion, tapado }: {
   label: string; value: number; format: (n: number) => string; suffix?: string; color: string; delay: number; loading: boolean
   arsValue?: number | null; cotizacion?: number | null
+  tapado?: boolean   // sin permiso 'ver_saldo': el monto se muestra como ***
 }) {
   return (
     <motion.div
@@ -667,10 +691,12 @@ function BalanceCard({ label, value, format, suffix, color, delay, loading, arsV
       <p className="text-3xl sm:text-4xl font-black" style={{ color, textShadow: `0 0 20px ${color}60` }}>
         {loading
           ? <NumberSkeleton width={170} height={40} />
-          : <AnimatedNumber value={value} format={format} />}
-        {!loading && suffix && <span className="text-lg font-bold ml-2" style={{ opacity: 0.7 }}>{suffix}</span>}
+          : tapado
+            ? <Tapado />
+            : <AnimatedNumber value={value} format={format} />}
+        {!loading && !tapado && suffix && <span className="text-lg font-bold ml-2" style={{ opacity: 0.7 }}>{suffix}</span>}
       </p>
-      {!loading && arsValue != null && (
+      {!loading && !tapado && arsValue != null && (
         <p className="mt-1 text-lg font-bold" style={{ color: 'rgba(226,232,240,0.9)' }}>
           ≈ {ARS.format(arsValue)}
           {cotizacion != null && (

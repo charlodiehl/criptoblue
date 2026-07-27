@@ -1,11 +1,31 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireUser, resolveStoreScope, setUnidad } from '@/lib/auth/server'
+import { requireUser, resolveStoreScope, scopedUser, setUnidad } from '@/lib/auth/server'
 import { getBalance, getBalanceDia, getDiasConMovimiento } from '@/lib/balance'
+import { puede } from '@/lib/permisos'
+
+// Montos que solo ve quien tiene el permiso 'ver_saldo'. Se ponen en null ACÁ, en el
+// servidor: si solo se taparan en la UI, cualquiera los leería en la pestaña de red.
+// Los conteos (pendientes, cantidadIngresos) y el % de comisión NO son montos y se
+// mandan igual: la UI los necesita para los textos y no revelan el saldo.
+function taparMontos(balance: Record<string, unknown>) {
+  const MONTOS = ['ars', 'usdt', 'comisionArs', 'comisionUsdt']
+  const MONTOS_DIA = ['saldoUsdt', 'ingresosUsdt', 'ingresoManualUsdt', 'comisionUsdt',
+    'transferenciasUsdt', 'reembolsosUsdt', 'ajustesUsdt']
+  const out = { ...balance }
+  for (const k of MONTOS) if (k in out) out[k] = null
+  if (out.dia && typeof out.dia === 'object') {
+    const dia = { ...(out.dia as Record<string, unknown>) }
+    for (const k of MONTOS_DIA) if (k in dia) dia[k] = null
+    out.dia = dia
+  }
+  return out
+}
 
 // GET /api/tienda/balance[?storeId=][&fecha=YYYY-MM-DD]
 //   → { ars, usdt, pendientes, comision…, dias[] } y, si viene fecha, { dia: {…} }
 // `dias` son los días con movimiento: el calendario deshabilita el resto.
 // storeId: rol tienda usa el suyo (ignora el query); admin lo pasa explícito.
+// verSaldo=false → los montos vienen en null y la UI los muestra tapados (***).
 export async function GET(req: NextRequest) {
   try {
     const auth = await requireUser()
@@ -25,7 +45,12 @@ export async function GET(req: NextRequest) {
       getDiasConMovimiento(storeId),
     ])
 
-    return NextResponse.json({ ...balance, dias, ...(dia ? { dia } : {}) })
+    // Permiso 'ver_saldo' DE ESA tienda (puede ser un acceso secundario). El
+    // super-admin y el Administrador de tienda pueden por su rol (ver lib/permisos).
+    const verSaldo = puede(scopedUser(auth.user, storeId), 'ver_saldo')
+    const payload = { ...balance, dias, ...(dia ? { dia } : {}) }
+
+    return NextResponse.json(verSaldo ? { ...payload, verSaldo } : { ...taparMontos(payload), verSaldo })
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 })
   }

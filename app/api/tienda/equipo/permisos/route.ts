@@ -58,6 +58,7 @@ export async function POST(req: NextRequest) {
 
     // Un Administrador tiene TODOS los permisos: al dárselo se activan los demás.
     if (nuevos.administracion === true) {
+      nuevos.ver_saldo = true
       nuevos.solicitar_transferencias = true
       nuevos.solicitar_reembolsos = true
     }

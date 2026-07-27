@@ -35,6 +35,7 @@ export async function POST(req: NextRequest) {
     // permisos que le marque). Un Administrador tiene todos los permisos activos.
     const permisos = sanearPermisos(body?.permisos)
     if (permisos.administracion === true) {
+      permisos.ver_saldo = true
       permisos.solicitar_transferencias = true
       permisos.solicitar_reembolsos = true
     }
