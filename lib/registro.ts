@@ -6,10 +6,10 @@
 import type { LogEntry, Payment, Order } from './types'
 import { getClient, kvGet, kvSet } from './storage'
 import { registrarIngresoOrden, actualizarDescripcionIngreso } from './balance'
-import { BALANCE_CUTOFF, SOURCE_SIN_BILLETERA } from './config'
+import { SOURCE_SIN_BILLETERA } from './config'
 import { billeteraLabel, billeteraIdentificada } from './utils'
 import { notifyTienda } from './push'
-import { kvKey } from './unidad'
+import { kvKey, cutoffBalance } from './unidad'
 
 // Monto en pesos para el texto de las notificaciones.
 const fmtArs = (n: number) => `$${n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -677,8 +677,8 @@ export async function queryRegistroByStoreDay(
   const diaDesde = new Date(`${diaART}T00:00:00-03:00`).getTime()
   const hasta = new Date(diaDesde + 24 * 60 * 60 * 1000).toISOString()
   // Límite inferior efectivo: nunca antes del corte del balance (coherente con el
-  // saldo, que solo cuenta órdenes desde BALANCE_CUTOFF).
-  const desde = new Date(Math.max(diaDesde, BALANCE_CUTOFF.getTime())).toISOString()
+  // saldo, que solo cuenta órdenes desde el corte de la unidad).
+  const desde = new Date(Math.max(diaDesde, cutoffBalance().getTime())).toISOString()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data, error } = await (supabase.from(TABLE) as any)
     .select('*')
@@ -701,7 +701,7 @@ export async function queryRegistroByStoreRango(
   const supabase = getClient()
   const desdeMs = new Date(`${desdeART}T00:00:00-03:00`).getTime()
   const hasta = new Date(new Date(`${hastaART}T00:00:00-03:00`).getTime() + 24 * 60 * 60 * 1000).toISOString()
-  const desde = new Date(Math.max(desdeMs, BALANCE_CUTOFF.getTime())).toISOString()
+  const desde = new Date(Math.max(desdeMs, cutoffBalance().getTime())).toISOString()
   const out: Array<{ registroId: number; entry: LogEntry }> = []
   const PAGE = 1000
   let from = 0
@@ -734,7 +734,7 @@ export async function querySaldosPersonalizadosByStoreDay(
   const supabase = getClient()
   const diaDesde = new Date(`${diaART}T00:00:00-03:00`).getTime()
   const hasta = new Date(diaDesde + 24 * 60 * 60 * 1000).toISOString()
-  const desde = new Date(Math.max(diaDesde, BALANCE_CUTOFF.getTime())).toISOString()
+  const desde = new Date(Math.max(diaDesde, cutoffBalance().getTime())).toISOString()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data, error } = await (supabase.from(TABLE) as any)
     .select('*')
@@ -756,7 +756,7 @@ export async function searchRegistroByStore(
   const supabase = getClient()
   const q = (query ?? '').trim().replace(/[,()]/g, ' ').trim()
   if (!q) return []
-  const desde = BALANCE_CUTOFF.toISOString()
+  const desde = cutoffBalance().toISOString()
   const pat = `*${q}*`
   const ors = [
     `order_number.ilike.${pat}`,

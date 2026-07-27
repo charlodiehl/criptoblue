@@ -1,8 +1,8 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import type { AppState, Store, Payment, Order, UnmatchedPayment, RecentMatch, DismissedPair, ExternalPaymentMark, PersistedMonthStats, ErrorEntry, ActivityEntry } from './types'
-import { HARD_CUTOFF_PAYMENTS, HARD_CUTOFF_ORDERS, WALLETS_SIN_VENCIMIENTO } from './config'
+import { WALLETS_SIN_VENCIMIENTO } from './config'
 import { nowART, monthKeyART, paymentWalletId } from './utils'
-import { getUnidad, kvKey, TABLAS_POR_UNIDAD } from './unidad'
+import { getUnidad, kvKey, cutoffPagos, cutoffOrdenes, TABLAS_POR_UNIDAD } from './unidad'
 
 // ─────────────────────────────────────────────
 // Supabase schema required:
@@ -241,8 +241,8 @@ function stripRawData(payment: Payment): Payment {
 
 function getCutoffs() {
   const cutoff48hMs = Date.now() - 48 * 60 * 60 * 1000
-  const effectiveCutoffPaymentsMs = Math.max(cutoff48hMs, HARD_CUTOFF_PAYMENTS.getTime())
-  const effectiveCutoffOrdersMs = Math.max(cutoff48hMs, HARD_CUTOFF_ORDERS.getTime())
+  const effectiveCutoffPaymentsMs = Math.max(cutoff48hMs, cutoffPagos().getTime())
+  const effectiveCutoffOrdersMs = Math.max(cutoff48hMs, cutoffOrdenes().getTime())
   const effectiveCutoffMinMs = Math.min(effectiveCutoffPaymentsMs, effectiveCutoffOrdersMs)
   const cutoff30dMs = Date.now() - 30 * 24 * 60 * 60 * 1000
   const cutoff7dMs = Date.now() - 7 * 24 * 60 * 60 * 1000
@@ -255,6 +255,12 @@ function getCutoffs() {
 // coincidir, si no un guardado que parta de una cola vacía (ej. reevaluar) puede
 // perder estos pagos porque el merge los descarta por "viejos" sin mirar la billetera.
 function esNuncaVence(u: UnmatchedPayment, externallyMarkedIds: Set<string>): boolean {
+  // El corte de la unidad manda por encima de todo: "sin vencimiento" significa que no
+  // expira por los 48hs de rolling, NO que sobreviva a la fecha desde la que la unidad
+  // existe. Sin esta guarda, un pago anterior al corte que se reenvíe se quedaría en la
+  // cola para siempre.
+  const fp = u.payment.fechaPago ? new Date(u.payment.fechaPago).getTime() : null
+  if (fp !== null && Number.isFinite(fp) && fp < cutoffPagos().getTime()) return false
   const wallet = paymentWalletId(u.payment.source)
   const id = u.mpPaymentId || u.payment.mpPaymentId
   return !!wallet && WALLETS_SIN_VENCIMIENTO.includes(wallet) && !externallyMarkedIds.has(id)

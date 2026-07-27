@@ -3,11 +3,11 @@ import { loadHotState, saveHotState, loadLogs, saveLogs, getStores, incrementPer
 import { appendRegistroEntry, isOrderAlreadyPaid, isPaymentAlreadyUsed } from '@/lib/registro'
 import { markOrderAsPaid as markTNOrderAsPaid, getPendingOrders as getTNOrders } from '@/lib/tiendanube'
 import { markOrderAsPaid as markShopifyOrderAsPaid, getPendingOrders as getShopifyOrders } from '@/lib/shopify'
-import { HARD_CUTOFF_ORDERS } from '@/lib/config'
 import type { LogEntry } from '@/lib/types'
 import { audit, auditMatch } from '@/lib/audit'
 import { requireUser, setUnidad } from '@/lib/auth/server'
 import { nowART, toUTCISO } from '@/lib/utils'
+import { cutoffOrdenes } from '@/lib/unidad'
 
 const LOCK_HOLDER = 'manual-match'
 
@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
     let order = orderFromClient || null
     if (!order) {
       try {
-        const since = new Date(Math.max(Date.now() - 48 * 3600000, HARD_CUTOFF_ORDERS.getTime()))
+        const since = new Date(Math.max(Date.now() - 48 * 3600000, cutoffOrdenes().getTime()))
         const fetchOrders = platform === 'shopify' ? getShopifyOrders : getTNOrders
         const orders = await fetchOrders(storeId, store.accessToken, store.storeName, since)
         order = orders.find(o => o.orderId === orderId) || null

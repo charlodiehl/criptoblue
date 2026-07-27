@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server'
 import { loadOrdersCache, saveOrdersCache, getStores } from '@/lib/storage'
 import { getPendingOrders } from '@/lib/tiendanube'
-import { HARD_CUTOFF_ORDERS } from '@/lib/config'
 import { requireUnidad, setUnidad } from '@/lib/auth/server'
+import { cutoffOrdenes } from '@/lib/unidad'
 
 export async function GET() {
   // La unidad de negocio sale de la sesion (el middleware ya valido rol + 2FA).
@@ -21,7 +21,7 @@ export async function GET() {
     const stores = await getStores()
     const storeList = Object.values(stores)
 
-    const since = new Date(Math.max(Date.now() - 48 * 3600000, HARD_CUTOFF_ORDERS.getTime()))
+    const since = new Date(Math.max(Date.now() - 48 * 3600000, cutoffOrdenes().getTime()))
 
     const results = await Promise.allSettled(
       storeList.map(s => getPendingOrders(s.storeId, s.accessToken, s.storeName, since))

@@ -3,11 +3,12 @@ import { getPendingOrders as getTNOrders } from './tiendanube'
 import { getPendingOrders as getShopifyOrders } from './shopify'
 import { loadState, saveState, getStores, appendError, loadLogs, saveLogs, withStateLock } from './storage'
 import { getConfirmedMarks } from './registro'
-import { HARD_CUTOFF_PAYMENTS, HARD_CUTOFF_ORDERS, SAMEMONTO_WINDOW_HOURS, ORDER_CACHE_MIN_HOURS, ORDER_CACHE_BUFFER_HOURS, PAYMENT_CACHE_HOURS, WALLETS_SIN_VENCIMIENTO, MERCADOPAGO_ACTIVO } from './config'
+import { SAMEMONTO_WINDOW_HOURS, ORDER_CACHE_MIN_HOURS, ORDER_CACHE_BUFFER_HOURS, PAYMENT_CACHE_HOURS, WALLETS_SIN_VENCIMIENTO, MERCADOPAGO_ACTIVO } from './config'
 import type { UnmatchedPayment, Store } from './types'
 import { audit, auditApiCall } from './audit'
 import { nowART, paymentWalletId } from './utils'
 import { lookupNombreByCuit } from './cuit-lookup'
+import { cutoffPagos, cutoffOrdenes } from './unidad'
 
 interface CycleResult {
   processed: number   // total pagos vistos en MP (puede incluir ya conocidos)
@@ -32,10 +33,10 @@ export async function processMPPayments(): Promise<CycleResult> {
 
   // Cutoff de pagos: rolling 48h hacia atrás
   const paymentsRollingMs = now.getTime() - PAYMENT_CACHE_HOURS * HOUR_MS
-  const sincePayments = new Date(Math.max(paymentsRollingMs, HARD_CUTOFF_PAYMENTS.getTime()))
+  const sincePayments = new Date(Math.max(paymentsRollingMs, cutoffPagos().getTime()))
 
   // Purge: igual que el rolling de pagos
-  const purgeCutoff = new Date(Math.max(paymentsRollingMs, HARD_CUTOFF_PAYMENTS.getTime()))
+  const purgeCutoff = new Date(Math.max(paymentsRollingMs, cutoffPagos().getTime()))
 
   // Cutoff de ÓRDENES: anclado al pago sin emparejar más viejo VÁLIDO, para
   // garantizar que el cache cubra la ventana de detección de sameMontoCount
@@ -74,7 +75,7 @@ export async function processMPPayments(): Promise<CycleResult> {
     Math.min(ordersRollingMs, oldestDetectionStartMs),
     maxCacheLookbackMs
   )
-  const sinceOrders = new Date(Math.max(ordersCutoffMs, HARD_CUTOFF_ORDERS.getTime()))
+  const sinceOrders = new Date(Math.max(ordersCutoffMs, cutoffOrdenes().getTime()))
 
   // Traer pagos aprobados desde el cutoff efectivo.
   // MercadoPago desconectado (MERCADOPAGO_ACTIVO=false): se saltea la traída y el
@@ -131,7 +132,7 @@ export async function processMPPayments(): Promise<CycleResult> {
   const storeEntries = Object.values(stores)
 
   // Traer órdenes pendientes de todas las tiendas (TiendaNube y Shopify)
-  // Usa cutoff de ÓRDENES: max(48h_ago, HARD_CUTOFF_ORDERS)
+  // Usa cutoff de ÓRDENES: max(48h_ago, corte de la unidad)
   const allOrdersPerStore = await Promise.allSettled(
     storeEntries.map(s => {
       const platform = s.platform ?? 'tiendanube'

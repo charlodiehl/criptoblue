@@ -10,9 +10,9 @@ import PaymentsListTab from '@/components/PaymentsListTab'
 import RegistroTab from '@/components/RegistroTab'
 import { useRealtimeSync } from '@/hooks/useRealtimeSync'
 import type { Order, UnmatchedPayment, Store, LogEntry, Payment, RecentMatch, ErrorEntry } from '@/lib/types'
-import { HARD_CUTOFF_PAYMENTS, HARD_CUTOFF_ORDERS, WALLETS_SIN_VENCIMIENTO } from '@/lib/config'
+import { WALLETS_SIN_VENCIMIENTO } from '@/lib/config'
 import { paymentWalletId } from '@/lib/utils'
-import { useUnidad } from '@/hooks/useUnidad'
+import { useUnidad, useCutoffs } from '@/hooks/useUnidad'
 
 type Tab = 'manual' | 'ordenes' | 'pagos' | 'sin-coincidencia' | 'registro'
 
@@ -43,6 +43,7 @@ export default function Dashboard() {
   // de conexión de tiendas (el callback del OAuth vuelve sin sesión).
   const unidad = useUnidad()
   const unidadId = unidad?.id ?? 'criptoblue'
+  const cutoffs = useCutoffs()
   const [tab, setTab] = useState<Tab>('manual')
   const [stats, setStats] = useState<Stats | null>(null)
   const [orders, setOrders] = useState<Order[]>([])
@@ -649,8 +650,9 @@ export default function Dashboard() {
   const HOURS_24 = 24 * 60 * 60 * 1000
   const HOURS_48 = 48 * 60 * 60 * 1000
   // Cutoffs separados para pagos y órdenes
-  const HARD_CUTOFF_PAYMENTS_MS = HARD_CUTOFF_PAYMENTS.getTime()
-  const HARD_CUTOFF_ORDERS_MS = HARD_CUTOFF_ORDERS.getTime()
+  // Cortes de la unidad de la sesión: nada anterior se muestra (ver lib/unidad.ts).
+  const HARD_CUTOFF_PAYMENTS_MS = cutoffs.pagos
+  const HARD_CUTOFF_ORDERS_MS = cutoffs.ordenes
   const cutoff24 = Math.max(Date.now() - HOURS_24, Math.min(HARD_CUTOFF_PAYMENTS_MS, HARD_CUTOFF_ORDERS_MS))
   const cutoff48 = Math.max(Date.now() - HOURS_48, Math.min(HARD_CUTOFF_PAYMENTS_MS, HARD_CUTOFF_ORDERS_MS))
 

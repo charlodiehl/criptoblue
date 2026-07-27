@@ -3,7 +3,7 @@ import { loadHotState, saveHotState, loadLogs, saveLogs, appendActivity, appendE
 import { isPaymentAlreadyUsed } from '@/lib/registro'
 import type { Payment, UnmatchedPayment } from '@/lib/types'
 import { nowART } from '@/lib/utils'
-import { runEnUnidad, unidadDeBilletera } from '@/lib/unidad'
+import { runEnUnidad, unidadDeBilletera, cutoffPagos, unidadActiva } from '@/lib/unidad'
 import { abrirAuditoria } from '@/lib/webhook-audit'
 
 const LOCK_HOLDER = 'notificador-webhook'
@@ -144,6 +144,15 @@ async function procesar(req: NextRequest) {
         NextResponse.json({ error: 'datos.fecha_operacion inválida' }, { status: 400 }))
     }
     const fechaISO = fecha.toISOString()
+
+    // Corte de la unidad: nada anterior entra. Si se reenvía un pago viejo, se
+    // responde OK (para que no reintente eternamente) pero NO se carga, y queda
+    // en la auditoría con el motivo.
+    if (fecha.getTime() < cutoffPagos().getTime()) {
+      return audit.cerrar('ignorado',
+        `Anterior al corte de ${unidadActiva().nombre} (${cutoffPagos().toISOString()})`,
+        NextResponse.json({ success: true, skipped: true, reason: 'anterior al corte de la unidad' }))
+    }
 
     // id_transaccion es el identificador único que ya asigna su sistema — lo
     // usamos directo, sin necesidad de generar un hash propio.

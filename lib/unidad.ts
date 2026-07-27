@@ -28,12 +28,25 @@ import { AsyncLocalStorage } from 'async_hooks'
 
 export type UnidadId = 'criptoblue' | 'ms'
 
+// Fechas desde las que la unidad existe para la app. Nada anterior entra ni cuenta:
+// ni pagos, ni órdenes, ni saldo, ni métricas.
+//   pagos/ordenes → piso duro de lo que se trae y se muestra (rolling de 48hs arriba).
+//   balance       → desde cuándo una orden genera movimiento de saldo.
+// En CriptoBlue son tres fechas distintas por historia; en una unidad nueva las tres
+// son la misma: el día en que arrancó.
+export interface CutoffsUnidad {
+  pagos: Date
+  ordenes: Date
+  balance: Date
+}
+
 export interface Unidad {
   id: UnidadId
   nombre: string              // cómo se muestra en la app
   rol: string                 // nombre del rol de su super admin
   kvPrefix: string            // prefijo de sus keys en kv_store
   wallets: readonly string[]  // billeteras que opera (vacío = ninguna conectada)
+  cutoffs: CutoffsUnidad
 }
 
 export const UNIDADES: Record<UnidadId, Unidad> = {
@@ -44,6 +57,14 @@ export const UNIDADES: Record<UnidadId, Unidad> = {
     // Prefijo histórico: las keys de kv_store ya se llaman así, no hay nada que migrar.
     kvPrefix: 'criptoblue',
     wallets: ['MF', 'Lacar', 'MS', 'Montemar', 'Otras'],
+    cutoffs: {
+      // 27/03/2026 21:00 ART. Son los cortes históricos, no se tocan.
+      pagos: new Date('2026-03-28T00:00:00.000Z'),
+      ordenes: new Date('2026-03-28T00:00:00.000Z'),
+      // El saldo previo a esta fecha se representa con un ajuste de "saldo inicial"
+      // por tienda (scripts/cargar-saldo-inicial.mjs).
+      balance: new Date('2026-07-12T00:00:00-03:00'),
+    },
   },
   ms: {
     id: 'ms',
@@ -54,6 +75,13 @@ export const UNIDADES: Record<UnidadId, Unidad> = {
     // terceros" dentro de CriptoBlue). 'Otras' es el cajón de pagos manuales sueltos,
     // que toda unidad necesita.
     wallets: ['Copter MS', 'Otras'],
+    // MS arranca de cero el 27/07/2026 00:00 ART: lo anterior se borró y no vuelve
+    // a entrar. Las tres fechas son la misma porque la unidad empieza ahí.
+    cutoffs: {
+      pagos: new Date('2026-07-27T00:00:00-03:00'),
+      ordenes: new Date('2026-07-27T00:00:00-03:00'),
+      balance: new Date('2026-07-27T00:00:00-03:00'),
+    },
   },
 }
 
@@ -161,6 +189,19 @@ export function walletsDeUnidad(): readonly string[] {
 
 export function unidadActiva(): Unidad {
   return UNIDADES[getUnidad()]
+}
+
+// ─── Cortes de la unidad activa ──────────────────────────────────────────────
+// Reemplazan a las constantes globales HARD_CUTOFF_* / BALANCE_CUTOFF: cada unidad
+// tiene su propia fecha de arranque, y nada anterior entra ni cuenta.
+export function cutoffPagos(): Date {
+  return UNIDADES[getUnidad()].cutoffs.pagos
+}
+export function cutoffOrdenes(): Date {
+  return UNIDADES[getUnidad()].cutoffs.ordenes
+}
+export function cutoffBalance(): Date {
+  return UNIDADES[getUnidad()].cutoffs.balance
 }
 
 // A qué unidad pertenece una billetera. Lo usan los webhooks de pagos (que llegan

@@ -20,5 +20,13 @@ export async function GET() {
     nombre: u.nombre,
     rol: u.rol,
     wallets: u.wallets,
+    // Cortes de la unidad: el cliente filtra con ellos lo que muestra. La fuente de
+    // verdad es el servidor (que además no trae nada anterior); esto es para que la
+    // vista no muestre algo que el backend ya considera fuera de la unidad.
+    cutoffs: {
+      pagos: u.cutoffs.pagos.toISOString(),
+      ordenes: u.cutoffs.ordenes.toISOString(),
+      balance: u.cutoffs.balance.toISOString(),
+    },
   })
 }

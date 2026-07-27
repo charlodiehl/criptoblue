@@ -1,6 +1,5 @@
 import { getUsdtRate } from './cotizacion'
 import { toUTCISO, fechaEgresoSaldo } from './utils'
-import { BALANCE_CUTOFF } from './config'
 import { getComisiones, comisionTienda, comisionTiendaSobre, comisionTiendaEnFecha, comisionTiendaActual, comisionTiendaVaria, diaART, type ComisionesConfig } from './comisiones'
 import { getRefundsByMovementIds } from './reembolsos'
 import type { LogEntry, StoreBalance, DescuentoMoneda, TransferDescuento, BalanceMovement } from './types'
@@ -9,6 +8,7 @@ import type { LogEntry, StoreBalance, DescuentoMoneda, TransferDescuento, Balanc
 // se leían sin filtrar (ver lib/unidad.ts).
 import { getClient } from './storage'
 import { getUnidad } from './unidad'
+import { cutoffBalance } from './unidad'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Motor de balance por tienda (tabla balance_movements).
@@ -30,9 +30,9 @@ const TABLE = 'balance_movements'
 // caída, queda 'pendiente' y la completa el backfill de /api/cron/cotizaciones.
 export async function registrarIngresoOrden(registroId: number | null, entry: LogEntry): Promise<void> {
   if (!entry.storeId) return
-  // Corte del balance: las órdenes anteriores a BALANCE_CUTOFF no generan ingreso
+  // Corte del balance: las órdenes anteriores al corte de la unidad no generan ingreso
   // (se representan con el saldo inicial). Las nuevas siempre tienen fecha actual.
-  if (new Date(entry.timestamp).getTime() < BALANCE_CUTOFF.getTime()) return
+  if (new Date(entry.timestamp).getTime() < cutoffBalance().getTime()) return
   const ars = entry.amount ?? 0
   if (!Number.isFinite(ars) || ars <= 0) return
 
@@ -341,7 +341,7 @@ export async function actualizarDescripcionIngreso(registroId: number, descripci
 // cotizaciones no debe volver a pisarla.
 //
 // Devuelve el movimiento actualizado, o null si esa entrada no tiene movimiento de
-// balance (p. ej. una orden anterior a BALANCE_CUTOFF, que nunca generó ingreso).
+// balance (p. ej. una orden anterior al corte de la unidad, que nunca generó ingreso).
 export async function actualizarCotizacionDeIngreso(
   registroId: number, cotizacion: number,
 ): Promise<BalanceMovement | null> {

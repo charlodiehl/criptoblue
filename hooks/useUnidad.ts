@@ -13,6 +13,8 @@ export interface UnidadInfo {
   nombre: string
   rol: string
   wallets: string[]
+  // ISO. Nada anterior a estas fechas pertenece a la unidad.
+  cutoffs?: { pagos: string; ordenes: string; balance: string }
 }
 
 let cache: Promise<UnidadInfo | null> | null = null
@@ -40,4 +42,13 @@ export function useUnidad(): UnidadInfo | null {
 // conectada — nunca cae en la lista de otra unidad.
 export function useWallets(): string[] {
   return useUnidad()?.wallets ?? []
+}
+
+// Cortes de la unidad en epoch ms. Mientras carga devuelve 0 (no filtra nada): el
+// servidor ya acota lo que manda, así que un instante sin filtrar no muestra datos
+// de otra unidad — a lo sumo, algo que enseguida desaparece.
+export function useCutoffs(): { pagos: number; ordenes: number } {
+  const u = useUnidad()
+  const ms = (v?: string) => (v ? new Date(v).getTime() || 0 : 0)
+  return { pagos: ms(u?.cutoffs?.pagos), ordenes: ms(u?.cutoffs?.ordenes) }
 }

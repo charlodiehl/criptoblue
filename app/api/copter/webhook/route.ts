@@ -3,7 +3,7 @@ import { loadHotState, saveHotState, loadLogs, saveLogs, appendActivity, appendE
 import { isPaymentAlreadyUsed } from '@/lib/registro'
 import type { Payment, UnmatchedPayment } from '@/lib/types'
 import { nowART } from '@/lib/utils'
-import { runEnUnidad, unidadDeBilletera } from '@/lib/unidad'
+import { runEnUnidad, unidadDeBilletera, cutoffPagos, unidadActiva } from '@/lib/unidad'
 import { abrirAuditoria } from '@/lib/webhook-audit'
 
 const LOCK_HOLDER = 'copter-webhook'
@@ -107,6 +107,12 @@ async function procesar(req: NextRequest) {
       await registrarErrorPago(`Pago de Copter con fecha inválida: "${fechaISO}"`, { messageId, asunto })
       return audit.cerrar('rechazado', `Fecha del email inválida: "${fechaISO}"`,
         NextResponse.json({ error: 'fechaISO inválida' }, { status: 400 }))
+    }
+    // Corte de la unidad: nada anterior entra (ver el webhook de Notificador).
+    if (fecha.getTime() < cutoffPagos().getTime()) {
+      return audit.cerrar('ignorado',
+        `Anterior al corte de ${unidadActiva().nombre} (${cutoffPagos().toISOString()})`,
+        NextResponse.json({ success: true, skipped: true, reason: 'anterior al corte de la unidad' }))
     }
     const parsed = parsearCuerpo(cuerpo, asunto)
     if (!parsed || !Number.isFinite(parsed.monto) || parsed.monto <= 0) {
