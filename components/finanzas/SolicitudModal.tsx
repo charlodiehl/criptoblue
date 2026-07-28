@@ -6,6 +6,7 @@ import TasaInput from '@/components/TasaInput'
 import MontoInput from '@/components/MontoInput'
 import ComprobanteInput from '@/components/ComprobanteInput'
 import type { DescuentoMoneda } from '@/lib/types'
+import { CAMPO_LABEL, valorLegible } from '@/lib/transferencias-ui'
 import type { SolicitudConTienda } from './AdminGeneralTab'
 import type { Toast } from './FinanzasApp'
 
@@ -41,20 +42,6 @@ const TASAS_POR_MONEDA: Record<DescuentoMoneda, { key: string; label: string }[]
   USDT: [],
   USD: [{ key: 'tasaUsdtUsd', label: 'Tasa USDT/USD (cuántos USD = 1 USDT · cobrar 1% = 0,99)' }],
   USD_BILLETE: [{ key: 'tasaUsdtUsd', label: 'Tasa USDT/USD (cuántos USD = 1 USDT · cobrar 1% = 0,99)' }],
-}
-
-// Etiquetas legibles de los campos del formulario que envió la tienda
-const CAMPO_LABEL: Record<string, string> = {
-  cbu: 'CBU / CVU / Alias', montoArs: 'Monto ARS', nombreBeneficiario: 'Nombre del beneficiario', cuitBeneficiario: 'CUIT/CUIL/DNI',
-  numeroCuenta: 'Número de cuenta', montoUsd: 'Monto USD', nombreCompleto: 'Nombre completo', domicilio: 'Domicilio',
-  wallet: 'Wallet cripto', blockchain: 'Blockchain', montoUsdt: 'Monto USDT',
-  monto: 'Monto', modalidad: 'Modalidad', dni: 'DNI', contacto: 'Contacto', direccion: 'Dirección',
-}
-
-// Valor legible para el detalle (la modalidad se guarda como 'retira'/'envio').
-function valorLegible(k: string, v: unknown): string {
-  if (k === 'modalidad') return v === 'retira' ? 'Paso a retirar' : v === 'envio' ? 'Enviar a una ubicación' : String(v)
-  return String(v)
 }
 
 const inputStyle: React.CSSProperties = {

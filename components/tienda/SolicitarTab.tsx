@@ -5,21 +5,15 @@ import { fmtDate } from '@/lib/utils'
 import MontoInput from '@/components/MontoInput'
 import ConceptoInput from '@/components/ConceptoInput'
 import BotonComprobante from './BotonComprobante'
+import DetalleSolicitudModal from './DetalleSolicitudModal'
 import type { TransferRequest, TransferTipo } from '@/lib/types'
+import { TIPO_LABEL, montoDeSolicitud } from '@/lib/transferencias-ui'
 import type { Toast } from './TiendaPortal'
 
 interface Props {
   storeId: string
   qs: string
   notify: (msg: string, type?: Toast['type']) => void
-}
-
-const TIPO_LABEL: Record<TransferTipo, string> = {
-  ars: 'Transferencia ARS',
-  usd: 'Transferencia USD',
-  usdt: 'Transferencia USDT',
-  usd_billete: 'Recibir USD billete',
-  ars_billete: 'Recibir ARS billete',
 }
 
 const BLOCKCHAINS = ['TRC-20', 'ERC-20', 'BEP-20', 'Polygon']
@@ -36,15 +30,9 @@ const labelStyle: React.CSSProperties = {
 // Fondo oscuro para las <option> del select nativo (sino el browser las pinta gris).
 const optionStyle: React.CSSProperties = { background: '#0d1117', color: 'rgba(226,232,240,0.92)' }
 
-function montoDeSolicitud(s: TransferRequest): string {
-  if (s.tipo === 'ars') return `${Number(s.datos.montoArs).toLocaleString('es-AR')} ARS`
-  if (s.tipo === 'usd') return `${Number(s.datos.montoUsd).toLocaleString('es-AR')} USD`
-  if (s.tipo === 'usdt') return `${Number(s.datos.montoUsdt).toLocaleString('es-AR')} USDT`
-  if (s.tipo === 'usd_billete') return `${Number(s.datos.monto).toLocaleString('es-AR')} USD billete`
-  return `${Number(s.datos.monto).toLocaleString('es-AR')} ARS billete`
-}
-
 export default function SolicitarTab({ qs, notify }: Props) {
+  // Solicitud cuyo detalle se está mirando (null = modal cerrado).
+  const [detalle, setDetalle] = useState<TransferRequest | null>(null)
   const [tipo, setTipo] = useState<TransferTipo | ''>('')
   const [form, setForm] = useState<Record<string, string>>({})
   const [concepto, setConcepto] = useState('')
@@ -237,7 +225,7 @@ export default function SolicitarTab({ qs, notify }: Props) {
                 <div className="flex items-center justify-between gap-3 flex-wrap">
                   <div className="flex items-center gap-3 flex-wrap">
                     <span className="text-sm font-semibold" style={{ color: 'rgba(226,232,240,0.9)' }}>{TIPO_LABEL[s.tipo]}</span>
-                    <span className="text-sm font-bold" style={{ color: '#00d4ff' }}>{montoDeSolicitud(s)}</span>
+                    <span className="text-sm font-bold" style={{ color: '#00d4ff' }}>{montoDeSolicitud(s.tipo, s.datos)}</span>
                     {s.concepto && (
                       <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full"
                         style={{ background: 'rgba(0,212,255,0.1)', border: '1px solid rgba(0,212,255,0.25)', color: 'rgba(0,212,255,0.85)' }}>
@@ -245,13 +233,23 @@ export default function SolicitarTab({ qs, notify }: Props) {
                       </span>
                     )}
                   </div>
-                  <span className="text-[11px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wide"
-                    style={
-                      s.estado === 'pagada' ? { background: 'rgba(0,255,136,0.12)', border: '1px solid rgba(0,255,136,0.3)', color: '#00ff88' }
-                      : s.estado === 'rechazada' ? { background: 'rgba(248,113,113,0.12)', border: '1px solid rgba(248,113,113,0.3)', color: '#f87171' }
-                      : { background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.3)', color: '#fbbf24' }}>
-                    {s.estado === 'pagada' ? 'Pagada' : s.estado === 'rechazada' ? 'Rechazada' : 'Pendiente'}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wide"
+                      style={
+                        s.estado === 'pagada' ? { background: 'rgba(0,255,136,0.12)', border: '1px solid rgba(0,255,136,0.3)', color: '#00ff88' }
+                        : s.estado === 'rechazada' ? { background: 'rgba(248,113,113,0.12)', border: '1px solid rgba(248,113,113,0.3)', color: '#f87171' }
+                        : { background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.3)', color: '#fbbf24' }}>
+                      {s.estado === 'pagada' ? 'Pagada' : s.estado === 'rechazada' ? 'Rechazada' : 'Pendiente'}
+                    </span>
+                    {/* Ver los datos con los que se cargó (sirve igual si está pendiente o ya pagada). */}
+                    <button onClick={() => setDetalle(s)} aria-label="Ver detalles" title="Ver detalles"
+                      className="flex items-center justify-center rounded-lg transition-all shrink-0"
+                      style={{ width: 30, height: 30, background: 'rgba(0,212,255,0.08)', border: '1px solid rgba(0,212,255,0.3)', color: '#00d4ff', cursor: 'pointer' }}>
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+                        <circle cx="12" cy="12" r="9" /><line x1="12" y1="11" x2="12" y2="16" /><line x1="12" y1="7.5" x2="12" y2="7.6" />
+                      </svg>
+                    </button>
+                  </div>
                 </div>
                 <div className="text-[11px] mt-1.5" style={{ color: 'rgba(148,163,184,0.5)' }}>
                   Solicitada: {fmtDate(s.createdAt)}{s.paidAt ? ` · ${s.estado === 'rechazada' ? 'Rechazada' : 'Pagada'}: ${fmtDate(s.paidAt)}` : ''}
@@ -278,6 +276,10 @@ export default function SolicitarTab({ qs, notify }: Props) {
           </div>
         )}
       </div>
+
+      {detalle && (
+        <DetalleSolicitudModal solicitud={detalle} qs={qs} onClose={() => setDetalle(null)} />
+      )}
     </div>
   )
 }
