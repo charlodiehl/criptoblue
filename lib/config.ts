@@ -41,8 +41,9 @@ export const PAYMENT_SOURCE_NAMES: Record<string, string> = {
   fiwind: 'MF',
   // Los pagos cargados desde planilla Excel son de la billetera "Lacar".
   lacar: 'Lacar',
-  // Los pagos que manda directo el sistema de "Notificador" (webhook a webhook)
-  // son de la billetera "MS".
+  // HISTÓRICO: el bot de "Notificador" ya no carga pagos (los de MS entran por
+  // email, ver 'lbfinanzas'), pero hay ~2.200 pagos guardados con este source.
+  // Sin el mapeo caerían en "Otras" y se rompería el saldo y el historial de MS.
   notificador: 'MS',
   // Los pagos de LB Finanzas entran por email a la misma billetera "MS": es el
   // mismo dinero, cambia por dónde nos enteramos. El source se conserva distinto
@@ -102,7 +103,7 @@ export const PAYMENT_SOURCE_TO_WALLET: Record<string, string> = {
   mercadopago: 'MF',
   fiwind: 'MF',
   lacar: 'Lacar',
-  notificador: 'MS',
+  notificador: 'MS',   // histórico: ya no entra nada por acá (ver PAYMENT_SOURCE_NAMES)
   lbfinanzas: 'MS',
   montemar: 'Montemar',
   copter: 'Copter Hemat',
@@ -135,20 +136,6 @@ export const MERCADOPAGO_ACTIVO = false
 // Se compara contra la FECHA DEL DEPÓSITO que informa el aviso, no contra la fecha
 // del email: un mail reenviado tarde no puede colar un pago viejo.
 export const LBFINANZAS_DESDE = new Date('2026-07-29T16:34:00.000Z')   // 29/07/2026 13:34 ART
-
-// ─── Notificador en modo FACHADA ─────────────────────────────────────────────
-// Los pagos de la billetera "MS" pasan a entrar por EMAIL (/api/lbfinanzas/webhook),
-// que Copter y Bitso. Pero el bot de Notificador sigue posteando a su webhook y no
-// se lo quiere desconectar: en true, ese endpoint VALIDA e INTERPRETA el pago y
-// responde exactamente lo mismo de siempre —incluido el bloque `interpretado`, para
-// que del otro lado nada cambie— pero NO guarda nada: ni cola, ni actividad, ni
-// auditoría.
-//
-// OJO CON EL ORDEN: mientras esto esté en true, el ÚNICO registro de los pagos de MS
-// es el del email. Poner en true SOLO después de verificar que ese endpoint está
-// cargando los pagos; si no, se pierden en silencio (MS es la billetera de mayor
-// volumen). Volver a false lo reactiva sin más.
-export const NOTIFICADOR_SOLO_ACK = false
 
 // NOTA: acá vivía el circuito de "terceros" (Hemat + Copter MS), que mantenía sus
 // órdenes y pagos separados del resto DENTRO de la misma app: fuera de las métricas,
