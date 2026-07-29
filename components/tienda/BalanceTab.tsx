@@ -41,6 +41,10 @@ interface Movimiento {
 }
 interface BalanceDia {
   ingresosArs: number
+  ingresoManualArs: number
+  transferenciasArs: number
+  ajustesArs: number
+  saldoArs: number
   ingresosUsdt: number
   cantidadIngresos: number
   ingresoManualUsdt: number
@@ -59,6 +63,8 @@ interface Balance {
   // el servidor no los manda (ver /api/tienda/balance) y la UI los muestra como ***.
   ars: number | null; usdt: number | null; pendientes: number
   comisionArs: number | null; comisionUsdt: number | null; comisionPct: number
+  // true = esta tienda lleva el saldo en pesos (ver TIENDAS_SALDO_EN_PESOS en lib/config.ts)
+  saldoEnPesos?: boolean
   dias: string[]
   dia?: BalanceDia
   verSaldo?: boolean
@@ -92,6 +98,7 @@ function hoyART(): string {
 
 
 const fmtUsdt = (n: number) => n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const fmtArs = (n: number) => ARS.format(n)
 const fmtPct = (n: number) => n.toLocaleString('es-AR', { maximumFractionDigits: 2 })
 
 // Cada cuánto se vuelve a pedir la cotización para el saldo en pesos. El texto que
@@ -174,6 +181,28 @@ export default function BalanceTab({ storeId, qs, notify, admin = false, refresh
   // el SERVIDOR: manda verSaldo:false y los montos en null. Mientras carga se asume
   // que sí puede, así se ve el esqueleto normal y no un *** que después desaparece.
   const sinVerSaldo = balance != null && balance.verSaldo === false
+
+  // Tienda que lleva el saldo en pesos (lo decide el servidor, ver lib/config.ts):
+  // las tarjetas van en ARS y las columnas de USDT del registro se muestran como "—",
+  // porque para esta tienda no hay conversión que mostrar.
+  const enPesos = balance?.saldoEnPesos === true
+  const fmtMoneda = enPesos ? fmtArs : fmtUsdt
+
+  // Las líneas del día en la moneda de la tienda. Los montos vienen en null cuando no
+  // hay permiso 'ver_saldo' (el desglose no se renderiza en ese caso, pero el ?? 0
+  // evita un NaN mientras carga).
+  const d = balance?.dia
+  const dia = enPesos
+    ? {
+        saldo: d?.saldoArs ?? 0, ingresos: d?.ingresosArs ?? 0, manual: d?.ingresoManualArs ?? 0,
+        comision: d?.comisionArs ?? 0, transferencias: d?.transferenciasArs ?? 0,
+        reembolsos: d?.reembolsosArs ?? 0, ajustes: d?.ajustesArs ?? 0,
+      }
+    : {
+        saldo: d?.saldoUsdt ?? 0, ingresos: d?.ingresosUsdt ?? 0, manual: d?.ingresoManualUsdt ?? 0,
+        comision: d?.comisionUsdt ?? 0, transferencias: d?.transferenciasUsdt ?? 0,
+        reembolsos: d?.reembolsosUsdt ?? 0, ajustes: d?.ajustesUsdt ?? 0,
+      }
 
   // Trae el saldo total y, en la misma llamada, el balance del día seleccionado.
   const fetchBalance = useCallback(async () => {
@@ -274,14 +303,18 @@ export default function BalanceTab({ storeId, qs, notify, admin = false, refresh
 
   return (
     <div className="space-y-5">
-      {/* Tarjeta de balance global — SOLO USDT (NETO, con la comisión ya descontada).
-          El desglose no va acá: vive en la tarjeta del día, más abajo. */}
+      {/* Tarjeta de balance global — NETO, con la comisión ya descontada. El desglose
+          no va acá: vive en la tarjeta del día, más abajo. En una tienda con saldo en
+          pesos el monto ya ES pesos: no hay cotización ni equivalente que mostrar. */}
       <div className="grid grid-cols-1 gap-3 max-w-sm">
-        <BalanceCard label="Saldo en USDT" value={balance?.usdt ?? 0} format={fmtUsdt} suffix="USDT" color="#00d4ff" delay={0} loading={loadingBalance}
-          arsValue={aArs(balance?.usdt ?? 0)} cotizacion={cotizacion} tapado={sinVerSaldo} />
+        {enPesos
+          ? <BalanceCard label="Saldo" value={balance?.ars ?? 0} format={fmtArs} color="#00ff88" delay={0} loading={loadingBalance}
+              tapado={sinVerSaldo} />
+          : <BalanceCard label="Saldo en USDT" value={balance?.usdt ?? 0} format={fmtUsdt} suffix="USDT" color="#00d4ff" delay={0} loading={loadingBalance}
+              arsValue={aArs(balance?.usdt ?? 0)} cotizacion={cotizacion} tapado={sinVerSaldo} />}
       </div>
 
-      {balance && balance.pendientes > 0 && (
+      {balance && balance.pendientes > 0 && !enPesos && (
         <div className="text-xs px-4 py-2.5 rounded-xl flex items-center gap-2"
           style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)', color: '#fbbf24' }}>
           <span>⚠️</span>
@@ -338,16 +371,16 @@ export default function BalanceTab({ storeId, qs, notify, admin = false, refresh
           <p className="text-[11px] font-semibold uppercase tracking-widest mb-2" style={{ color: 'rgba(0,212,255,0.7)' }}>
             Saldo del día
           </p>
-          <p className="text-2xl font-black" style={{ color: (balance?.dia?.saldoUsdt ?? 0) < 0 ? '#f87171' : '#00d4ff' }}>
+          <p className="text-2xl font-black" style={{ color: dia.saldo < 0 ? '#f87171' : enPesos ? '#00ff88' : '#00d4ff' }}>
             {loadingBalance && !balance
               ? <NumberSkeleton width={140} height={28} />
               : sinVerSaldo
                 ? <Tapado />
-                : <><AnimatedNumber value={balance?.dia?.saldoUsdt ?? 0} format={fmtUsdt} /><span className="text-sm font-bold ml-2" style={{ opacity: 0.7 }}>USDT</span></>}
+                : <><AnimatedNumber value={dia.saldo} format={fmtMoneda} />{!enPesos && <span className="text-sm font-bold ml-2" style={{ opacity: 0.7 }}>USDT</span>}</>}
           </p>
-          {!(loadingBalance && !balance) && !sinVerSaldo && aArs(balance?.dia?.saldoUsdt ?? 0) != null && (
+          {!enPesos && !(loadingBalance && !balance) && !sinVerSaldo && aArs(dia.saldo) != null && (
             <p className="text-sm font-bold mt-0.5" style={{ color: 'rgba(226,232,240,0.85)' }}>
-              ≈ {ARS.format(aArs(balance?.dia?.saldoUsdt ?? 0)!)}
+              ≈ {ARS.format(aArs(dia.saldo)!)}
             </p>
           )}
           <div className="mt-3 space-y-1 text-xs">
@@ -356,25 +389,25 @@ export default function BalanceTab({ storeId, qs, notify, admin = false, refresh
             ) : (<>
             <Linea
               label={`Ingresos (${balance?.dia?.cantidadIngresos ?? 0} orden${(balance?.dia?.cantidadIngresos ?? 0) === 1 ? '' : 'es'})`}
-              valor={fmtUsdt(balance?.dia?.ingresosUsdt ?? 0)}
+              valor={fmtMoneda(dia.ingresos)}
               color="#00ff88" signo="+" />
-            {(balance?.dia?.ingresoManualUsdt ?? 0) > 0 && (
-              <Linea label="Saldo personalizado" valor={fmtUsdt(balance!.dia!.ingresoManualUsdt)} color="#00ff88" signo="+" />
+            {dia.manual > 0 && (
+              <Linea label="Saldo personalizado" valor={fmtMoneda(dia.manual)} color="#00ff88" signo="+" />
             )}
-            {(balance?.dia?.comisionUsdt ?? 0) > 0 && (
+            {dia.comision > 0 && (
               <Linea label={`Comisión ${fmtPct(balance?.dia?.comisionPct ?? 0)}%`}
-                valor={fmtUsdt(balance!.dia!.comisionUsdt)} color="#f87171" signo="−" />
+                valor={fmtMoneda(dia.comision)} color="#f87171" signo="−" />
             )}
-            {(balance?.dia?.transferenciasUsdt ?? 0) > 0 && (
-              <Linea label="Transferencias" valor={fmtUsdt(balance!.dia!.transferenciasUsdt)} color="#f87171" signo="−" />
+            {dia.transferencias > 0 && (
+              <Linea label="Transferencias" valor={fmtMoneda(dia.transferencias)} color="#f87171" signo="−" />
             )}
-            {(balance?.dia?.reembolsosUsdt ?? 0) > 0 && (
-              <Linea label="Reembolsos" valor={fmtUsdt(balance!.dia!.reembolsosUsdt)} color="#f87171" signo="−" />
+            {dia.reembolsos > 0 && (
+              <Linea label="Reembolsos" valor={fmtMoneda(dia.reembolsos)} color="#f87171" signo="−" />
             )}
-            {(balance?.dia?.ajustesUsdt ?? 0) !== 0 && (
-              <Linea label="Ajustes" valor={fmtUsdt(Math.abs(balance!.dia!.ajustesUsdt))}
-                color={balance!.dia!.ajustesUsdt > 0 ? '#00ff88' : '#f87171'}
-                signo={balance!.dia!.ajustesUsdt > 0 ? '+' : '−'} />
+            {dia.ajustes !== 0 && (
+              <Linea label="Ajustes" valor={fmtMoneda(Math.abs(dia.ajustes))}
+                color={dia.ajustes > 0 ? '#00ff88' : '#f87171'}
+                signo={dia.ajustes > 0 ? '+' : '−'} />
             )}
             </>)}
           </div>
@@ -421,11 +454,12 @@ export default function BalanceTab({ storeId, qs, notify, admin = false, refresh
                     <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: 'rgba(226,232,240,0.85)' }}>{fmtDate(r.fecha)}</td>
                     <td className="px-3 py-2.5 whitespace-nowrap font-medium" style={{ color: '#00ff88' }}>{ARS.format(r.monto)}</td>
                     <td className="px-3 py-2.5 whitespace-nowrap font-medium" style={{ color: '#f87171' }}>−{ARS.format(r.comision)}</td>
-                    <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: !r.enSaldo ? 'rgba(148,163,184,0.55)' : r.usdtRate == null ? 'rgba(245,158,11,0.9)' : 'rgba(226,232,240,0.7)' }}>
-                      {!r.enSaldo ? 'No suma' : r.usdtRate == null ? 'Pendiente' : ARS.format(r.usdtRate)}
+                    {/* Tienda con saldo en pesos: no hay conversión que mostrar → "—". */}
+                    <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: enPesos ? 'rgba(148,163,184,0.4)' : !r.enSaldo ? 'rgba(148,163,184,0.55)' : r.usdtRate == null ? 'rgba(245,158,11,0.9)' : 'rgba(226,232,240,0.7)' }}>
+                      {enPesos ? '—' : !r.enSaldo ? 'No suma' : r.usdtRate == null ? 'Pendiente' : ARS.format(r.usdtRate)}
                     </td>
-                    <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: !r.enSaldo ? 'rgba(148,163,184,0.55)' : r.usdt == null ? 'rgba(148,163,184,0.4)' : '#00d4ff' }}>
-                      {!r.enSaldo ? 'No suma' : r.usdt == null ? '—' : fmtUsdt(r.usdt)}
+                    <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: enPesos || !r.enSaldo ? 'rgba(148,163,184,0.55)' : r.usdt == null ? 'rgba(148,163,184,0.4)' : '#00d4ff' }}>
+                      {enPesos ? '—' : !r.enSaldo ? 'No suma' : r.usdt == null ? '—' : fmtUsdt(r.usdt)}
                     </td>
                     <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: 'rgba(226,232,240,0.7)' }}>{r.cuit || '—'}</td>
                     <td className="px-3 py-2.5" style={{ color: 'rgba(226,232,240,0.85)' }}>{r.nombre || '—'}</td>
@@ -478,11 +512,11 @@ export default function BalanceTab({ storeId, qs, notify, admin = false, refresh
                       <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: 'rgba(226,232,240,0.85)' }}>{fmtDate(r.fecha)}</td>
                       <td className="px-3 py-2.5 whitespace-nowrap font-medium" style={{ color: '#00ff88' }}>{ARS.format(r.monto)}</td>
                       <td className="px-3 py-2.5 whitespace-nowrap font-medium" style={{ color: '#f87171' }}>−{ARS.format(r.comision)}</td>
-                      <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: r.usdtRate == null ? 'rgba(245,158,11,0.9)' : 'rgba(226,232,240,0.7)' }}>
-                        {r.usdtRate == null ? 'Pendiente' : ARS.format(r.usdtRate)}
+                      <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: enPesos ? 'rgba(148,163,184,0.4)' : r.usdtRate == null ? 'rgba(245,158,11,0.9)' : 'rgba(226,232,240,0.7)' }}>
+                        {enPesos ? '—' : r.usdtRate == null ? 'Pendiente' : ARS.format(r.usdtRate)}
                       </td>
-                      <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: r.usdt == null ? 'rgba(148,163,184,0.4)' : '#00d4ff' }}>
-                        {r.usdt == null ? '—' : fmtUsdt(r.usdt)}
+                      <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: enPesos || r.usdt == null ? 'rgba(148,163,184,0.4)' : '#00d4ff' }}>
+                        {enPesos || r.usdt == null ? '—' : fmtUsdt(r.usdt)}
                       </td>
                       <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: 'rgba(226,232,240,0.7)' }}>{r.cuit || '—'}</td>
                       <td className="px-3 py-2.5" style={{ color: 'rgba(226,232,240,0.85)' }}>{r.nombre || '—'}</td>
@@ -565,11 +599,11 @@ export default function BalanceTab({ storeId, qs, notify, admin = false, refresh
                       <td className="px-3 py-2.5 whitespace-nowrap font-medium" style={{ color: montoArs == null ? 'rgba(148,163,184,0.4)' : positivo ? '#00ff88' : '#f87171' }}>
                         {montoArs == null ? '—' : `${positivo ? '+' : '−'}${ARS.format(montoArs)}`}
                       </td>
-                      <td className="px-3 py-2.5 whitespace-nowrap font-medium" style={{ color: positivo ? '#00ff88' : '#f87171' }}>
-                        {m.usdt == null ? '—' : `${positivo ? '+' : '−'}${fmtUsdt(Math.abs(m.usdt))}`}
+                      <td className="px-3 py-2.5 whitespace-nowrap font-medium" style={{ color: enPesos || m.usdt == null ? 'rgba(148,163,184,0.4)' : positivo ? '#00ff88' : '#f87171' }}>
+                        {enPesos || m.usdt == null ? '—' : `${positivo ? '+' : '−'}${fmtUsdt(Math.abs(m.usdt))}`}
                       </td>
-                      <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: m.usdtRate == null ? 'rgba(148,163,184,0.4)' : 'rgba(226,232,240,0.7)' }}>
-                        {m.usdtRate == null ? '—' : ARS.format(m.usdtRate)}
+                      <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: enPesos || m.usdtRate == null ? 'rgba(148,163,184,0.4)' : 'rgba(226,232,240,0.7)' }}>
+                        {enPesos || m.usdtRate == null ? '—' : ARS.format(m.usdtRate)}
                       </td>
                       <td className="px-3 py-2.5 whitespace-nowrap">
                         <span className="text-[11px] px-2 py-0.5 rounded-full"

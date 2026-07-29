@@ -125,6 +125,22 @@ export const MERCADOPAGO_ACTIVO = false
 // comparte datos con CriptoBlue. Dentro de su unidad son una tienda y una billetera
 // normales, y aquellas restricciones no protegían nada.
 
+// ─── Tiendas cuyo saldo se lleva en PESOS ────────────────────────────────────
+// El saldo de una tienda se lleva normalmente en USDT: los ingresos se convierten
+// a la cotización del momento del emparejamiento y los retiros se descuentan en
+// USDT. Para estas tiendas el saldo es en ARS y punto: no hay conversión, y las
+// columnas de cotización y equivalente USDT del registro se muestran como "—".
+//
+// Tiene una consecuencia en el libro mayor: para estas tiendas el egreso de una
+// transferencia SÍ escribe su monto en la columna `ars` (para el resto queda en 0,
+// porque su saldo no vive en pesos). Ver registrarEgresoTransferencia.
+export const TIENDAS_SALDO_EN_PESOS: readonly string[] = [
+  '7284674',   // Hemat (unidad MS)
+]
+
+export const tiendaLlevaSaldoEnPesos = (storeId: string): boolean =>
+  TIENDAS_SALDO_EN_PESOS.includes(storeId)
+
 export const CONFIG = {
   tiendanube: {
     // App de Tiendanube (client_id + secret). Configurables por env para poder cambiar

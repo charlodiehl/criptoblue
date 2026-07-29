@@ -5,6 +5,7 @@ import { queryRegistroByStoreRango } from '@/lib/registro'
 import { getMovimientosPorRegistroIds, getMovimientosExtractoRango } from '@/lib/balance'
 import { getComisiones, comisionTiendaSobre, comisionTiendaEnFecha, diaART } from '@/lib/comisiones'
 import { getStores } from '@/lib/storage'
+import { tiendaLlevaSaldoEnPesos } from '@/lib/config'
 
 export const runtime = 'nodejs'
 
@@ -32,6 +33,10 @@ export async function GET(req: NextRequest) {
 
     const storeId = resolveStoreScope(auth.user, req.nextUrl.searchParams.get('storeId'))
     if (!storeId) return NextResponse.json({ error: 'No hay tienda asignada' }, { status: 400 })
+    // Tienda con saldo en pesos: no hay conversión que exportar, las columnas de USDT
+    // y cotización van como "—" (igual que en pantalla). Ver TIENDAS_SALDO_EN_PESOS.
+    const enPesos = tiendaLlevaSaldoEnPesos(storeId)
+    const SIN_USDT = '—'
 
     const desde = req.nextUrl.searchParams.get('desde') || ''
     const hasta = req.nextUrl.searchParams.get('hasta') || ''
@@ -94,8 +99,8 @@ export async function GET(req: NextRequest) {
         fecha: f.fecha,
         monto: Number(f.monto.toFixed(2)),
         comision: f.comision === 0 ? 0 : -Number(f.comision.toFixed(2)),
-        cotizacion: f.cotizacion == null ? '' : Number(f.cotizacion.toFixed(2)),
-        usdt: f.usdt == null ? '' : Number(f.usdt.toFixed(2)),
+        cotizacion: enPesos ? SIN_USDT : f.cotizacion == null ? '' : Number(f.cotizacion.toFixed(2)),
+        usdt: enPesos ? SIN_USDT : f.usdt == null ? '' : Number(f.usdt.toFixed(2)),
         cuit: f.cuit || '',
         nombre: f.nombre || '',
         orden: f.orden ? `#${f.orden}` : '',
@@ -122,8 +127,8 @@ export async function GET(req: NextRequest) {
         fecha: fechaHoraART(m.fecha),
         orden: m.orden ? `#${m.orden}` : '',
         ars: m.ars == null ? '' : Number(m.ars.toFixed(2)),
-        usdt: Number(m.usdt.toFixed(2)),
-        cotizacion: m.cotizacion == null ? '' : Number(m.cotizacion.toFixed(2)),
+        usdt: enPesos ? SIN_USDT : Number(m.usdt.toFixed(2)),
+        cotizacion: enPesos ? SIN_USDT : m.cotizacion == null ? '' : Number(m.cotizacion.toFixed(2)),
         comprobante: m.comprobante ? 'Sí' : 'No',
       })
     }
@@ -151,8 +156,8 @@ export async function GET(req: NextRequest) {
         tipo: TIPO_LABEL[m.tipo] ?? m.tipo,
         concepto: m.concepto,
         ars: m.ars == null ? '' : Number(m.ars.toFixed(2)),
-        usdt: Number(m.usdt.toFixed(2)),
-        cotizacion: m.cotizacion == null ? '' : Number(m.cotizacion.toFixed(2)),
+        usdt: enPesos ? SIN_USDT : Number(m.usdt.toFixed(2)),
+        cotizacion: enPesos ? SIN_USDT : m.cotizacion == null ? '' : Number(m.cotizacion.toFixed(2)),
         comprobante: m.tipo === 'egreso_transferencia' ? (m.comprobante ? 'Sí' : 'No') : '',
       })
     }

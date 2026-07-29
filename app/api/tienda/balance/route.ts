@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireUser, resolveStoreScope, scopedUser, setUnidad } from '@/lib/auth/server'
 import { getBalance, getBalanceDia, getDiasConMovimiento } from '@/lib/balance'
 import { puede } from '@/lib/permisos'
+import { tiendaLlevaSaldoEnPesos } from '@/lib/config'
 
 // Montos que solo ve quien tiene el permiso 'ver_saldo'. Se ponen en null ACÁ, en el
 // servidor: si solo se taparan en la UI, cualquiera los leería en la pestaña de red.
@@ -9,8 +10,12 @@ import { puede } from '@/lib/permisos'
 // mandan igual: la UI los necesita para los textos y no revelan el saldo.
 function taparMontos(balance: Record<string, unknown>) {
   const MONTOS = ['ars', 'usdt', 'comisionArs', 'comisionUsdt']
+  // Van los de las DOS monedas: una tienda con saldo en pesos muestra las líneas en ARS
+  // (ver TIENDAS_SALDO_EN_PESOS), así que taparle solo las de USDT no taparía nada.
   const MONTOS_DIA = ['saldoUsdt', 'ingresosUsdt', 'ingresoManualUsdt', 'comisionUsdt',
-    'transferenciasUsdt', 'reembolsosUsdt', 'ajustesUsdt']
+    'transferenciasUsdt', 'reembolsosUsdt', 'ajustesUsdt',
+    'saldoArs', 'ingresosArs', 'ingresoManualArs', 'comisionArs',
+    'transferenciasArs', 'reembolsosArs', 'ajustesArs']
   const out = { ...balance }
   for (const k of MONTOS) if (k in out) out[k] = null
   if (out.dia && typeof out.dia === 'object') {
@@ -48,7 +53,9 @@ export async function GET(req: NextRequest) {
     // Permiso 'ver_saldo' DE ESA tienda (puede ser un acceso secundario). El
     // super-admin y el Administrador de tienda pueden por su rol (ver lib/permisos).
     const verSaldo = puede(scopedUser(auth.user, storeId), 'ver_saldo')
-    const payload = { ...balance, dias, ...(dia ? { dia } : {}) }
+    // Moneda en la que esta tienda lleva su saldo: la UI muestra las tarjetas y el
+    // desglose del día en ARS o en USDT según esto (ver TIENDAS_SALDO_EN_PESOS).
+    const payload = { ...balance, dias, saldoEnPesos: tiendaLlevaSaldoEnPesos(storeId), ...(dia ? { dia } : {}) }
 
     return NextResponse.json(verSaldo ? { ...payload, verSaldo } : { ...taparMontos(payload), verSaldo })
   } catch (err) {

@@ -9,6 +9,7 @@ import type { LogEntry, StoreBalance, DescuentoMoneda, TransferDescuento, Balanc
 import { getClient } from './storage'
 import { getUnidad } from './unidad'
 import { cutoffBalance } from './unidad'
+import { tiendaLlevaSaldoEnPesos } from './config'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Motor de balance por tienda (tabla balance_movements).
@@ -91,6 +92,23 @@ export function calcularDescuento(
   }
 }
 
+// Cuánto sale EN PESOS de un retiro. Solo se calcula para las tiendas que llevan el
+// saldo en pesos (TIENDAS_SALDO_EN_PESOS): para el resto la columna `ars` de un egreso
+// queda en 0, como siempre, porque su saldo vive en USDT y nadie la lee.
+//
+// Sin esto, un retiro de una tienda en pesos no descontaría nada de su saldo en ARS y
+// el saldo crecería para siempre.
+async function arsDelRetiro(descuento: TransferDescuento): Promise<number> {
+  // Retiro en pesos: el monto YA es la plata que sale (sin pasar por la conversión,
+  // que introduciría diferencias de centavos).
+  if (descuento.moneda === 'ARS' || descuento.moneda === 'ARS_BILLETE') return descuento.monto
+  // En cualquier otra moneda hay que valuar en pesos lo que salió: se usa la tasa que
+  // el admin cargó para esta operación y, si esa moneda no la pedía, la cotización del
+  // momento (misma fuente que los ingresos).
+  const cotizacion = descuento.cotizacionUsdtArs ?? await getUsdtRate()
+  return cotizacion ? descuento.usdtDescontado * cotizacion : 0
+}
+
 // Crea el movimiento de egreso al pagar una solicitud (montos en NEGATIVO).
 // La tasa la puso el admin a mano → rate_source 'manual' (no entra al backfill).
 export async function registrarEgresoTransferencia(
@@ -99,11 +117,12 @@ export async function registrarEgresoTransferencia(
   descuento: TransferDescuento,
   descripcion: string,
 ): Promise<void> {
+  const ars = tiendaLlevaSaldoEnPesos(storeId) ? await arsDelRetiro(descuento) : descuento.arsDescontado
   const { error } = await getClient().from(TABLE).insert({
     store_id: storeId,
     tipo: 'egreso_transferencia',
     fecha: fechaEgresoSaldo(),   // día anterior: el egreso se descuenta del saldo diario de ayer
-    ars: -descuento.arsDescontado,   // 0: la tienda ya no lleva saldo en ARS
+    ars: -ars,                   // 0 salvo tiendas con saldo en pesos (ver arsDelRetiro)
     usdt: -descuento.usdtDescontado,
     usdt_rate: descuento.cotizacionUsdtArs ?? null,   // solo aplica a retiros en ARS
     rate_source: 'manual',
@@ -416,18 +435,24 @@ export interface MovimientoDetalle extends BalanceMovement {
   refundId: number | null   // si es un reembolso con comprobante, su id (para descargarlo)
 }
 
+// Las líneas del día van por duplicado, en USDT y en ARS: cada tienda muestra la
+// moneda en la que lleva su saldo (ver TIENDAS_SALDO_EN_PESOS en lib/config.ts).
 export interface BalanceDia {
   ingresosArs: number
   ingresosUsdt: number
   cantidadIngresos: number
-  ingresoManualUsdt: number    // saldo personalizado del día (positivo); figura como su propia línea del desglose
+  ingresoManualArs: number     // saldo personalizado del día (positivo); figura como su propia línea del desglose
+  ingresoManualUsdt: number
   comisionArs: number
   comisionUsdt: number
   comisionPct: number
+  transferenciasArs: number    // positivo — solo tiendas con saldo en pesos (para el resto, 0)
   transferenciasUsdt: number   // positivo
   reembolsosArs: number        // positivo
   reembolsosUsdt: number       // positivo
+  ajustesArs: number           // signado
   ajustesUsdt: number          // signado
+  saldoArs: number             // neto del día en pesos
   saldoUsdt: number            // neto del día
   movimientos: MovimientoDetalle[]  // egresos, reembolsos y ajustes (los ingresos ya van en la tabla de órdenes)
 }
@@ -600,15 +625,22 @@ export async function getBalanceDia(storeId: string, diaART: string): Promise<Ba
   const esGravado = (m: BalanceMovement) => (m.tipo === 'ingreso_orden' || m.tipo === 'ingreso_manual') && !m.sinComision
   const ingresosArs = suma(m => m.ars, esIngreso)
   const ingresosUsdt = suma(m => m.usdt ?? 0, esIngreso)
+  const ingresoManualArs = suma(m => m.ars, m => m.tipo === 'ingreso_manual')
   const ingresoManualUsdt = suma(m => m.usdt ?? 0, m => m.tipo === 'ingreso_manual')
   const comisionArs = comisionTiendaSobre(suma(m => m.ars, esGravado), pct)
   const comisionUsdt = comisionTiendaSobre(suma(m => m.usdt ?? 0, esGravado), pct)
 
+  const transferenciasArs = Math.abs(suma(m => m.ars, m => m.tipo === 'egreso_transferencia'))
   const transferenciasUsdt = Math.abs(suma(m => m.usdt ?? 0, m => m.tipo === 'egreso_transferencia'))
   const reembolsosArs = Math.abs(suma(m => m.ars, m => m.tipo === 'reembolso'))
   const reembolsosUsdt = Math.abs(suma(m => m.usdt ?? 0, m => m.tipo === 'reembolso'))
+  const ajustesArs = suma(m => m.ars, m => m.tipo === 'ajuste')
   const ajustesUsdt = suma(m => m.usdt ?? 0, m => m.tipo === 'ajuste')
 
+  // El neto sale de sumar la columna signada y descontar la comisión, igual en las dos
+  // monedas. En ARS solo cierra para las tiendas con saldo en pesos: en las demás el
+  // egreso de una transferencia no escribe `ars` (ver registrarEgresoTransferencia).
+  const brutoArs = movs.reduce((s, m) => s + m.ars, 0)
   const brutoUsdt = movs.reduce((s, m) => s + (m.usdt ?? 0), 0)
 
   // Egresos, reembolsos y ajustes. Se enriquecen con el detalle de la transferencia
@@ -646,9 +678,11 @@ export async function getBalanceDia(storeId: string, diaART: string): Promise<Ba
 
   return {
     ingresosArs, ingresosUsdt, cantidadIngresos: movs.filter(esIngreso).length,
-    ingresoManualUsdt,
+    ingresoManualArs, ingresoManualUsdt,
     comisionArs, comisionUsdt, comisionPct: pct,
-    transferenciasUsdt, reembolsosArs, reembolsosUsdt, ajustesUsdt,
+    transferenciasArs, transferenciasUsdt, reembolsosArs, reembolsosUsdt,
+    ajustesArs, ajustesUsdt,
+    saldoArs: brutoArs - comisionArs,
     saldoUsdt: brutoUsdt - comisionUsdt,
     movimientos,
   }
