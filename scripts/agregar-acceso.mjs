@@ -8,15 +8,19 @@
 //
 // Uso (desde la raíz del proyecto):
 //   node scripts/agregar-acceso.mjs <email> tienda <storeId>
-//   node scripts/agregar-acceso.mjs <email> billetera <wallet> <editor|lectura>
+//   node scripts/agregar-acceso.mjs <email> billetera <wallet> <permisos>
 //   node scripts/agregar-acceso.mjs --quitar <email> <tienda|billetera> <id>
 //   node scripts/agregar-acceso.mjs --listar <email>
+//
+// <permisos>: lista separada por comas de administracion,registrar_retiros,ver_saldo
+//             (también se aceptan los atajos viejos: editor | lectura)
 //
 // Nota: los accesos de tienda extra se dan con Administración (operan la tienda completa).
 
 import { createClient } from '@supabase/supabase-js'
 import { readFileSync } from 'fs'
 import { UNIDADES, parseUnidad, getStores } from './_unidades.mjs'
+import { parsePermisosBilletera, AYUDA_PERMISOS } from './_permisos-billetera.mjs'
 
 // Carga .env.local (saca comillas envolventes: SUPABASE_URL viene entre comillas y
 // createClient las rechaza — sin esto el script falla con "Invalid supabaseUrl").
@@ -38,7 +42,7 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
 
 const USO = 'Uso:\n' +
   '  node scripts/agregar-acceso.mjs <email> tienda <storeId>\n' +
-  '  node scripts/agregar-acceso.mjs <email> billetera <wallet> <editor|lectura>\n' +
+  '  node scripts/agregar-acceso.mjs <email> billetera <wallet> <permisos>\n' +
   '  node scripts/agregar-acceso.mjs --quitar <email> <tienda|billetera> <id>\n' +
   '  node scripts/agregar-acceso.mjs --listar <email>'
 
@@ -62,7 +66,7 @@ if (a === '--listar') {
   if (!row) { console.error('No existe ese usuario en app_users.'); process.exit(1) }
   const unidad = parseUnidad(row.unidad)
   const primario = row.role === 'tienda' ? `tienda ${row.store_id}`
-    : row.role === 'billetera' ? `billetera ${row.wallet} (${row.billetera_permiso})`
+    : row.role === 'billetera' ? `billetera ${row.wallet} (${Object.keys(row.billetera_permisos ?? {}).filter(k => row.billetera_permisos[k]).join(', ') || row.billetera_permiso})`
       : UNIDADES[unidad].rol
   console.log(`${email}`)
   console.log(`  Unidad:   ${UNIDADES[unidad].nombre} (${unidad})`)
@@ -119,16 +123,17 @@ if (tipo === 'tienda') {
   console.log(`OK: ${email} ahora también accede a la tienda ${tienda.storeName} (${storeId}).`)
 } else {
   const wallet = (c || '').trim()
-  const permiso = (d || '').toLowerCase().trim()
   const wallets = UNIDADES[unidad].wallets
   if (!wallets.includes(wallet)) { console.error(`Billetera inválida para ${UNIDADES[unidad].nombre}. Opciones: ${wallets.join(', ') || '(esta unidad todavía no tiene billeteras)'}`); process.exit(1) }
-  if (!['editor', 'lectura'].includes(permiso)) { console.error('Permiso inválido (editor | lectura)'); process.exit(1) }
+  const permisos = parsePermisosBilletera(d)
+  if (!permisos) { console.error(AYUDA_PERMISOS); process.exit(1) }
   if (row.role === 'billetera' && row.wallet === wallet) { console.error('Esa ya es su billetera primaria.'); process.exit(1) }
+  const acceso = { tipo: 'billetera', id: wallet, permisos }
   const idx = extra.findIndex(x => x?.tipo === 'billetera' && x?.id === wallet)
-  if (idx >= 0) extra[idx] = { tipo: 'billetera', id: wallet, billeteraPermiso: permiso }  // actualiza permiso
-  else extra.push({ tipo: 'billetera', id: wallet, billeteraPermiso: permiso })
+  if (idx >= 0) extra[idx] = acceso   // actualiza permisos (pisa el billeteraPermiso viejo)
+  else extra.push(acceso)
   await guardar(email, extra)
-  console.log(`OK: ${email} ahora también accede a la billetera ${wallet} (${permiso}).`)
+  console.log(`OK: ${email} ahora también accede a la billetera ${wallet} (${Object.keys(permisos).join(', ')}).`)
 }
 
 console.log('Aplica en su próxima request (no hace falta re-login).')

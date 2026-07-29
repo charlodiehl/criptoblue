@@ -5,7 +5,8 @@ import Link from 'next/link'
 import { motion, AnimatePresence } from 'framer-motion'
 import TiendaPortal from '@/components/tienda/TiendaPortal'
 import BilleteraTab from '@/components/finanzas/BilleteraTab'
-import type { Permisos } from '@/lib/permisos'
+import EquipoBilleteraTab from '@/components/billetera/EquipoBilleteraTab'
+import { puedeEnBilletera, type Permisos, type PermisosBilletera } from '@/lib/permisos'
 
 export type Toast = { id: number; msg: string; type: 'success' | 'error' | 'info' }
 
@@ -13,7 +14,7 @@ export type Toast = { id: number; msg: string; type: 'success' | 'error' | 'info
 // billetera es la wallet misma). Serializable: lo arma el server component.
 export type AccesoUI =
   | { tipo: 'tienda'; id: string; label: string; permisos: Permisos }
-  | { tipo: 'billetera'; id: string; label: string; permiso: 'editor' | 'lectura' }
+  | { tipo: 'billetera'; id: string; label: string; permisos: PermisosBilletera }
 
 const keyOf = (a: AccesoUI) => `${a.tipo}:${a.id}`
 
@@ -23,6 +24,9 @@ const keyOf = (a: AccesoUI) => `${a.tipo}:${a.id}`
 // (las páginas /tienda y /billetera muestran el portal simple de siempre).
 export default function MultiAccesoApp({ items, userEmail }: { items: AccesoUI[]; userEmail?: string }) {
   const [active, setActive] = useState<string>(() => (items[0] ? keyOf(items[0]) : ''))
+  // Billetera cuya sección "Equipo" está abierta (null = se ve el balance). Al cambiar
+  // de acceso en el menú lateral se vuelve solo al balance de esa billetera.
+  const [equipoDe, setEquipoDe] = useState<string | null>(null)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [toasts, setToasts] = useState<Toast[]>([])
   const toastId = useRef(0)
@@ -139,18 +143,9 @@ export default function MultiAccesoApp({ items, userEmail }: { items: AccesoUI[]
                 {activo?.tipo === 'tienda' ? (
                   <TiendaPortal key={activo.id} storeId={activo.id} embedded permisos={activo.permisos} userEmail={userEmail} />
                 ) : activo?.tipo === 'billetera' ? (
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <h2 className="text-lg font-bold" style={{ color: '#00d4ff' }}>{activo.label}</h2>
-                      <span className="text-[10px] font-bold px-2 py-1 rounded-full uppercase tracking-wide whitespace-nowrap"
-                        style={activo.permiso === 'editor'
-                          ? { background: 'rgba(0,255,136,0.12)', border: '1px solid rgba(0,255,136,0.3)', color: '#00ff88' }
-                          : { background: 'rgba(148,163,184,0.12)', border: '1px solid rgba(148,163,184,0.25)', color: 'rgba(148,163,184,0.9)' }}>
-                        {activo.permiso === 'editor' ? 'Editor' : 'Solo lectura'}
-                      </span>
-                    </div>
-                    <BilleteraTab key={activo.id} wallet={activo.id} notify={notify} apiBase="/api/billetera" puedeRetirar={activo.permiso === 'editor'} puedeEditar={false} />
-                  </div>
+                  <BilleteraPanel acceso={activo} notify={notify}
+                    verEquipo={equipoDe === activo.id}
+                    onToggleEquipo={() => setEquipoDe(v => (v === activo.id ? null : activo.id))} />
                 ) : null}
               </motion.div>
             </AnimatePresence>
@@ -174,6 +169,49 @@ export default function MultiAccesoApp({ items, userEmail }: { items: AccesoUI[]
           ))}
         </AnimatePresence>
       </div>
+    </div>
+  )
+}
+
+// Panel de una billetera dentro del multi-acceso: encabezado con el rótulo del permiso
+// y el botón Equipo (gestión de cuenta), y debajo el balance o el equipo.
+function BilleteraPanel({ acceso, notify, verEquipo, onToggleEquipo }: {
+  acceso: Extract<AccesoUI, { tipo: 'billetera' }>
+  notify: (msg: string, type?: Toast['type']) => void
+  verEquipo: boolean
+  onToggleEquipo: () => void
+}) {
+  const yo = { role: 'billetera' as const, permisos: acceso.permisos }
+  const puedeRetirar = puedeEnBilletera(yo, 'registrar_retiros')
+  const rotulo = acceso.permisos.administracion ? 'Administrador' : puedeRetirar ? 'Editor' : 'Solo lectura'
+  const destacado = acceso.permisos.administracion === true || puedeRetirar
+  // Las rutas de equipo aceptan ?wallet= y lo validan contra los accesos del usuario:
+  // acá hace falta porque el mismo usuario puede tener varias billeteras.
+  const qs = `?wallet=${encodeURIComponent(acceso.id)}`
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2 flex-wrap">
+        <h2 className="text-lg font-bold" style={{ color: '#00d4ff' }}>{acceso.label}</h2>
+        <span className="text-[10px] font-bold px-2 py-1 rounded-full uppercase tracking-wide whitespace-nowrap"
+          style={destacado
+            ? { background: 'rgba(0,255,136,0.12)', border: '1px solid rgba(0,255,136,0.3)', color: '#00ff88' }
+            : { background: 'rgba(148,163,184,0.12)', border: '1px solid rgba(148,163,184,0.25)', color: 'rgba(148,163,184,0.9)' }}>
+          {rotulo}
+        </span>
+        <button onClick={onToggleEquipo}
+          className="ml-auto rounded-xl px-4 py-2 text-xs font-semibold transition-all shrink-0"
+          style={{
+            background: verEquipo ? 'rgba(0,212,255,0.12)' : 'rgba(255,255,255,0.03)',
+            border: `1px solid ${verEquipo ? 'rgba(0,212,255,0.4)' : 'rgba(148,163,184,0.12)'}`,
+            color: verEquipo ? '#00d4ff' : 'rgba(148,163,184,0.75)',
+          }}>
+          👥 Equipo
+        </button>
+      </div>
+      {verEquipo
+        ? <EquipoBilleteraTab key={acceso.id} qs={qs} notify={notify} />
+        : <BilleteraTab key={acceso.id} wallet={acceso.id} notify={notify} apiBase="/api/billetera" puedeRetirar={puedeRetirar} puedeEditar={false} />}
     </div>
   )
 }

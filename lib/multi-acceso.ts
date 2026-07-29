@@ -10,6 +10,6 @@ export async function buildAccesoItems(user: SessionUser): Promise<AccesoUI[]> {
   return user.accesos.map((a): AccesoUI =>
     a.tipo === 'tienda'
       ? { tipo: 'tienda', id: a.id, label: stores[a.id]?.storeName ?? `Tienda ${a.id}`, permisos: a.permisos }
-      : { tipo: 'billetera', id: a.id, label: a.id, permiso: a.billeteraPermiso },
+      : { tipo: 'billetera', id: a.id, label: a.id, permisos: a.permisos },
   )
 }

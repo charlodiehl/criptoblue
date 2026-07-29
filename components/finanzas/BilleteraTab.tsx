@@ -9,11 +9,13 @@ import BilleteraRetiros from './BilleteraRetiros'
 import EditarMovimientoModal, { type MovimientoEditable } from '@/components/EditarMovimientoModal'
 import type { Toast } from './FinanzasApp'
 
+// Los montos vienen en null cuando el integrante no tiene el permiso 'ver_saldo':
+// el servidor no los manda (ver app/api/billetera/route.ts) y la UI los tapa (***).
 interface Pago {
   fecha: string
   titular: string
-  monto: number
-  comision: number
+  monto: number | null
+  comision: number | null
   estado: 'emparejado' | 'en_cola' | 'reembolsado'
   detalle?: string   // billetera "Otras": nombre libre del pago
   tienda?: string    // vacío mientras el pago está en cola (todavía no tiene orden)
@@ -29,9 +31,9 @@ interface MovimientoDia {
   fecha: string
   concepto: string
   moneda?: 'ARS' | 'USD' | 'USDT'
-  montoOrigen?: number
+  montoOrigen?: number | null
   cotizacion?: number | null
-  ars: number
+  ars: number | null
   refundId?: number   // reembolso con comprobante → id para descargarlo
   salidaId?: number   // id del wallet_movement (retiro/ajuste) → editable
   reembolsoId?: number // id del refund → editable
@@ -40,19 +42,22 @@ interface MovimientoDia {
 }
 interface Detalle {
   wallet: string
-  totalArs: number
+  totalArs: number | null
   cantidad: number
   comisionPct: number
   dias: string[]
-  totalDia?: number
+  totalDia?: number | null
   cantidadDia?: number
-  comisionDia?: number
-  salidasDiaArs?: number
-  reembolsosDiaArs?: number
-  ajustesDiaArs?: number
-  saldoDia?: number
+  comisionDia?: number | null
+  salidasDiaArs?: number | null
+  reembolsosDiaArs?: number | null
+  ajustesDiaArs?: number | null
+  saldoDia?: number | null
   movimientosDia?: MovimientoDia[]
   pagos: Pago[]
+  // Solo lo manda /api/billetera (portal del dueño). En la vista del admin viene
+  // undefined = puede ver todo.
+  verSaldo?: boolean
 }
 
 const fmtPct = (n: number) => n.toLocaleString('es-AR', { maximumFractionDigits: 2 })
@@ -90,6 +95,11 @@ export default function BilleteraTab({
   const [sortKey, setSortKey] = useState<SortKey>('fecha')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
   const [editandoMov, setEditandoMov] = useState<MovimientoEditable | null>(null)
+
+  // Sin permiso 'ver_saldo' los montos se muestran tapados (***). Lo decide el SERVIDOR:
+  // manda verSaldo:false y los montos en null. Mientras carga se asume que sí puede, así
+  // se ve el esqueleto normal y no un *** que después desaparece.
+  const sinVerSaldo = data != null && data.verSaldo === false
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -157,8 +167,8 @@ export default function BilleteraTab({
         case 'titular': cmp = (a.titular || '').localeCompare(b.titular || '', 'es'); break
         case 'tienda':  cmp = (a.tienda || '').localeCompare(b.tienda || '', 'es'); break
         case 'detalle': cmp = (a.detalle || '').localeCompare(b.detalle || '', 'es'); break
-        case 'monto':   cmp = a.monto - b.monto; break
-        case 'comision': cmp = a.comision - b.comision; break
+        case 'monto':   cmp = (a.monto ?? 0) - (b.monto ?? 0); break
+        case 'comision': cmp = (a.comision ?? 0) - (b.comision ?? 0); break
         case 'estado':  cmp = a.estado.localeCompare(b.estado, 'es'); break
       }
       return cmp !== 0 ? cmp * dir : 0
@@ -213,7 +223,9 @@ export default function BilleteraTab({
         <p className="text-3xl sm:text-4xl font-black" style={{ color: '#00ff88', textShadow: '0 0 20px #00ff8860' }}>
           {loading && !data
             ? <NumberSkeleton width={200} height={40} />
-            : <AnimatedNumber value={data?.totalArs ?? 0} format={fmtArs} />}
+            : sinVerSaldo
+              ? <Tapado />
+              : <AnimatedNumber value={data?.totalArs ?? 0} format={fmtArs} />}
         </p>
         <p className="text-xs mt-2" style={{ color: 'rgba(148,163,184,0.5)' }}>
           {data?.cantidad ?? 0} pago{(data?.cantidad ?? 0) === 1 ? '' : 's'} · comisión, reembolsos y retiros ya descontados
@@ -242,14 +254,18 @@ export default function BilleteraTab({
           Saldo del día
         </p>
         <p className="text-2xl font-black" style={{ color: (data?.saldoDia ?? 0) < 0 ? '#f87171' : '#00ff88' }}>
-          {loading && !data ? <NumberSkeleton width={140} height={28} /> : <AnimatedNumber value={data?.saldoDia ?? 0} format={fmtArs} />}
+          {loading && !data
+            ? <NumberSkeleton width={140} height={28} />
+            : sinVerSaldo
+              ? <Tapado />
+              : <AnimatedNumber value={data?.saldoDia ?? 0} format={fmtArs} />}
         </p>
         <div className="mt-3 space-y-1 text-xs">
           {(data?.ajustesDiaArs ?? 0) > 0 && (
             <Linea label="Saldo inicial" valor={data?.ajustesDiaArs ?? 0} color="#00ff88" signo="+" />
           )}
           <Linea label={`Ingresos (${data?.cantidadDia ?? 0} pago${(data?.cantidadDia ?? 0) === 1 ? '' : 's'})`}
-            valor={data?.totalDia ?? 0} color="#00ff88" signo="+" />
+            valor={sinVerSaldo ? null : (data?.totalDia ?? 0)} color="#00ff88" signo="+" />
           {(data?.comisionDia ?? 0) > 0 && (
             <Linea label={`Comisión ${fmtPct(data?.comisionPct ?? 0)}%`} valor={data?.comisionDia ?? 0} color="#f87171" signo="−" />
           )}
@@ -306,8 +322,12 @@ export default function BilleteraTab({
                     {esOtras && (
                       <td className="px-3 py-2.5 whitespace-nowrap font-medium" style={{ color: 'rgba(167,139,250,0.95)' }}>{p.detalle || '—'}</td>
                     )}
-                    <td className="px-3 py-2.5 whitespace-nowrap font-medium" style={{ color: '#00ff88' }}>{ARS.format(p.monto)}</td>
-                    <td className="px-3 py-2.5 whitespace-nowrap font-medium" style={{ color: '#f87171' }}>−{ARS.format(p.comision)}</td>
+                    <td className="px-3 py-2.5 whitespace-nowrap font-medium" style={{ color: '#00ff88' }}>
+                      {p.monto == null ? <Tapado /> : ARS.format(p.monto)}
+                    </td>
+                    <td className="px-3 py-2.5 whitespace-nowrap font-medium" style={{ color: '#f87171' }}>
+                      {p.comision == null ? <Tapado /> : `−${ARS.format(p.comision)}`}
+                    </td>
                     <td className="px-3 py-2.5 whitespace-nowrap">
                       <span className="text-[11px] px-2 py-0.5 rounded-full" style={ESTADO_STYLE[p.estado]}>
                         {ESTADO_LABEL[p.estado]}
@@ -364,7 +384,7 @@ export default function BilleteraTab({
                         {convertido ? ARS.format(m.cotizacion!) : '—'}
                       </td>
                       <td className="px-3 py-2.5 whitespace-nowrap font-medium" style={{ color: m.clase === 'ajuste' ? '#00ff88' : '#f87171' }}>
-                        {m.clase === 'ajuste' ? '+' : '−'}{ARS.format(m.ars)}
+                        {m.ars == null ? <Tapado /> : `${m.clase === 'ajuste' ? '+' : '−'}${ARS.format(m.ars)}`}
                       </td>
                       <td className="px-3 py-2.5 whitespace-nowrap">
                         <span className="text-[11px] px-2 py-0.5 rounded-full"
@@ -391,11 +411,13 @@ export default function BilleteraTab({
                         )}
                       </td>
                       <td className="px-3 py-2.5 whitespace-nowrap text-right">
-                        {puedeEditar && (m.reembolsoId != null || m.salidaId != null) && (
+                        {/* m.ars en null = monto censurado (sin 'ver_saldo'): no se puede
+                            editar lo que no se ve. En la vista del admin nunca es null. */}
+                        {puedeEditar && m.ars != null && (m.reembolsoId != null || m.salidaId != null) && (
                           <button onClick={() => setEditandoMov(
                             m.reembolsoId != null
-                              ? { fuente: 'refund', id: m.reembolsoId, fechaISO: m.fecha, concepto: m.concepto, montoArs: m.ars, tasa: m.tasaEdit ?? null, puedeMontoTasa: true, tasaLabel: 'ARS/USDT' }
-                              : { fuente: 'wallet', id: m.salidaId!, fechaISO: m.fecha, concepto: m.concepto, montoArs: m.ars, tasa: m.tasaEdit ?? null, puedeMontoTasa: true, tasaLabel: m.moneda && m.moneda !== 'ARS' ? `ARS por 1 ${m.moneda}` : undefined }
+                              ? { fuente: 'refund', id: m.reembolsoId, fechaISO: m.fecha, concepto: m.concepto, montoArs: m.ars!, tasa: m.tasaEdit ?? null, puedeMontoTasa: true, tasaLabel: 'ARS/USDT' }
+                              : { fuente: 'wallet', id: m.salidaId!, fechaISO: m.fecha, concepto: m.concepto, montoArs: m.ars!, tasa: m.tasaEdit ?? null, puedeMontoTasa: true, tasaLabel: m.moneda && m.moneda !== 'ARS' ? `ARS por 1 ${m.moneda}` : undefined }
                           )}
                             className="rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-all"
                             style={{ background: 'rgba(0,212,255,0.08)', border: '1px solid rgba(0,212,255,0.3)', color: '#00d4ff' }}>
@@ -420,12 +442,22 @@ export default function BilleteraTab({
   )
 }
 
-// Una línea del desglose del saldo del día.
-function Linea({ label, valor, color, signo }: { label: string; valor: number; color: string; signo: '+' | '−' }) {
+// Una línea del desglose del saldo del día. valor null = sin permiso 'ver_saldo'.
+function Linea({ label, valor, color, signo }: { label: string; valor: number | null; color: string; signo: '+' | '−' }) {
   return (
     <div className="flex items-center justify-between gap-3">
       <span style={{ color: 'rgba(148,163,184,0.7)' }}>{label}</span>
-      <span className="font-semibold whitespace-nowrap" style={{ color }}>{signo}{ARS.format(valor)}</span>
+      <span className="font-semibold whitespace-nowrap" style={{ color }}>
+        {valor == null ? <Tapado /> : <>{signo}{ARS.format(valor)}</>}
+      </span>
     </div>
+  )
+}
+
+// Monto tapado para quien no tiene el permiso 'ver_saldo'. El servidor ya manda los
+// montos en null (ver app/api/billetera/route.ts): esto es solo cómo se muestra ese vacío.
+function Tapado() {
+  return (
+    <span title="No tenés permiso para ver el saldo" style={{ letterSpacing: '0.15em', opacity: 0.55 }}>***</span>
   )
 }

@@ -7,6 +7,7 @@ import TiendaPortal from '@/components/tienda/TiendaPortal'
 import AdminGeneralTab from './AdminGeneralTab'
 import MetricasTab from './MetricasTab'
 import BilleteraTab from './BilleteraTab'
+import EquipoBilleteraTab from '@/components/billetera/EquipoBilleteraTab'
 import AnimatedNumber, { NumberSkeleton } from '@/components/AnimatedNumber'
 import { useRealtimeSync } from '@/hooks/useRealtimeSync'
 import { ARS } from '@/lib/utils'
@@ -251,7 +252,7 @@ export default function FinanzasApp({ userEmail }: { userEmail?: string }) {
                 ) : active === 'metricas' ? (
                   <MetricasTab notify={notify} />
                 ) : active.startsWith('bill:') ? (
-                  <BilleteraTab wallet={active.slice(5)} notify={notify} refreshKey={refreshKey} />
+                  <BilleteraAdmin wallet={active.slice(5)} notify={notify} refreshKey={refreshKey} />
                 ) : activeStore ? (
                   <div className="space-y-4">
                     <h2 className="text-lg font-bold" style={{ color: '#00d4ff' }}>{activeStore.storeName}</h2>
@@ -281,6 +282,38 @@ export default function FinanzasApp({ userEmail }: { userEmail?: string }) {
           ))}
         </AnimatePresence>
       </div>
+    </div>
+  )
+}
+
+// Vista de una billetera para el super-admin: el balance de siempre + el botón Equipo,
+// que es por donde se da de alta al primer integrante de una billetera.
+function BilleteraAdmin({ wallet, notify, refreshKey }: {
+  wallet: string
+  notify: (msg: string, type?: Toast['type']) => void
+  refreshKey: number
+}) {
+  const [verEquipo, setVerEquipo] = useState(false)
+  // El super-admin no tiene la billetera entre sus accesos: la manda explícita y el
+  // backend la acepta por su rol (ver app/api/billetera/equipo/route.ts).
+  const qs = `?wallet=${encodeURIComponent(wallet)}`
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-end">
+        <button onClick={() => setVerEquipo(v => !v)}
+          className="rounded-xl px-4 py-2 text-xs font-semibold transition-all shrink-0"
+          style={{
+            background: verEquipo ? 'rgba(0,212,255,0.12)' : 'rgba(255,255,255,0.03)',
+            border: `1px solid ${verEquipo ? 'rgba(0,212,255,0.4)' : 'rgba(148,163,184,0.12)'}`,
+            color: verEquipo ? '#00d4ff' : 'rgba(148,163,184,0.75)',
+          }}>
+          👥 Equipo
+        </button>
+      </div>
+      {verEquipo
+        ? <EquipoBilleteraTab key={wallet} qs={qs} notify={notify} />
+        : <BilleteraTab wallet={wallet} notify={notify} refreshKey={refreshKey} />}
     </div>
   )
 }

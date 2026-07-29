@@ -7,6 +7,7 @@ import {
 } from '@/lib/billetera-salidas'
 import { audit } from '@/lib/audit'
 import type { TransferTipo } from '@/lib/types'
+import { puedeEnBilletera } from '@/lib/permisos'
 
 // GET /api/billetera/retiros?wallet=<w> → retiros ya asentados de esa billetera.
 // Rol 'billetera' (editor o lectura). La wallet se valida contra los accesos del usuario.
@@ -41,12 +42,12 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => null)
     if (!body || typeof body !== 'object') return NextResponse.json({ error: 'JSON inválido' }, { status: 400 })
 
-    // La wallet viene en el body; se valida contra los accesos del usuario y se toma
-    // el permiso (editor/lectura) DE ESA billetera — no del acceso primario.
+    // La wallet viene en el body; se valida contra los accesos del usuario y se toman
+    // los permisos DE ESA billetera — no los del acceso primario.
     const scope = resolveWalletScope(auth.user, body.wallet)
     if (!scope) return NextResponse.json({ error: 'Billetera no autorizada' }, { status: 403 })
-    if (scope.permiso !== 'editor') {
-      return NextResponse.json({ error: 'Tu permiso es de solo lectura: no podés registrar retiros' }, { status: 403 })
+    if (!puedeEnBilletera({ role: auth.user.role, permisos: scope.permisos }, 'registrar_retiros')) {
+      return NextResponse.json({ error: 'No tenés permiso para anotar retiros en esta billetera' }, { status: 403 })
     }
     const wallet = scope.wallet
 

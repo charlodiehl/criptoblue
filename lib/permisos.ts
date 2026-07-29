@@ -45,6 +45,83 @@ export const PERMISOS: Permiso[] = [
 
 export const PERMISO_KEYS: readonly PermisoKey[] = PERMISOS.map(p => p.key)
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Permisos por integrante DENTRO de una BILLETERA. Mismo modelo que los de tienda
+// (lista fija, whitelist, 'administracion' implica todo), pero con sus propias
+// capacidades: una billetera no pide transferencias ni reembolsos, anota retiros.
+//
+// 'administracion' y 'ver_saldo' se llaman IGUAL que en tienda a propósito: son la
+// misma idea, y que se llamen distinto en cada pantalla es justo lo que confunde.
+//
+// Reemplazan al par editor/lectura, que era binario y no permitía —por ejemplo—
+// alguien que anote retiros pero no vea el saldo total.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type PermisoBilleteraKey =
+  | 'administracion'
+  | 'registrar_retiros'
+  | 'ver_saldo'
+
+export const PERMISOS_BILLETERA: { key: PermisoBilleteraKey; label: string; descripcion: string }[] = [
+  {
+    key: 'administracion',
+    label: 'Administración',
+    descripcion: 'Puede dar y quitar permisos a los demás integrantes de la billetera.',
+  },
+  {
+    key: 'registrar_retiros',
+    label: 'Anotar retiros de saldo',
+    descripcion: 'Puede entrar y operar la pestaña de retirar saldo.',
+  },
+  {
+    key: 'ver_saldo',
+    label: 'Ver saldo',
+    descripcion: 'Ve los montos del saldo y del extracto. Sin este permiso los ve tapados (***).',
+  },
+]
+
+export const PERMISO_BILLETERA_KEYS: readonly PermisoBilleteraKey[] = PERMISOS_BILLETERA.map(p => p.key)
+
+export type PermisosBilletera = Partial<Record<PermisoBilleteraKey, boolean>>
+
+export function sanearPermisosBilletera(entrada: unknown): PermisosBilletera {
+  const out: PermisosBilletera = {}
+  if (entrada && typeof entrada === 'object') {
+    for (const k of PERMISO_BILLETERA_KEYS) {
+      const v = (entrada as Record<string, unknown>)[k]
+      if (typeof v === 'boolean') out[k] = v
+    }
+  }
+  return out
+}
+
+// Decisión de autorización sobre una billetera. El super-admin del sistema puede
+// todo; dentro de la billetera, 'administracion' también.
+export function puedeEnBilletera(
+  user: { role: 'admin' | 'tienda' | 'billetera'; permisos?: PermisosBilletera | null },
+  key: PermisoBilleteraKey,
+): boolean {
+  if (user.role === 'admin') return true
+  if (user.permisos?.administracion === true) return true
+  return user.permisos?.[key] === true
+}
+
+export function puedeGestionarEquipoBilletera(
+  user: { role: 'admin' | 'tienda' | 'billetera'; permisos?: PermisosBilletera | null },
+): boolean {
+  return user.role === 'admin' || user.permisos?.administracion === true
+}
+
+// Traduce el modelo viejo (editor | lectura) al nuevo. Se usa en el backfill y como
+// respaldo para una fila que todavía no tenga los permisos nuevos.
+//   editor  → anota retiros y ve el saldo
+//   lectura → solo ve el saldo
+export function permisosDesdeEditorLectura(permiso: 'editor' | 'lectura' | null | undefined): PermisosBilletera {
+  return permiso === 'editor'
+    ? { registrar_retiros: true, ver_saldo: true }
+    : { ver_saldo: true }
+}
+
 // Mapa { clave: boolean }. Ausencia de clave = permiso NO otorgado (false).
 export type Permisos = Partial<Record<PermisoKey, boolean>>
 

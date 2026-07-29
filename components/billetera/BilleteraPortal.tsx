@@ -3,19 +3,22 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import BilleteraTab from '@/components/finanzas/BilleteraTab'
-import type { BilleteraPermiso } from '@/lib/types'
+import EquipoBilleteraTab from './EquipoBilleteraTab'
+import { puedeEnBilletera, type PermisosBilletera } from '@/lib/permisos'
 
 export type Toast = { id: number; msg: string; type: 'success' | 'error' | 'info' }
 
 interface Props {
   wallet: string
-  permiso: BilleteraPermiso
+  permisos: PermisosBilletera
   userEmail?: string
 }
 
-// Portal del dueño de una billetera: ve SOLO su billetera. 'editor' además puede
-// retirar; 'lectura' solo mira saldos y navega el registro por fecha.
-export default function BilleteraPortal({ wallet, permiso, userEmail }: Props) {
+// Portal del dueño de una billetera: ve SOLO su billetera. Lo que puede hacer sale de
+// sus permisos: anotar retiros, ver los montos y gestionar el equipo. Sin ninguno,
+// entra igual y navega el extracto por fecha con los montos tapados.
+export default function BilleteraPortal({ wallet, permisos, userEmail }: Props) {
+  const [tab, setTab] = useState<'billetera' | 'equipo'>('billetera')
   const [toasts, setToasts] = useState<Toast[]>([])
   const toastId = useRef(0)
   const [menuOpen, setMenuOpen] = useState(false)
@@ -41,7 +44,12 @@ export default function BilleteraPortal({ wallet, permiso, userEmail }: Props) {
     window.location.href = '/login'
   }
 
-  const esEditor = permiso === 'editor'
+  // El gating REAL lo hace el backend; acá solo se refleja.
+  const yo = { role: 'billetera' as const, permisos }
+  const puedeRetirar = puedeEnBilletera(yo, 'registrar_retiros')
+  // Etiqueta del encabezado: la capacidad más alta que tiene.
+  const rotulo = permisos.administracion ? 'Administrador' : puedeRetirar ? 'Editor' : 'Solo lectura'
+  const destacado = permisos.administracion === true || puedeRetirar
 
   return (
     <div className="min-h-screen" style={{ background: 'radial-gradient(ellipse at 50% -10%, #0a1628 0%, #060b14 55%)' }}>
@@ -65,7 +73,7 @@ export default function BilleteraPortal({ wallet, permiso, userEmail }: Props) {
                   {userEmail && (
                     <div className="px-4 py-3 text-xs" style={{ color: 'rgba(148,163,184,0.7)', borderBottom: '1px solid rgba(148,163,184,0.08)' }}>
                       <div className="text-[10px] uppercase tracking-widest mb-0.5" style={{ color: 'rgba(0,212,255,0.55)' }}>
-                        Dueño de billetera · {esEditor ? 'Editor' : 'Solo lectura'}
+                        Dueño de billetera · {rotulo}
                       </div>
                       <div className="truncate" style={{ color: 'rgba(226,232,240,0.9)' }}>{userEmail}</div>
                     </div>
@@ -91,30 +99,41 @@ export default function BilleteraPortal({ wallet, permiso, userEmail }: Props) {
             </span>
           </div>
 
-          {/* Billetera + permiso */}
+          {/* Billetera + permiso + Equipo (gestión de cuenta, no es una pestaña operativa) */}
           <div className="flex items-center justify-end gap-2 min-w-0">
+            <button onClick={() => setTab(t => (t === 'equipo' ? 'billetera' : 'equipo'))} title="Equipo"
+              className="flex items-center gap-1.5 rounded-xl px-2.5 sm:px-3 py-2 text-xs font-semibold transition-all shrink-0"
+              style={{
+                background: tab === 'equipo' ? 'rgba(0,212,255,0.12)' : 'rgba(255,255,255,0.04)',
+                border: `1px solid ${tab === 'equipo' ? 'rgba(0,212,255,0.4)' : 'rgba(0,212,255,0.2)'}`,
+                color: tab === 'equipo' ? '#00d4ff' : 'rgba(148,163,184,0.9)',
+              }}>
+              👥 <span className="hidden sm:inline">Equipo</span>
+            </button>
             <div className="text-right min-w-0">
               <div className="text-[10px] uppercase tracking-widest" style={{ color: 'rgba(148,163,184,0.5)' }}>Billetera</div>
               <div className="text-xs sm:text-sm font-bold truncate" style={{ color: '#00d4ff', textShadow: '0 0 12px rgba(0,212,255,0.3)' }}>{wallet}</div>
             </div>
             <span className="text-[10px] font-bold px-2 py-1 rounded-full uppercase tracking-wide whitespace-nowrap"
-              style={esEditor
+              style={destacado
                 ? { background: 'rgba(0,255,136,0.12)', border: '1px solid rgba(0,255,136,0.3)', color: '#00ff88' }
                 : { background: 'rgba(148,163,184,0.12)', border: '1px solid rgba(148,163,184,0.25)', color: 'rgba(148,163,184,0.9)' }}>
-              {esEditor ? 'Editor' : 'Solo lectura'}
+              {rotulo}
             </span>
           </div>
         </div>
       </header>
 
       <main className="mx-auto max-w-[1400px] px-4 sm:px-6 py-6">
-        <BilleteraTab
-          wallet={wallet}
-          notify={notify}
-          apiBase="/api/billetera"
-          puedeRetirar={esEditor}
-          puedeEditar={false}
-        />
+        {tab === 'equipo'
+          ? <EquipoBilleteraTab qs="" notify={notify} />
+          : <BilleteraTab
+              wallet={wallet}
+              notify={notify}
+              apiBase="/api/billetera"
+              puedeRetirar={puedeRetirar}
+              puedeEditar={false}
+            />}
       </main>
 
       {/* Toasts */}

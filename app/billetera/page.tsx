@@ -26,7 +26,7 @@ export default async function BilleteraPage() {
   return (
     <BilleteraPortal
       wallet={acceso.id}
-      permiso={acceso.billeteraPermiso}
+      permisos={acceso.permisos}
       userEmail={user.email}
     />
   )

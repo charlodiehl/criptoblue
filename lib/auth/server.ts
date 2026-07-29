@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import type { AppUser } from '@/lib/types'
-import { sanearPermisos, type Permisos } from '@/lib/permisos'
+import { sanearPermisos, sanearPermisosBilletera, permisosDesdeEditorLectura, type Permisos, type PermisosBilletera } from '@/lib/permisos'
 import { parseUnidad, setUnidad, rolCompleto, type UnidadId } from '@/lib/unidad'
 
 // Se re-exporta para que las rutas lo importen del mismo lugar que requireUser: el
@@ -67,7 +67,7 @@ export interface AccesoTienda {
 export interface AccesoBilletera {
   tipo: 'billetera'
   id: string                                             // wallet
-  billeteraPermiso: 'editor' | 'lectura'
+  permisos: PermisosBilletera                            // permisos DE ESA billetera
 }
 export type Acceso = AccesoTienda | AccesoBilletera
 
@@ -80,7 +80,9 @@ export interface SessionUser {
   unidad: UnidadId
   storeId: string | null
   wallet: string | null                                  // solo rol 'billetera': su billetera
-  billeteraPermiso: 'editor' | 'lectura' | null          // solo rol 'billetera'
+  // Permisos del integrante DENTRO de su billetera PRIMARIA. Para operar una
+  // billetera concreta (que puede ser secundaria) usar resolveWalletScope().
+  billeteraPermisos: PermisosBilletera
   displayName: string | null
   aal2: boolean
   // Permisos del integrante DENTRO de su tienda PRIMARIA. Los 'admin' del sistema pueden
@@ -104,7 +106,12 @@ function parseAccesosExtra(raw: unknown): Acceso[] {
     if (o.tipo === 'tienda') {
       out.push({ tipo: 'tienda', id, permisos: sanearPermisos(o.permisos) })
     } else if (o.tipo === 'billetera') {
-      out.push({ tipo: 'billetera', id, billeteraPermiso: o.billeteraPermiso === 'editor' ? 'editor' : 'lectura' })
+      // Los accesos viejos traen billeteraPermiso (editor|lectura) en vez de permisos:
+      // se traducen al vuelo para que un acceso sin migrar siga funcionando.
+      const permisos = o.permisos !== undefined
+        ? sanearPermisosBilletera(o.permisos)
+        : permisosDesdeEditorLectura(o.billeteraPermiso === 'editor' ? 'editor' : 'lectura')
+      out.push({ tipo: 'billetera', id, permisos })
     }
   }
   return out
@@ -121,9 +128,9 @@ export async function getSessionUser(): Promise<SessionUser | null> {
   // esta consulta es justamente la que averigua en qué unidad está el usuario.
   const { data: row } = await serviceClient()
     .from('app_users')
-    .select('email, role, unidad, store_id, wallet, billetera_permiso, display_name, permisos, accesos_extra')
+    .select('email, role, unidad, store_id, wallet, billetera_permiso, billetera_permisos, display_name, permisos, accesos_extra')
     .eq('email', email)
-    .maybeSingle<{ email: string; role: AppUser['role']; unidad: string | null; store_id: string | null; wallet: string | null; billetera_permiso: 'editor' | 'lectura' | null; display_name: string | null; permisos: unknown; accesos_extra: unknown }>()
+    .maybeSingle<{ email: string; role: AppUser['role']; unidad: string | null; store_id: string | null; wallet: string | null; billetera_permiso: 'editor' | 'lectura' | null; billetera_permisos: unknown; display_name: string | null; permisos: unknown; accesos_extra: unknown }>()
   if (!row) return null
 
   // Solo RESUELVE la unidad; aplicarla es responsabilidad de quien llama. Un
@@ -134,6 +141,9 @@ export async function getSessionUser(): Promise<SessionUser | null> {
   const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
 
   const permisos = sanearPermisos(row.permisos)
+  // Respaldo por si la fila todavía no tiene los permisos nuevos (deploy en curso).
+  const bp = sanearPermisosBilletera(row.billetera_permisos)
+  const billeteraPermisos = Object.keys(bp).length ? bp : permisosDesdeEditorLectura(row.billetera_permiso)
 
   // Unifico primario + extra en una sola lista de accesos. El primario sale de las
   // columnas de siempre (según el rol); los extra de accesos_extra. Sin duplicar.
@@ -142,7 +152,7 @@ export async function getSessionUser(): Promise<SessionUser | null> {
     accesos.push({ tipo: 'tienda', id: row.store_id, permisos })
   }
   if (row.role === 'billetera' && row.wallet) {
-    accesos.push({ tipo: 'billetera', id: row.wallet, billeteraPermiso: row.billetera_permiso === 'editor' ? 'editor' : 'lectura' })
+    accesos.push({ tipo: 'billetera', id: row.wallet, permisos: billeteraPermisos })
   }
   // Los admin operan todo desde /finanzas: no usan la lista de accesos (queda vacía).
   if (row.role !== 'admin') {
@@ -159,7 +169,7 @@ export async function getSessionUser(): Promise<SessionUser | null> {
     unidad,
     storeId: row.store_id ?? null,
     wallet: row.wallet ?? null,
-    billeteraPermiso: row.billetera_permiso ?? null,
+    billeteraPermisos,
     displayName: row.display_name ?? null,
     aal2: aal?.currentLevel === 'aal2',
     permisos,
@@ -235,12 +245,24 @@ export function scopedUser(user: SessionUser, storeId: string | null): { role: S
 }
 
 // Billetera efectiva para rutas /api/billetera/**. Valida la wallet pedida contra los
-// accesos del usuario y devuelve además su permiso (editor/lectura) para ESA billetera.
+// accesos del usuario y devuelve además sus permisos PARA ESA billetera.
 // null = el usuario no tiene ese acceso (o ninguna billetera).
-export function resolveWalletScope(user: SessionUser, requestedWallet?: string | null): { wallet: string; permiso: 'editor' | 'lectura' } | null {
+export function resolveWalletScope(user: SessionUser, requestedWallet?: string | null): { wallet: string; permisos: PermisosBilletera } | null {
   const bills = user.accesos.filter((a): a is AccesoBilletera => a.tipo === 'billetera')
   if (bills.length === 0) return null
   const chosen = requestedWallet ? bills.find(b => b.id === requestedWallet) : bills[0]
   if (!chosen) return null
-  return { wallet: chosen.id, permiso: chosen.billeteraPermiso }
+  return { wallet: chosen.id, permisos: chosen.permisos }
+}
+
+// Permisos efectivos sobre una billetera concreta (puede ser un acceso secundario).
+// El super-admin puede todo por su rol, así que su valor da igual.
+export function resolveBilleteraPermisos(user: SessionUser, wallet: string | null): PermisosBilletera {
+  const acc = user.accesos.find((a): a is AccesoBilletera => a.tipo === 'billetera' && a.id === wallet)
+  return acc?.permisos ?? user.billeteraPermisos
+}
+
+// Usuario "reducido" para los chequeos de lib/permisos sobre una billetera.
+export function scopedBilletera(user: SessionUser, wallet: string | null): { role: SessionUser['role']; permisos: PermisosBilletera } {
+  return { role: user.role, permisos: resolveBilleteraPermisos(user, wallet) }
 }

@@ -8,7 +8,9 @@
 //   node scripts/agregar-usuario.mjs <email> superadmin-criptoblue
 //   node scripts/agregar-usuario.mjs <email> superadmin-ms
 //   node scripts/agregar-usuario.mjs <email> tienda <storeId> ["Nombre a mostrar"]
-//   node scripts/agregar-usuario.mjs <email> billetera <wallet> <editor|lectura> ["Nombre"]
+//   node scripts/agregar-usuario.mjs <email> billetera <wallet> <permisos> ["Nombre"]
+//     <permisos>: lista separada por comas de administracion,registrar_retiros,ver_saldo
+//                 (también se aceptan los atajos viejos: editor = retiros+saldo, lectura = saldo)
 //   node scripts/agregar-usuario.mjs --listar
 //   node scripts/agregar-usuario.mjs --borrar <email>
 //
@@ -21,6 +23,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { readFileSync } from 'fs'
 import { UNIDADES, IDS, UNIDAD_DEFAULT, unidadDeRol, parseUnidad, getStores } from './_unidades.mjs'
+import { parsePermisosBilletera, permisoLegacy, AYUDA_PERMISOS } from './_permisos-billetera.mjs'
 
 // Carga .env.local (saca comillas envolventes: SUPABASE_URL viene entre comillas y
 // createClient las rechaza — sin esto el script falla con "Invalid supabaseUrl").
@@ -81,7 +84,7 @@ if (a === '--listar') {
     rol: u.role === 'admin' ? UNIDADES[parseUnidad(u.unidad)].rol : u.role,
     unidad: u.unidad ?? UNIDAD_DEFAULT,
     tienda: u.store_id ?? '',
-    billetera: u.wallet ? `${u.wallet} (${u.billetera_permiso})` : '',
+    billetera: u.wallet ? `${u.wallet} (${Object.keys(u.billetera_permisos ?? {}).filter(k => u.billetera_permisos[k]).join(',') || u.billetera_permiso})` : '',
     extra: (u.accesos_extra ?? []).map(x => `${x.tipo}:${x.id}`).join(' '),
   })))
   process.exit(0)
@@ -138,20 +141,25 @@ if (role === 'tienda') {
   }
   console.log(`Tienda: ${tienda.storeName} (${storeId})`)
   // No se tocan los permisos del integrante (los administra su tienda).
-  fila = { email, role, unidad, store_id: storeId, wallet: null, billetera_permiso: null, display_name: d || null }
+  fila = { email, role, unidad, store_id: storeId, wallet: null, billetera_permiso: null, billetera_permisos: {}, display_name: d || null }
   storeIdClaim = storeId
 } else if (role === 'billetera') {
   const wallet = (c || '').trim()
-  const permiso = (d || '').toLowerCase().trim()
   const wallets = UNIDADES[unidad].wallets
   if (!wallets.includes(wallet)) {
     console.error(`Billetera inválida para ${UNIDADES[unidad].nombre}. Opciones: ${wallets.join(', ') || '(esta unidad todavía no tiene billeteras)'}`)
     process.exit(1)
   }
-  if (!['editor', 'lectura'].includes(permiso)) { console.error('Permiso inválido (editor | lectura)'); process.exit(1) }
-  console.log(`Billetera: ${wallet} · permiso ${permiso}`)
+  const permisosBill = parsePermisosBilletera(d)
+  if (!permisosBill) { console.error(AYUDA_PERMISOS); process.exit(1) }
+  console.log(`Billetera: ${wallet} · permisos ${Object.keys(permisosBill).join(', ')}`)
   // Limpia restos de un rol anterior: sin tienda ni permisos de tienda.
-  fila = { email, role, unidad, store_id: null, wallet, billetera_permiso: permiso, permisos: {}, display_name: e || null }
+  fila = {
+    email, role, unidad, store_id: null, wallet,
+    billetera_permisos: permisosBill,
+    billetera_permiso: permisoLegacy(permisosBill),
+    permisos: {}, display_name: e || null,
+  }
 } else {
   // Super admin de una unidad: ve y opera TODO lo de su unidad, y nada de la otra.
   // Se limpia TODO lo del rol anterior. El upsert solo pisa las columnas que se le
@@ -160,7 +168,7 @@ if (role === 'tienda') {
   // vuelve a rol tienda, reaparecen accesos que nadie le volvió a dar).
   fila = {
     email, role, unidad,
-    store_id: null, wallet: null, billetera_permiso: null,
+    store_id: null, wallet: null, billetera_permiso: null, billetera_permisos: {},
     permisos: {}, accesos_extra: [],
     display_name: c || null,
   }
@@ -170,5 +178,5 @@ const { error } = await supabase.from('app_users').upsert(fila)
 if (error) throw new Error(error.message)
 console.log(`OK: ${email} → rol ${unidadDelRolSuper ? UNIDADES[unidad].rol : role}` +
   (fila.store_id ? ` · tienda ${fila.store_id}` : '') +
-  (fila.wallet ? ` · billetera ${fila.wallet} (${fila.billetera_permiso})` : ''))
+  (fila.wallet ? ` · billetera ${fila.wallet} (${Object.keys(fila.billetera_permisos).join(', ')})` : ''))
 await sincronizarClaim(email, role, storeIdClaim)
