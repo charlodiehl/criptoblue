@@ -67,13 +67,44 @@ const chequear = (etiqueta, real, esperado) => {
 console.log('── Depósito recibido ──')
 const r = parsearCuerpoLbf(RECIBIDO)
 chequear('esEntrante', r.esEntrante, true)
-chequear('monto (bruto, para emparejar)', r.monto, 33215.33)
+chequear('acreditado ("Recibiste", NETO)', r.montoAcreditado, 33215.33)
+chequear('comisión de LB', r.comisionArs, 116.66)
+chequear('monto BRUTO = acreditado + comisión', r.monto, 33331.99)
 chequear('moneda', r.moneda, 'ARS')
 chequear('origen', r.origen, 'Maria Luisa Bellia')
 chequear('cbuCvu', r.cbuCvu, '0140015103401550915865')
 chequear('fecha (ISO, era 12:15 ART)', r.fecha?.toISOString(), '2026-07-29T15:15:00.000Z')
 chequear('redDePago', r.redDePago, 'Transferencia Bancaria')
-chequear('comisionArs (informativa)', r.comisionArs, 116.66)
+
+// ── Regresión: los dos pagos reales que se cargaron 0,35% cortos ────────────
+// El bot de Notificador informó 59.415 y 299.999,01 para estos mismos depósitos.
+// Cargar el "Recibiste" a secas dejaba el pago corto y no emparejaba nunca.
+console.log('')
+console.log('── Bruto reconstruido = lo que informó el Notificador ──')
+const armar = (recibiste, comision) => ` Nuevo depósito recibido
+Recibiste
+${recibiste} ARS
+Detalle del depósito
+Origen Fulano De Tal
+CBU/CVU 0000003100009047480882
+Fecha 29.07.26 13:51
+Red de pago Transferencia Bancaria
+Comisión ${comision} ARS
+`
+chequear('Evangelina: 59.207,05 + 207,95', parsearCuerpoLbf(armar('59.207,05', '207,95')).monto, 59415)
+chequear('Sergio: 298.949,01 + 1.050,00', parsearCuerpoLbf(armar('298.949,01', '1.050,00')).monto, 299999.01)
+chequear('depósito sin comisión (0,00)', parsearCuerpoLbf(armar('10.000,00', '0,00')).monto, 10000)
+
+// Sin el campo "Comisión" el bruto no es reconstruible → NaN, y el handler rechaza.
+const sinComision = parsearCuerpoLbf(` Nuevo depósito recibido
+Recibiste
+50.000,00 ARS
+Detalle del depósito
+Origen Fulano De Tal
+Fecha 29.07.26 13:51
+`)
+chequear('sin campo Comisión → comisión NaN', Number.isNaN(sinComision.comisionArs), true)
+chequear('sin campo Comisión → monto NaN (no se carga)', Number.isNaN(sinComision.monto), true)
 
 console.log('')
 console.log('── Transferencia SALIENTE: no se debe cargar ──')
@@ -103,11 +134,11 @@ console.log('')
 console.log('── Reenviado: no se puede confundir con la fecha del reenvío ──')
 const f = parsearCuerpoLbf(REENVIADO)
 chequear('esEntrante', f.esEntrante, true)
-chequear('monto', f.monto, 33215.33)
+chequear('acreditado', f.montoAcreditado, 33215.33)
+chequear('monto BRUTO', f.monto, 33331.99)
 chequear('origen', f.origen, 'Maria Luisa Bellia')
 chequear('cbuCvu', f.cbuCvu, '0140015103401550915865')
 chequear('fecha = la del DEPÓSITO, no la del reenvío', f.fecha?.toISOString(), '2026-07-29T15:15:00.000Z')
-chequear('comisionArs', f.comisionArs, 116.66)
 
 console.log('')
 console.log('── Reenviado pero SALIENTE: tampoco se carga ──')

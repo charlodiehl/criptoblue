@@ -65,14 +65,23 @@ export function parsearFechaLbf(texto: string): Date | null {
   return isNaN(d.getTime()) ? null : d
 }
 
+// OJO CON LOS MONTOS: el aviso dice "Recibiste 59.207,05 ARS" y aparte "Comisión
+// 207,95 ARS". Ese "Recibiste" es el NETO — lo que quedó en la cuenta después de que
+// LB Finanzas cobrara lo suyo (0,35%). El cliente transfirió la SUMA de los dos.
+//
+// El que sirve es el BRUTO: es el que tiene que coincidir con el total de la orden, y
+// es el mismo que venía informando el bot de Notificador (verificado contra dos pagos
+// reales: 59.207,05 + 207,95 = 59.415, y 298.949,01 + 1.050 = 299.999,01, idénticos a
+// los del bot). Cargar el neto dejaba todos los pagos 0,35% cortos y sin emparejar.
 export interface PagoLbf {
-  origen: string        // nombre de quien envió
+  origen: string          // nombre de quien envió
   cbuCvu: string
-  monto: number
+  monto: number           // BRUTO: acreditado + comisión. Es el que se carga.
+  montoAcreditado: number  // "Recibiste": lo que entró neto a la cuenta
+  comisionArs: number      // "Comisión". NaN = no se pudo leer → no se carga el pago
   moneda: string
   fecha: Date | null
   redDePago: string
-  comisionArs: number   // lo que cobra LB Finanzas; informativo (ver más abajo)
   esEntrante: boolean
 }
 
@@ -114,20 +123,31 @@ export function parsearCuerpoLbf(cuerpo: string): PagoLbf | null {
     return (detalle.match(re)?.[1] ?? '').trim()
   }
 
+  const acreditado = parsearMontoLbf(mMonto[1])
+  // Se distingue "no vino el campo" de "vino en 0": un depósito sin comisión trae
+  // "Comisión 0,00 ARS" y es válido. Si el campo NO está, no se puede reconstruir el
+  // bruto, y cargar el neto sería un pago 0,35% corto que nunca empareja. NaN → se
+  // rechaza arriba, para que quede en MS-revisar y se mire a mano.
+  const textoComision = campo('Comisión')
+  const comisionArs = textoComision ? parsearMontoLbf(textoComision) : NaN
+
   return {
     origen: campo('Origen'),
     cbuCvu: campo('CBU/CVU'),
-    monto: parsearMontoLbf(mMonto[1]),
+    // Redondeo a centavos OBLIGATORIO: en punto flotante 33215.33 + 116.66 da
+    // 33331.990000000005, y ese monto no coincide exacto con el total de la orden.
+    monto: Math.round((acreditado + comisionArs) * 100) / 100,
+    montoAcreditado: acreditado,
+    comisionArs,
     moneda: mMonto[2].toUpperCase(),
     fecha: parsearFechaLbf(campo('Fecha')),
     redDePago: campo('Red de pago'),
-    comisionArs: parsearMontoLbf(campo('Comisión')) || 0,
     esEntrante: true,
   }
 }
 
 function vacio(): PagoLbf {
-  return { origen: '', cbuCvu: '', monto: NaN, moneda: '', fecha: null, redDePago: '', comisionArs: 0, esEntrante: false }
+  return { origen: '', cbuCvu: '', monto: NaN, montoAcreditado: NaN, comisionArs: NaN, moneda: '', fecha: null, redDePago: '', esEntrante: false }
 }
 
 // Llega SIN sesión: la unidad de negocio sale de a qué unidad pertenece la
@@ -193,6 +213,16 @@ async function procesar(req: NextRequest) {
       return NextResponse.json({ success: true, skipped: true, reason: 'no es un depósito recibido' })
     }
 
+    // Sin la comisión no se puede reconstruir lo que transfirió el cliente. Antes de
+    // rechazar por "monto inválido" se distingue este caso, que tiene otra causa y
+    // otra solución (el aviso vino sin el campo, o cambió la plantilla).
+    if (!Number.isFinite(datos.comisionArs)) {
+      await registrarErrorPago(
+        `Pago de LB Finanzas sin el campo "Comisión" — NO se cargó: sin él no se puede calcular el monto bruto (acreditado: ${datos.montoAcreditado}).`,
+        { messageId, asunto, ...datos })
+      return NextResponse.json({ error: 'No se pudo leer la comisión: sin ella el monto bruto no es reconstruible' }, { status: 400 })
+    }
+
     if (!Number.isFinite(datos.monto) || datos.monto <= 0) {
       await registrarErrorPago(`Pago de LB Finanzas con monto inválido: "${datos.monto}"`, { messageId, ...datos })
       return NextResponse.json({ error: 'Monto inválido' }, { status: 400 })
@@ -252,10 +282,10 @@ async function procesar(req: NextRequest) {
         return NextResponse.json({ success: true, duplicate: true, reason: 'ya estaba en la cola' })
       }
 
-      // Se carga el monto BRUTO (lo que envió el pagador): es el que tiene que
-      // coincidir con el total de la orden. La comisión que cobra LB Finanzas es un
-      // costo de la billetera, no algo que el cliente haya dejado de pagar; el
-      // descuento de la billetera lo aplica la app con su propio % (ver comisiones).
+      // Se carga el BRUTO (acreditado + comisión de LB): es lo que transfirió el
+      // cliente y por lo tanto el que coincide con el total de la orden. Es además el
+      // mismo monto que informaba el bot de Notificador, así que el saldo y la
+      // comisión de billetera se calculan igual que siempre.
       const payment: Payment = {
         mpPaymentId: paymentId,
         monto: datos.monto,
@@ -277,7 +307,8 @@ async function procesar(req: NextRequest) {
 
       return NextResponse.json({
         success: true, mpPaymentId: paymentId,
-        interpretado: { fecha: fecha.toISOString(), titular: datos.origen, monto: datos.monto, moneda: datos.moneda },
+        interpretado: { fecha: fecha.toISOString(), titular: datos.origen, monto: datos.monto, moneda: datos.moneda,
+          acreditado: datos.montoAcreditado, comision: datos.comisionArs },
       })
     } finally {
       await releaseLock(LOCK_HOLDER)
