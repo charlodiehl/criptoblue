@@ -123,6 +123,19 @@ export const WALLETS_SIN_VENCIMIENTO: readonly string[] = ['Lacar', 'MS', 'Copte
 // poner en true y MP vuelve a ingresar pagos a la cola.
 export const MERCADOPAGO_ACTIVO = false
 
+// ─── Desde cuándo valen los avisos de LB Finanzas ────────────────────────────
+// Todo depósito ANTERIOR a este instante ya entró por el bot de Notificador: los
+// avisos que estaban en la casilla cuando se conectó el canal de email son de pagos
+// YA cargados, y volver a cargarlos duplicaría la plata en la cola y en el saldo.
+//
+// El control principal es el puntero del Apps Script, que solo mira mails nuevos.
+// Esto es la red: si alguien vuelve a ejecutar inicializar() y el puntero retrocede,
+// el servidor igual descarta lo viejo. Por eso vive acá y no en el script.
+//
+// Se compara contra la FECHA DEL DEPÓSITO que informa el aviso, no contra la fecha
+// del email: un mail reenviado tarde no puede colar un pago viejo.
+export const LBFINANZAS_DESDE = new Date('2026-07-29T16:34:00.000Z')   // 29/07/2026 13:34 ART
+
 // ─── Notificador en modo FACHADA ─────────────────────────────────────────────
 // Los pagos de la billetera "MS" pasan a entrar por EMAIL (/api/lbfinanzas/webhook),
 // que Copter y Bitso. Pero el bot de Notificador sigue posteando a su webhook y no

@@ -4,6 +4,7 @@ import { isPaymentAlreadyUsed } from '@/lib/registro'
 import type { Payment, UnmatchedPayment } from '@/lib/types'
 import { nowART } from '@/lib/utils'
 import { runEnUnidad, unidadDeBilletera, cutoffPagos } from '@/lib/unidad'
+import { LBFINANZAS_DESDE } from '@/lib/config'
 
 const LOCK_HOLDER = 'lbfinanzas-webhook'
 const BILLETERA = 'MS'
@@ -215,6 +216,16 @@ async function procesar(req: NextRequest) {
     // eternamente, pero NO se carga.
     if (fecha.getTime() < cutoffPagos().getTime()) {
       return NextResponse.json({ success: true, skipped: true, reason: 'anterior al corte de la unidad' })
+    }
+
+    // Corte propio de este canal: los depósitos anteriores ya entraron por el bot de
+    // Notificador (ver LBFINANZAS_DESDE). Se responde OK para que el script los marque
+    // como vistos y no los reintente, pero NO se cargan: sería plata duplicada.
+    if (fecha.getTime() < LBFINANZAS_DESDE.getTime()) {
+      return NextResponse.json({
+        success: true, skipped: true,
+        reason: 'depósito anterior a la conexión del canal de email (ya cargado por Notificador)',
+      })
     }
 
     // El aviso NO trae identificador de operación, así que el id del pago sale del
