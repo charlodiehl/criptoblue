@@ -1,4 +1,4 @@
-import { getUsdtRate } from './cotizacion'
+import { getUsdtRate, TIMEOUT_BACKFILL_MS } from './cotizacion'
 import { toUTCISO, fechaEgresoSaldo } from './utils'
 import { getComisiones, comisionTienda, comisionTiendaSobre, comisionTiendaEnFecha, comisionTiendaActual, comisionTiendaVaria, diaART, type ComisionesConfig } from './comisiones'
 import { getRefundsByMovementIds } from './reembolsos'
@@ -6,7 +6,7 @@ import type { LogEntry, StoreBalance, DescuentoMoneda, TransferDescuento, Balanc
 // El cliente sale de lib/storage: es el ÚNICO que acota las queries a la unidad de
 // negocio de la request. Este módulo tenía el suyo propio, crudo, y por eso sus tablas
 // se leían sin filtrar (ver lib/unidad.ts).
-import { getClient } from './storage'
+import { getClient, loadLogs, saveLogs, appendError } from './storage'
 import { getUnidad } from './unidad'
 import { cutoffBalance } from './unidad'
 import { tiendaLlevaSaldoEnPesos } from './config'
@@ -136,13 +136,34 @@ export async function registrarEgresoTransferencia(
 // con la cotización ACTUAL (la misma para todas las tiendas). Lo llama el cron
 // cada 10 min y scripts/backfill-cotizaciones.mjs. Idempotente: solo toca los que
 // siguen 'pendiente'. usdt = ars / rate (ars ya viene SIGNADO → el signo se conserva).
-export async function backfillCotizacionesPendientes(): Promise<{ actualizados: number; rate: number | null }> {
-  const rate = await getUsdtRate()
-  if (!rate) return { actualizados: 0, rate: null }
+export async function backfillCotizacionesPendientes(): Promise<{ actualizados: number; rate: number | null; pendientes?: number }> {
+  // Timeout largo: acá no hay nadie esperando la respuesta, y CriptoYa puede tardar
+  // ~20s. Con el timeout corto del camino inline, este backfill nunca conseguía
+  // cotización y los movimientos se quedaban en 'pendiente' para siempre.
+  const rate = await getUsdtRate(TIMEOUT_BACKFILL_MS)
 
   const c = getClient()
   const { data: pendientes, error } = await c.from(TABLE).select('id, ars').eq('rate_source', 'pendiente')
   if (error) throw new Error(`backfillCotizaciones falló: ${error.message} [${error.code}]`)
+
+  // Sin cotización no se puede completar nada. Se AVISA en el centro de errores: sin
+  // esto la falla es muda —getBid() se traga la excepción— y solo se nota mirando el
+  // saldo, que muestra "N movimientos sin cotización".
+  if (!rate) {
+    const cuantos = pendientes?.length ?? 0
+    if (cuantos > 0) {
+      try {
+        const logs = await loadLogs()
+        appendError(logs, 'cotizacion', 'warning',
+          `No se pudo obtener la cotización USDT: ${cuantos} movimiento(s) siguen sin valuar. ` +
+          `La API (CriptoYa) no respondió en ${TIMEOUT_BACKFILL_MS / 1000}s. El monto en pesos está bien; ` +
+          `falta el equivalente en USDT y se completa solo cuando la API vuelva.`,
+          { pendientes: cuantos })
+        await saveLogs(logs)
+      } catch { /* el aviso no puede romper el cron */ }
+    }
+    return { actualizados: 0, rate: null, pendientes: cuantos }
+  }
 
   let actualizados = 0
   for (const m of pendientes ?? []) {

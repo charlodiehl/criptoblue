@@ -25,13 +25,26 @@ const MARGEN_VENTA = 0.0075
 const CACHE_TTL_MS = 120_000
 let _cache: { bid: number; at: number } | null = null
 
+// Cuánto se espera a CriptoYa.
+//
+// INLINE (cuando entra un pago): corto a propósito. La función de Vercel se corta a
+// los pocos segundos y hay una request esperando, así que es preferible que el pago
+// entre con la cotización 'pendiente' a que se caiga la request entera.
+//
+// BACKFILL (el cron cada 10 min): puede esperar mucho más, porque no hay nadie del
+// otro lado. Existe por esto: en jul 2026 CriptoYa empezó a tardar ~20s de forma
+// sostenida y con 8s NINGUNA llamada llegaba a completarse, así que los movimientos
+// se acumulaban en 'pendiente' sin que nadie los rescatara.
+export const TIMEOUT_INLINE_MS = 8_000
+export const TIMEOUT_BACKFILL_MS = 30_000
+
 // Precio de venta crudo (bid de Binance P2P). null si la API falla y no hay un valor
 // previo en cache (en ese caso la orden queda 'pendiente' y la completa el backfill).
-async function getBid(): Promise<number | null> {
+async function getBid(timeoutMs = TIMEOUT_INLINE_MS): Promise<number | null> {
   if (_cache && Date.now() - _cache.at < CACHE_TTL_MS) return _cache.bid
   try {
     const ctrl = new AbortController()
-    const timer = setTimeout(() => ctrl.abort(), 8000)
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs)
     const res = await fetch(URL, { signal: ctrl.signal, cache: 'no-store' })
     clearTimeout(timer)
     if (!res.ok) return _cache?.bid ?? null
@@ -47,8 +60,9 @@ async function getBid(): Promise<number | null> {
 }
 
 // ARS por 1 USDT = precio de venta + 0,75%. Para los ingresos por órdenes.
-export async function getUsdtRate(): Promise<number | null> {
-  const bid = await getBid()
+// timeoutMs solo lo pisa el backfill del cron (ver TIMEOUT_BACKFILL_MS).
+export async function getUsdtRate(timeoutMs?: number): Promise<number | null> {
+  const bid = await getBid(timeoutMs)
   return bid == null ? null : bid * (1 + MARGEN_VENTA)
 }
 
