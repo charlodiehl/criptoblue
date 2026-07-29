@@ -1,5 +1,5 @@
 /**
- * ExchangeCopter → CriptoBlue (billetera "Copter MS", unidad de negocio MS)
+ * ExchangeCopter → CriptoBlue (billetera "Copter Hemat", unidad de negocio MS)
  * ────────────────────────────────────────────────────────────────────────────
  * Lee los avisos de transferencia recibida de ExchangeCopter que llegan a
  * blue.finanzas.adm@gmail.com (reenviados automáticamente desde la casilla de
@@ -17,6 +17,21 @@
  * corrida siguiente. El servidor además deduplica por ese mismo id de mensaje,
  * así que un reenvío nunca entra dos veces.
  *
+ * ⚠️ CUOTA DE GMAIL (leer antes de tocar la config)
+ * Una cuenta Gmail común permite ~20.000 operaciones de Gmail por día desde Apps
+ * Script. Pasarse tira "Service invoked too many times for one day: gmail" y el
+ * script deja de mandar pagos hasta el reseteo diario. Pasó el 25/7/2026: la
+ * versión anterior re-etiquetaba TODO lo ya procesado en cada corrida (2 escrituras
+ * por mensaje × ~250 hilos × 288 corridas ≈ 200.000 ops/día).
+ *
+ * Costo por corrida ≈ 1 (search) + 1 por hilo (getMessages). Con esta config:
+ * ~35 hilos (ventana 1d) × 288 corridas ≈ 10.400 ops/día (la mitad de la cuota).
+ * Dos reglas para no volver a agotarla:
+ *   1. NO tocar Gmail para lo ya procesado (nunca re-etiquetar en cada corrida).
+ *   2. La ventana y la frecuencia se compensan entre sí: a 5 minutos la ventana
+ *      tiene que ser 1d. Con newer_than:2d a 5 minutos serían ~20.400 ops/día,
+ *      justo en el límite. Si espaciás el trigger a 10 min, podés usar 2d.
+ *
  * INSTALACIÓN: ver README.md de esta carpeta.
  * ────────────────────────────────────────────────────────────────────────────
  */
@@ -32,20 +47,26 @@ const CONFIG = {
   // frase entre como pago: el secreto lo pone ESTE script, no el email, así que
   // sin el `from:` alcanzaría con mandarle un mail a la casilla para inyectar un
   // pago falso. El reenvío automático conserva el remitente original.
-  QUERY: 'from:info-no-reply@exchangecopter.com "Recibiste una transferencia de" newer_than:7d',
+  // La ventana NO es el dedup (ese lo hace ScriptProperties): es cuánto pasado se
+  // re-escanea en cada corrida, y es lo que fija el costo en cuota de Gmail. Con 1d
+  // la recuperación ante un corte es de 24hs: por eso el activador tiene que estar
+  // en "Notifícame inmediatamente" para enterarse en el momento.
+  QUERY: 'from:info-no-reply@exchangecopter.com "Recibiste una transferencia de" newer_than:1d',
 
   // Etiquetas de seguimiento (el dedup real es por ScriptProperties; estas son
   // para que se vea desde Gmail qué entró y qué hay que mirar a mano).
   LABEL_OK: 'copterok',
   LABEL_REVISAR: 'copter-revisar',
 
-  // Tope de hilos por corrida. Holgado respecto de la ventana de búsqueda: a ~30
-  // avisos por día, 7 días son ~210 hilos, y los ya procesados se saltean rápido.
-  MAX_THREADS: 250,
+  // Tope de hilos por corrida. Con la ventana de 1 día alcanza y sobra.
+  MAX_THREADS: 100,
+
+  // Cada cuántos minutos corre (lo usa crearTrigger). Ver la nota de cuota arriba.
+  MINUTOS_TRIGGER: 5,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Función principal — la que dispara el trigger (cada 5 minutos).
+// Función principal — la que dispara el trigger (ver CONFIG.MINUTOS_TRIGGER).
 // ─────────────────────────────────────────────────────────────────────────────
 function procesarPagosCopter() {
   const props = PropertiesService.getScriptProperties()
@@ -55,17 +76,14 @@ function procesarPagosCopter() {
   const threads = GmailApp.search(CONFIG.QUERY, 0, CONFIG.MAX_THREADS)
   Logger.log('Hilos encontrados: ' + threads.length)
 
-  let nuevos = 0, fallados = 0
+  let nuevos = 0, fallados = 0, yaEnviados = 0
   for (const thread of threads) {
     for (const message of thread.getMessages()) {
       const id = message.getId()
 
-      // Ya enviado: se le pone la etiqueta igual. Sirve de backfill para los
-      // emails que entraron con una versión del script que no etiquetaba.
-      if (props.getProperty('ok_' + id)) {
-        marcarOk(thread, labelOk, labelRevisar)
-        continue
-      }
+      // Ya enviado → saltear SIN tocar Gmail. Antes acá se re-etiquetaba el hilo en
+      // CADA corrida (2 escrituras por mensaje): eso agotaba la cuota diaria.
+      if (props.getProperty('ok_' + id)) { yaEnviados++; continue }
 
       const body = message.getPlainBody() || ''
       // Ignora débitos y otros avisos que caigan en la misma búsqueda.
@@ -105,7 +123,7 @@ function procesarPagosCopter() {
       }
     }
   }
-  Logger.log('Nuevos enviados: ' + nuevos + ' | pendientes de revisar: ' + fallados)
+  Logger.log('Nuevos enviados: ' + nuevos + ' | ya estaban: ' + yaEnviados + ' | a revisar: ' + fallados)
 }
 
 // Marca el hilo como procesado y le saca la etiqueta de revisar (por si venía de
@@ -120,14 +138,14 @@ function obtenerOCrearLabel(nombre) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Ejecutar UNA vez a mano para programar la corrida automática cada 5 minutos.
+// Ejecutar a mano cada vez que se cambie MINUTOS_TRIGGER (reemplaza el anterior).
 // ─────────────────────────────────────────────────────────────────────────────
 function crearTrigger() {
   ScriptApp.getProjectTriggers().forEach(function (t) {
     if (t.getHandlerFunction() === 'procesarPagosCopter') ScriptApp.deleteTrigger(t)
   })
-  ScriptApp.newTrigger('procesarPagosCopter').timeBased().everyMinutes(5).create()
-  Logger.log('Trigger creado: cada 5 minutos.')
+  ScriptApp.newTrigger('procesarPagosCopter').timeBased().everyMinutes(CONFIG.MINUTOS_TRIGGER).create()
+  Logger.log('Trigger creado: cada ' + CONFIG.MINUTOS_TRIGGER + ' minutos.')
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
