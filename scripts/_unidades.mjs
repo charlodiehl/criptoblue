@@ -1,5 +1,11 @@
 // Unidades de negocio, para los scripts de consola.
-// MANTENER EN SYNC con lib/unidad.ts (los scripts no pueden importar TypeScript).
+//
+// MANTENER EN SYNC con lib/unidad.ts, que es la FUENTE (los scripts son .mjs y no
+// pueden importar TypeScript). Esta copia ya se desincronizó una vez: quedó con las
+// billeteras de antes de migrar Copter MS a la unidad MS, y una alta contra una
+// billetera real fallaba con "esta unidad todavía no tiene billeteras".
+// Al tocar UNIDADES[x].wallets en lib/unidad.ts, actualizar acá también.
+// scripts/check-unidades.mjs compara las dos listas y avisa si se separan.
 
 export const UNIDADES = {
   criptoblue: {
@@ -7,14 +13,14 @@ export const UNIDADES = {
     nombre: 'CriptoBlue',
     rol: 'superadmin-criptoblue',
     kvPrefix: 'criptoblue',
-    wallets: ['MF', 'Lacar', 'MS', 'Montemar', 'Copter MS', 'Otras'],
+    wallets: ['MF', 'Lacar', 'MS', 'Montemar', 'Otras'],
   },
   ms: {
     id: 'ms',
     nombre: 'MS',
     rol: 'superadmin-ms',
     kvPrefix: 'ms',
-    wallets: [],
+    wallets: ['Copter Hemat', 'Bitso FluoGames', 'Otras'],
   },
 }
 

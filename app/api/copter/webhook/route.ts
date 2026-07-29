@@ -7,14 +7,14 @@ import { runEnUnidad, unidadDeBilletera, cutoffPagos, unidadActiva } from '@/lib
 import { abrirAuditoria } from '@/lib/webhook-audit'
 
 const LOCK_HOLDER = 'copter-webhook'
-const BILLETERA = 'Copter MS'
+const BILLETERA = 'Copter Hemat'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Pagos de ExchangeCopter que entran por EMAIL. Un Google Apps Script en la casilla
 // blue.finanzas.adm@gmail.com (donde llegan reenviados) lee cada mail de transferencia
 // recibida y hace POST acá con { asunto, cuerpo, fechaISO, messageId }. El parseo del
 // pagador y el monto se hace server-side (así se ajusta sin tocar el script). El pago
-// entra a la cola con billetera "Copter MS" y la FECHA DEL EMAIL. La ruta es pública
+// entra a la cola con billetera "Copter Hemat" y la FECHA DEL EMAIL. La ruta es pública
 // (proxy.ts) porque la llama un servicio externo; se valida por secret propio.
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -48,7 +48,7 @@ function parsearCuerpo(cuerpo: string, asunto: string): { titular: string; monto
 }
 
 // El webhook llega SIN sesión, así que la unidad de negocio no sale del usuario:
-// sale de a qué unidad pertenece la billetera. El día que "Copter MS" se mueva de
+// sale de a qué unidad pertenece la billetera. El día que "Copter Hemat" se mueva de
 // unidad, sus pagos la siguen solos — no hay que tocar nada acá.
 export async function POST(req: NextRequest) {
   const unidad = unidadDeBilletera(BILLETERA)

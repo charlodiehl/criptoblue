@@ -17,6 +17,7 @@
 
 import { readFileSync, readdirSync, statSync } from 'fs'
 import { join } from 'path'
+import { UNIDADES as UNIDADES_SCRIPTS } from './_unidades.mjs'
 
 // ── Qué cuenta como "operación de datos" ─────────────────────────────────────
 // Módulos cuyo estado vive en kv_store o en tablas por unidad: TODA función
@@ -138,6 +139,32 @@ for (const p of archivos('lib', /\.ts$/)) {
   if (CLIENTES_PERMITIDOS.has(p)) continue
   if (/SUPABASE_SERVICE_KEY/.test(readFileSync(p, 'utf8'))) {
     fallas.push(`${p} — se fabrica su propio cliente con la service key: usá getClient() de lib/storage`)
+  }
+}
+
+// ── La copia de las unidades que usan los scripts, contra la fuente ──────────
+// scripts/_unidades.mjs duplica UNIDADES porque los .mjs no pueden importar el .ts.
+// Ya se desincronizó una vez (quedó con las billeteras de antes de migrar Copter MS
+// a la unidad MS) y un alta contra una billetera real fallaba con "esta unidad
+// todavía no tiene billeteras". Se comparan las listas de wallets de las dos.
+{
+  const ts = readFileSync('lib/unidad.ts', 'utf8')
+  // Cada bloque de unidad del .ts: su id y su lista de wallets.
+  const enTs = {}
+  for (const m of ts.matchAll(/^\s{2}(\w+):\s*\{[\s\S]*?wallets:\s*\[([^\]]*)\]/gm)) {
+    enTs[m[1]] = m[2].split(',').map(s => s.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean)
+  }
+  for (const [id, u] of Object.entries(UNIDADES_SCRIPTS)) {
+    const esperado = enTs[id]
+    if (!esperado) { fallas.push(`scripts/_unidades.mjs — la unidad "${id}" no existe en lib/unidad.ts`); continue }
+    const a = [...u.wallets].sort().join(', ')
+    const b = [...esperado].sort().join(', ')
+    if (a !== b) {
+      fallas.push(`scripts/_unidades.mjs — billeteras de "${id}" desincronizadas con lib/unidad.ts\n       scripts: [${a}]\n       lib:     [${b}]`)
+    }
+  }
+  for (const id of Object.keys(enTs)) {
+    if (!UNIDADES_SCRIPTS[id]) fallas.push(`scripts/_unidades.mjs — falta la unidad "${id}" que sí está en lib/unidad.ts`)
   }
 }
 
