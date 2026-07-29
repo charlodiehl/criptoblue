@@ -16,7 +16,7 @@ const BILLETERA = 'MS'
 async function registrarErrorPago(message: string, context?: Record<string, unknown>, level: 'error' | 'warning' = 'error') {
   // En modo fachada no se guarda NADA de lo que llega por acá, ni siquiera los avisos
   // de error: su contexto lleva monto y titular del pago. Los pagos reales de MS
-  // entran por email (/api/ms/webhook) y ese es el que avisa si algo falla.
+  // entran por email (/api/lbfinanzas/webhook) y ese es el que avisa si algo falla.
   if (NOTIFICADOR_SOLO_ACK) return
   try {
     const logs = await loadLogs()

@@ -38,6 +38,7 @@ function isPublicRoute(pathname: string): boolean {
     || pathname.startsWith('/api/notificador/webhook') // valida por su propio secreto (servicio externo)
     || pathname.startsWith('/api/copter/webhook')      // pagos de ExchangeCopter por email (secret propio)
     || pathname.startsWith('/api/bitso/webhook')       // pagos de Bitso por email (secret propio)
+    || pathname.startsWith('/api/lbfinanzas/webhook')  // pagos de LB Finanzas (billetera MS) por email
     || pathname.startsWith('/api/v1/')          // API pública por tienda (auth propia por API key)
     // Fiwind y Montemar desconectados (jul 2026): sus webhooks se eliminaron.
 }

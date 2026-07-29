@@ -44,6 +44,10 @@ export const PAYMENT_SOURCE_NAMES: Record<string, string> = {
   // Los pagos que manda directo el sistema de "Notificador" (webhook a webhook)
   // son de la billetera "MS".
   notificador: 'MS',
+  // Los pagos de LB Finanzas entran por email a la misma billetera "MS": es el
+  // mismo dinero, cambia por dónde nos enteramos. El source se conserva distinto
+  // para no perder la trazabilidad del origen.
+  lbfinanzas: 'MS',
   // Los pagos de Montemar pay entran por email (Apps Script → webhook, igual que
   // Fiwind) a la billetera "Montemar".
   montemar: 'Montemar',
@@ -99,6 +103,7 @@ export const PAYMENT_SOURCE_TO_WALLET: Record<string, string> = {
   fiwind: 'MF',
   lacar: 'Lacar',
   notificador: 'MS',
+  lbfinanzas: 'MS',
   montemar: 'Montemar',
   copter: 'Copter Hemat',
   bitso: 'Bitso FluoGames',
@@ -119,7 +124,7 @@ export const WALLETS_SIN_VENCIMIENTO: readonly string[] = ['Lacar', 'MS', 'Copte
 export const MERCADOPAGO_ACTIVO = false
 
 // ─── Notificador en modo FACHADA ─────────────────────────────────────────────
-// Los pagos de la billetera "MS" pasan a entrar por EMAIL (/api/ms/webhook), igual
+// Los pagos de la billetera "MS" pasan a entrar por EMAIL (/api/lbfinanzas/webhook),
 // que Copter y Bitso. Pero el bot de Notificador sigue posteando a su webhook y no
 // se lo quiere desconectar: en true, ese endpoint VALIDA e INTERPRETA el pago y
 // responde exactamente lo mismo de siempre —incluido el bloque `interpretado`, para
@@ -127,7 +132,7 @@ export const MERCADOPAGO_ACTIVO = false
 // auditoría.
 //
 // OJO CON EL ORDEN: mientras esto esté en true, el ÚNICO registro de los pagos de MS
-// es el del email. Poner en true SOLO después de verificar que /api/ms/webhook está
+// es el del email. Poner en true SOLO después de verificar que ese endpoint está
 // cargando los pagos; si no, se pierden en silencio (MS es la billetera de mayor
 // volumen). Volver a false lo reactiva sin más.
 export const NOTIFICADOR_SOLO_ACK = false
