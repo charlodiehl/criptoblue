@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ARS, fmtDate } from '@/lib/utils'
 import MontoInput from '@/components/MontoInput'
-import BotonComprobante from './BotonComprobante'
 import DetalleReembolsoModal from './DetalleReembolsoModal'
 import { BotonDetalle } from './DetalleUI'
 import type { RefundRequest } from '@/lib/types'
@@ -225,12 +224,8 @@ export default function SolicitarReembolsoTab({ qs, notify }: Props) {
                         Solicitado por: <span style={{ color: 'rgba(148,163,184,0.75)' }}>{s.createdBy}</span>
                       </div>
                     )}
-                    {/* Reembolsada → descargar el comprobante del reembolso ejecutado. */}
-                    {s.estado === 'procesada' && s.refundId && s.comprobanteDisponible && (
-                      <div className="mt-3">
-                        <BotonComprobante href={`/api/tienda/comprobante-reembolso?id=${s.refundId}${qs ? `&${qs.slice(1)}` : ''}`} />
-                      </div>
-                    )}
+                    {/* El comprobante se descarga desde el detalle (ⓘ), no acá: la
+                        tarjeta queda limpia y toda la info de la solicitud vive junta. */}
                   </motion.div>
                 )
               })}
