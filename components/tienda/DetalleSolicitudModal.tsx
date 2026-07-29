@@ -5,6 +5,7 @@ import { fmtDate } from '@/lib/utils'
 import { TIPO_LABEL, camposDeSolicitud, montoDeSolicitud } from '@/lib/transferencias-ui'
 import type { TransferRequest } from '@/lib/types'
 import BotonComprobante from './BotonComprobante'
+import { Bloque, Linea } from './DetalleUI'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Detalle de UNA solicitud de transferencia, tal como la cargó la tienda.
@@ -123,24 +124,6 @@ export default function DetalleSolicitudModal({ solicitud: s, qs, onClose }: Pro
           )}
         </div>
       </motion.div>
-    </div>
-  )
-}
-
-function Bloque({ titulo, children }: { titulo: string; children: React.ReactNode }) {
-  return (
-    <div className="rounded-xl p-3.5" style={{ background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(148,163,184,0.1)' }}>
-      <p className="text-[10px] font-semibold uppercase tracking-widest mb-2.5" style={{ color: 'rgba(0,212,255,0.7)' }}>{titulo}</p>
-      {children}
-    </div>
-  )
-}
-
-function Linea({ label, valor }: { label: string; valor: string }) {
-  return (
-    <div className="flex items-start justify-between gap-4 text-xs">
-      <span className="shrink-0" style={{ color: 'rgba(148,163,184,0.65)' }}>{label}</span>
-      <span className="text-right break-all font-medium" style={{ color: 'rgba(226,232,240,0.92)' }}>{valor}</span>
     </div>
   )
 }

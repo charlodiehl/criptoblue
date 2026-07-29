@@ -4,7 +4,7 @@ import { isPaymentAlreadyUsed } from '@/lib/registro'
 import type { Payment, UnmatchedPayment } from '@/lib/types'
 import { nowART } from '@/lib/utils'
 import { runEnUnidad, unidadDeBilletera, cutoffPagos, unidadActiva } from '@/lib/unidad'
-import { abrirAuditoria } from '@/lib/webhook-audit'
+import { NOTIFICADOR_SOLO_ACK } from '@/lib/config'
 
 const LOCK_HOLDER = 'notificador-webhook'
 const BILLETERA = 'MS'
@@ -14,6 +14,10 @@ const BILLETERA = 'MS'
 // requests con el secret válido — así los escaneos anónimos a la URL pública no
 // generan ruido. No bloquea la respuesta si el logging falla.
 async function registrarErrorPago(message: string, context?: Record<string, unknown>, level: 'error' | 'warning' = 'error') {
+  // En modo fachada no se guarda NADA de lo que llega por acá, ni siquiera los avisos
+  // de error: su contexto lleva monto y titular del pago. Los pagos reales de MS
+  // entran por email (/api/ms/webhook) y ese es el que avisa si algo falla.
+  if (NOTIFICADOR_SOLO_ACK) return
   try {
     const logs = await loadLogs()
     appendError(logs, 'notificador', level, message, context)
@@ -70,28 +74,22 @@ export async function POST(req: NextRequest) {
 }
 
 async function procesar(req: NextRequest) {
-  // El cuerpo se lee PRIMERO para poder auditar el payload crudo aunque después
-  // falle el secret o el parseo: sin el payload no se puede reconstruir el pago.
   const body = await req.json().catch(() => null)
-  const audit = await abrirAuditoria('notificador', req, body)
   try {
     const expected = process.env.NOTIFICADOR_WEBHOOK_SECRET
     if (!expected) {
       // Config nuestra: sin el secret, ningún pago de Notificador puede entrar.
       await registrarErrorPago('NOTIFICADOR_WEBHOOK_SECRET no configurado en el servidor — ningún pago de Notificador puede procesarse')
-      return audit.cerrar('error', 'NOTIFICADOR_WEBHOOK_SECRET no configurado en el servidor',
-        NextResponse.json({ error: 'NOTIFICADOR_WEBHOOK_SECRET no configurado en el servidor' }, { status: 500 }))
+      return NextResponse.json({ error: 'NOTIFICADOR_WEBHOOK_SECRET no configurado en el servidor' }, { status: 500 })
     }
 
     if (!body || typeof body !== 'object') {
       // Sin secret validado todavía → podría ser un escaneo. No se registra.
-      return audit.cerrar('rechazado', 'El cuerpo no es un JSON válido',
-        NextResponse.json({ error: 'JSON inválido' }, { status: 400 }))
+      return NextResponse.json({ error: 'JSON inválido' }, { status: 400 })
     }
 
     const { evento, datos } = body
     const secret = extraerSecret(req, body)
-    audit.datos({ idExterno: datos?.id_transaccion, monto: datos?.monto, titular: datos?.titular, fechaOperacion: datos?.fecha_operacion })
 
     if (!secret || secret !== expected) {
       // Un escaneo anónimo no trae un ingreso válido → no se registra (evita ruido).
@@ -103,8 +101,7 @@ async function procesar(req: NextRequest) {
           { id_transaccion: datos?.id_transaccion, monto: datos?.monto, titular: datos?.titular },
         )
       }
-      return audit.cerrar('rechazado', 'Secret inválido o ausente',
-        NextResponse.json({ error: 'No autorizado' }, { status: 401 }))
+      return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
     }
 
     // ── A partir de acá el request está autenticado: cualquier fallo es un pago
@@ -115,54 +112,63 @@ async function procesar(req: NextRequest) {
     // llega un pago con el evento mal puesto y se estaría perdiendo sin darnos cuenta.
     if (evento !== 'nuevo_ingreso') {
       await registrarErrorPago(`Webhook de Notificador con evento no procesado: "${evento}"`, { evento, datos }, 'warning')
-      return audit.cerrar('ignorado', `El evento no es 'nuevo_ingreso' (llegó: "${evento}")`,
-        NextResponse.json({ success: true, skipped: true, reason: `Evento ignorado (no es nuevo_ingreso): ${evento}` }))
+      return NextResponse.json({ success: true, skipped: true, reason: `Evento ignorado (no es nuevo_ingreso): ${evento}` })
     }
     if (!datos || typeof datos !== 'object') {
       await registrarErrorPago('Pago de Notificador sin el objeto "datos"', { evento })
-      return audit.cerrar('rechazado', 'Vino sin el objeto "datos"',
-        NextResponse.json({ error: 'datos requerido' }, { status: 400 }))
+      return NextResponse.json({ error: 'datos requerido' }, { status: 400 })
     }
 
     const { id_transaccion, monto, titular, cbu_cvu, fecha_operacion } = datos
 
     if (!id_transaccion) {
       await registrarErrorPago('Pago de Notificador sin id_transaccion', { titular, monto, fecha_operacion })
-      return audit.cerrar('rechazado', 'Vino sin id_transaccion',
-        NextResponse.json({ error: 'datos.id_transaccion requerido' }, { status: 400 }))
+      return NextResponse.json({ error: 'datos.id_transaccion requerido' }, { status: 400 })
     }
     const montoNum = Number(monto)
     if (!Number.isFinite(montoNum) || montoNum <= 0) {
       await registrarErrorPago(`Pago de Notificador con monto inválido: "${monto}"`, { id_transaccion, titular, monto })
-      return audit.cerrar('rechazado', `Monto inválido: "${monto}"`,
-        NextResponse.json({ error: 'datos.monto inválido' }, { status: 400 }))
+      return NextResponse.json({ error: 'datos.monto inválido' }, { status: 400 })
     }
     const fecha = new Date(fecha_operacion)
     if (isNaN(fecha.getTime())) {
       await registrarErrorPago(`Pago de Notificador con fecha inválida: "${fecha_operacion}"`, { id_transaccion, titular, monto: montoNum })
-      return audit.cerrar('rechazado', `Fecha de operación inválida: "${fecha_operacion}"`,
-        NextResponse.json({ error: 'datos.fecha_operacion inválida' }, { status: 400 }))
+      return NextResponse.json({ error: 'datos.fecha_operacion inválida' }, { status: 400 })
     }
     const fechaISO = fecha.toISOString()
 
+    // ── Modo FACHADA (ver NOTIFICADOR_SOLO_ACK en lib/config.ts) ──────────────
+    // El bot sigue posteando acá y se le responde exactamente lo mismo de siempre
+    // —mismo `interpretado`, para que del otro lado nada cambie— pero el pago NO se
+    // guarda: los de MS entran por email. Se corta ACÁ y no antes a propósito: el
+    // payload ya está validado e interpretado, así la respuesta sigue siendo cierta
+    // sobre lo que se entendió. Nada de lo de arriba escribe (registrarErrorPago
+    // también está silenciado en este modo).
+    if (NOTIFICADOR_SOLO_ACK) {
+      return NextResponse.json({
+        success: true,
+        mpPaymentId: `notificador-${id_transaccion}`,
+        interpretado: {
+          fecha: fechaISO,
+          titular: typeof titular === 'string' ? titular.trim() : '',
+          monto: montoNum,
+        },
+      })
+    }
+
     // Corte de la unidad: nada anterior entra. Si se reenvía un pago viejo, se
-    // responde OK (para que no reintente eternamente) pero NO se carga, y queda
-    // en la auditoría con el motivo.
+    // responde OK (para que no reintente eternamente) pero NO se carga.
     if (fecha.getTime() < cutoffPagos().getTime()) {
-      return audit.cerrar('ignorado',
-        `Anterior al corte de ${unidadActiva().nombre} (${cutoffPagos().toISOString()})`,
-        NextResponse.json({ success: true, skipped: true, reason: 'anterior al corte de la unidad' }))
+      return NextResponse.json({ success: true, skipped: true, reason: 'anterior al corte de la unidad' })
     }
 
     // id_transaccion es el identificador único que ya asigna su sistema — lo
     // usamos directo, sin necesidad de generar un hash propio.
     const paymentId = `notificador-${id_transaccion}`
 
-    audit.datos({ paymentId })
     if (await isPaymentAlreadyUsed(paymentId)) {
       // 200 pero NO se carga. Este era uno de los dos caminos que no dejaban rastro.
-      return audit.cerrar('duplicado', `El id_transaccion ${id_transaccion} ya figura emparejado en el registro`,
-        NextResponse.json({ success: true, duplicate: true, reason: 'ya emparejado en el registro' }))
+      return NextResponse.json({ success: true, duplicate: true, reason: 'ya emparejado en el registro' })
     }
 
     // Se REINTENTA tomar el lock unos segundos: casi siempre se libera enseguida
@@ -177,8 +183,7 @@ async function procesar(req: NextRequest) {
         `No se pudo procesar el pago de Notificador ${paymentId} ($${montoNum} · ${titular || 'sin titular'}): el sistema quedó ocupado. Recuperarlo a mano si Notificador no reintenta.`,
         { id_transaccion, monto: montoNum, titular, cbu_cvu, fecha: fechaISO, paymentId },
       )
-      return audit.cerrar('error', 'El sistema quedó ocupado (no se pudo tomar el lock en 6s)',
-        NextResponse.json({ error: 'El sistema está procesando otra operación. Reintentá en unos segundos.' }, { status: 409 }))
+      return NextResponse.json({ error: 'El sistema está procesando otra operación. Reintentá en unos segundos.' }, { status: 409 })
     }
     try {
       const [hot, logs] = await Promise.all([loadHotState(), loadLogs()])
@@ -188,8 +193,7 @@ async function procesar(req: NextRequest) {
       )
       if (yaEnCola) {
         // El otro camino que respondía 200 sin dejar rastro.
-        return audit.cerrar('duplicado', `El id_transaccion ${id_transaccion} ya estaba en la cola de pagos`,
-          NextResponse.json({ success: true, duplicate: true, reason: 'ya estaba en la cola' }))
+        return NextResponse.json({ success: true, duplicate: true, reason: 'ya estaba en la cola' })
       }
 
       const payment: Payment = {
@@ -222,18 +226,17 @@ async function procesar(req: NextRequest) {
 
       // Se devuelve lo que el sistema interpretó — les sirve para confirmar de
       // su lado que el parseo de fecha/monto/titular fue correcto.
-      return audit.cerrar('aceptado', 'Pago agregado a la cola', NextResponse.json({
+      return NextResponse.json({
         success: true,
         mpPaymentId: paymentId,
         interpretado: { fecha: fechaISO, titular: payment.nombrePagador, monto: montoNum },
-      }))
+      })
     } finally {
       await releaseLock(LOCK_HOLDER)
     }
   } catch (err) {
     // Fallo inesperado (Supabase caído, etc.) — se registra para no perderlo.
     await registrarErrorPago(`Error inesperado procesando un pago de Notificador: ${String(err)}`)
-    return audit.cerrar('error', `Excepción inesperada: ${String(err)}`,
-      NextResponse.json({ error: String(err) }, { status: 500 }))
+    return NextResponse.json({ error: String(err) }, { status: 500 })
   }
 }

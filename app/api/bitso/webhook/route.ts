@@ -4,7 +4,6 @@ import { isPaymentAlreadyUsed } from '@/lib/registro'
 import type { Payment, UnmatchedPayment } from '@/lib/types'
 import { nowART } from '@/lib/utils'
 import { runEnUnidad, unidadDeBilletera, cutoffPagos, unidadActiva } from '@/lib/unidad'
-import { abrirAuditoria } from '@/lib/webhook-audit'
 
 const LOCK_HOLDER = 'bitso-webhook'
 const BILLETERA = 'Bitso FluoGames'
@@ -126,21 +125,16 @@ export async function POST(req: NextRequest) {
 }
 
 async function procesar(req: NextRequest) {
-  // El cuerpo se lee PRIMERO para poder auditar el payload crudo aunque después
-  // falle el secret o el parseo: sin el payload no se puede reconstruir el pago.
   const body = await req.json().catch(() => null)
-  const audit = await abrirAuditoria('bitso', req, body)
   try {
     const expected = process.env.BITSO_WEBHOOK_SECRET
     if (!expected) {
       await registrarErrorPago('BITSO_WEBHOOK_SECRET no configurado en el servidor — ningún pago de Bitso puede procesarse')
-      return audit.cerrar('error', 'BITSO_WEBHOOK_SECRET no configurado en el servidor',
-        NextResponse.json({ error: 'BITSO_WEBHOOK_SECRET no configurado en el servidor' }, { status: 500 }))
+      return NextResponse.json({ error: 'BITSO_WEBHOOK_SECRET no configurado en el servidor' }, { status: 500 })
     }
 
     if (!body || typeof body !== 'object') {
-      return audit.cerrar('rechazado', 'El cuerpo no es un JSON válido',
-        NextResponse.json({ error: 'JSON inválido' }, { status: 400 }))
+      return NextResponse.json({ error: 'JSON inválido' }, { status: 400 })
     }
 
     // Secret por header (Bearer o X-Webhook-Secret) o en el body.
@@ -155,14 +149,12 @@ async function procesar(req: NextRequest) {
         await registrarErrorPago('Llegó un pago de Bitso con SECRET inválido — NO se procesó. Revisar BITSO_WEBHOOK_SECRET.',
           { messageId: body.messageId })
       }
-      return audit.cerrar('rechazado', 'Secret inválido o ausente',
-        NextResponse.json({ error: 'No autorizado' }, { status: 401 }))
+      return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
     }
 
     // A partir de acá el request está autenticado: cualquier fallo es un pago real
     // que se registra en el centro de errores para no perderlo.
     const { asunto, cuerpo, cuerpoHtml, messageId } = body
-    audit.datos({ idExterno: typeof messageId === 'string' ? messageId : null })
 
     // Se parsea el texto plano; si viniera vacío se cae al HTML aplastado a texto.
     const plano = String(cuerpo || '')
@@ -171,55 +163,45 @@ async function procesar(req: NextRequest) {
 
     if (!datos) {
       await registrarErrorPago('No se pudo extraer los datos del email de Bitso', { messageId, asunto, cuerpo: plano.slice(0, 400) })
-      return audit.cerrar('rechazado', 'No se pudo extraer identificador ni monto del cuerpo del email',
-        NextResponse.json({ error: 'No se pudo parsear el email' }, { status: 400 }))
+      return NextResponse.json({ error: 'No se pudo parsear el email' }, { status: 400 })
     }
 
-    audit.datos({ idExterno: datos.identificador, monto: datos.monto, titular: datos.remitente, fechaOperacion: datos.fecha?.toISOString() })
 
     if (!Number.isFinite(datos.monto) || datos.monto <= 0) {
       await registrarErrorPago(`Pago de Bitso con monto inválido: "${datos.monto}"`, { messageId, ...datos })
-      return audit.cerrar('rechazado', `Monto inválido: "${datos.monto}"`,
-        NextResponse.json({ error: 'Monto inválido' }, { status: 400 }))
+      return NextResponse.json({ error: 'Monto inválido' }, { status: 400 })
     }
 
     // La app lleva los saldos en pesos: un aviso en otra moneda NO se carga como si
     // fueran ARS. Se avisa en el centro de errores para resolverlo a mano.
     if (datos.moneda !== 'ARS') {
       await registrarErrorPago(`Llegó un pago de Bitso en ${datos.moneda} (${datos.monto}) — NO se cargó: la billetera opera en ARS.`, { messageId, ...datos })
-      return audit.cerrar('rechazado', `Moneda no soportada: ${datos.moneda} (la billetera opera en ARS)`,
-        NextResponse.json({ error: `Moneda no soportada: ${datos.moneda}` }, { status: 400 }))
+      return NextResponse.json({ error: `Moneda no soportada: ${datos.moneda}` }, { status: 400 })
     }
 
     // Solo acreditaciones confirmadas.
     if (datos.estado && !/completad/i.test(datos.estado)) {
-      return audit.cerrar('ignorado', `El estado no es "Completado" (llegó: "${datos.estado}")`,
-        NextResponse.json({ success: true, skipped: true, reason: `estado ${datos.estado}` }))
+      return NextResponse.json({ success: true, skipped: true, reason: `estado ${datos.estado}` })
     }
 
     const fecha = datos.fecha
     if (!fecha) {
       await registrarErrorPago('Pago de Bitso sin fecha legible', { messageId, ...datos })
-      return audit.cerrar('rechazado', 'No se pudo leer la fecha y hora del email',
-        NextResponse.json({ error: 'Fecha inválida' }, { status: 400 }))
+      return NextResponse.json({ error: 'Fecha inválida' }, { status: 400 })
     }
 
     // Corte de la unidad: nada anterior entra. Se responde OK para que no reintente
-    // eternamente, pero NO se carga, y queda en la auditoría con el motivo.
+    // eternamente, pero NO se carga.
     if (fecha.getTime() < cutoffPagos().getTime()) {
-      return audit.cerrar('ignorado',
-        `Anterior al corte de ${unidadActiva().nombre} (${cutoffPagos().toISOString()})`,
-        NextResponse.json({ success: true, skipped: true, reason: 'anterior al corte de la unidad' }))
+      return NextResponse.json({ success: true, skipped: true, reason: 'anterior al corte de la unidad' })
     }
 
     // Id del pago: el identificador de Bitso, no el del email. Así un reenvío del
     // mismo aviso no puede entrar dos veces.
     const paymentId = `bitso-${datos.identificador}`
-    audit.datos({ paymentId })
 
     if (await isPaymentAlreadyUsed(paymentId)) {
-      return audit.cerrar('duplicado', `El identificador ${datos.identificador} ya figura emparejado en el registro`,
-        NextResponse.json({ success: true, duplicate: true, reason: 'ya emparejado en el registro' }))
+      return NextResponse.json({ success: true, duplicate: true, reason: 'ya emparejado en el registro' })
     }
 
     const locked = await waitForLock(LOCK_HOLDER, `pago ${paymentId}`, 6000, 400)
@@ -227,14 +209,12 @@ async function procesar(req: NextRequest) {
       await registrarErrorPago(
         `No se pudo procesar el pago de Bitso ${paymentId} ($${datos.monto} · ${datos.remitente || 'sin remitente'}): el sistema quedó ocupado. Recuperarlo a mano si no reintenta.`,
         { messageId, ...datos, paymentId })
-      return audit.cerrar('error', 'El sistema quedó ocupado (no se pudo tomar el lock en 6s)',
-        NextResponse.json({ error: 'El sistema está procesando otra operación. Reintentá en unos segundos.' }, { status: 409 }))
+      return NextResponse.json({ error: 'El sistema está procesando otra operación. Reintentá en unos segundos.' }, { status: 409 })
     }
     try {
       const [hot, logs] = await Promise.all([loadHotState(), loadLogs()])
       if (hot.unmatchedPayments.some(u => (u.payment?.mpPaymentId || u.mpPaymentId) === paymentId)) {
-        return audit.cerrar('duplicado', `El identificador ${datos.identificador} ya estaba en la cola de pagos`,
-          NextResponse.json({ success: true, duplicate: true, reason: 'ya estaba en la cola' }))
+        return NextResponse.json({ success: true, duplicate: true, reason: 'ya estaba en la cola' })
       }
 
       const payment: Payment = {
@@ -256,16 +236,15 @@ async function procesar(req: NextRequest) {
       appendActivity(logs, 'system', 'bitso_pago_recibido', { monto: datos.monto, titular: datos.remitente })
       await Promise.all([saveHotState(hot), saveLogs(logs)])
 
-      return audit.cerrar('aceptado', 'Pago agregado a la cola', NextResponse.json({
+      return NextResponse.json({
         success: true, mpPaymentId: paymentId,
         interpretado: { fecha: fecha.toISOString(), titular: datos.remitente, monto: datos.monto, moneda: datos.moneda },
-      }))
+      })
     } finally {
       await releaseLock(LOCK_HOLDER)
     }
   } catch (err) {
     await registrarErrorPago(`Error inesperado procesando un pago de Bitso: ${String(err)}`)
-    return audit.cerrar('error', `Excepción inesperada: ${String(err)}`,
-      NextResponse.json({ error: String(err) }, { status: 500 }))
+    return NextResponse.json({ error: String(err) }, { status: 500 })
   }
 }

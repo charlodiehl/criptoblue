@@ -118,6 +118,20 @@ export const WALLETS_SIN_VENCIMIENTO: readonly string[] = ['Lacar', 'MS', 'Copte
 // poner en true y MP vuelve a ingresar pagos a la cola.
 export const MERCADOPAGO_ACTIVO = false
 
+// ─── Notificador en modo FACHADA ─────────────────────────────────────────────
+// Los pagos de la billetera "MS" pasan a entrar por EMAIL (/api/ms/webhook), igual
+// que Copter y Bitso. Pero el bot de Notificador sigue posteando a su webhook y no
+// se lo quiere desconectar: en true, ese endpoint VALIDA e INTERPRETA el pago y
+// responde exactamente lo mismo de siempre —incluido el bloque `interpretado`, para
+// que del otro lado nada cambie— pero NO guarda nada: ni cola, ni actividad, ni
+// auditoría.
+//
+// OJO CON EL ORDEN: mientras esto esté en true, el ÚNICO registro de los pagos de MS
+// es el del email. Poner en true SOLO después de verificar que /api/ms/webhook está
+// cargando los pagos; si no, se pierden en silencio (MS es la billetera de mayor
+// volumen). Volver a false lo reactiva sin más.
+export const NOTIFICADOR_SOLO_ACK = false
+
 // NOTA: acá vivía el circuito de "terceros" (Hemat + Copter MS), que mantenía sus
 // órdenes y pagos separados del resto DENTRO de la misma app: fuera de las métricas,
 // en pestañas aparte y emparejando solo entre ellos. Se retiró en jul 2026: ahora

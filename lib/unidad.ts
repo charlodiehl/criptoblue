@@ -236,5 +236,4 @@ export const TABLAS_POR_UNIDAD: ReadonlySet<string> = new Set([
   'transfer_requests',
   'store_api_keys',
   'api_audit_log',
-  'webhook_ingresos',
 ])

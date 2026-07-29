@@ -5,6 +5,8 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { ARS, fmtDate } from '@/lib/utils'
 import MontoInput from '@/components/MontoInput'
 import BotonComprobante from './BotonComprobante'
+import DetalleReembolsoModal from './DetalleReembolsoModal'
+import { BotonDetalle } from './DetalleUI'
 import type { RefundRequest } from '@/lib/types'
 import type { Toast } from './TiendaPortal'
 
@@ -34,6 +36,8 @@ const ESTADO_LABEL: Record<RefundRequest['estado'], { txt: string; style: React.
 }
 
 export default function SolicitarReembolsoTab({ qs, notify }: Props) {
+  // Solicitud cuyo detalle se está mirando (null = modal cerrado).
+  const [detalle, setDetalle] = useState<RefundRequest | null>(null)
   const [orden, setOrden] = useState('')
   const [buscando, setBuscando] = useState(false)
   const [resultado, setResultado] = useState<OrdenResult | null>(null)
@@ -207,7 +211,11 @@ export default function SolicitarReembolsoTab({ qs, notify }: Props) {
                         <span className="text-sm font-semibold" style={{ color: 'rgba(226,232,240,0.9)' }}>Orden #{s.orderNumber}</span>
                         {s.montoSolicitado != null && <span className="text-sm font-bold" style={{ color: '#00d4ff' }}>{ARS.format(s.montoSolicitado)}</span>}
                       </div>
-                      <span className="text-[11px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wide" style={est.style}>{est.txt}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wide" style={est.style}>{est.txt}</span>
+                        {/* Ver los datos con los que se cargó (sirve igual si está pendiente o ya resuelta). */}
+                        <BotonDetalle onClick={() => setDetalle(s)} />
+                      </div>
                     </div>
                     <div className="text-[11px] mt-1.5" style={{ color: 'rgba(148,163,184,0.5)' }}>
                       Solicitada: {fmtDate(s.createdAt)}{s.processedAt ? ` · Resuelta: ${fmtDate(s.processedAt)}` : ''}
@@ -230,6 +238,10 @@ export default function SolicitarReembolsoTab({ qs, notify }: Props) {
           </div>
         )}
       </div>
+
+      {detalle && (
+        <DetalleReembolsoModal solicitud={detalle} qs={qs} onClose={() => setDetalle(null)} />
+      )}
     </div>
   )
 }

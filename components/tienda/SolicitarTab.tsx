@@ -6,6 +6,7 @@ import MontoInput from '@/components/MontoInput'
 import ConceptoInput from '@/components/ConceptoInput'
 import BotonComprobante from './BotonComprobante'
 import DetalleSolicitudModal from './DetalleSolicitudModal'
+import { BotonDetalle } from './DetalleUI'
 import type { TransferRequest, TransferTipo } from '@/lib/types'
 import { TIPO_LABEL, montoDeSolicitud } from '@/lib/transferencias-ui'
 import type { Toast } from './TiendaPortal'
@@ -242,13 +243,7 @@ export default function SolicitarTab({ qs, notify }: Props) {
                       {s.estado === 'pagada' ? 'Pagada' : s.estado === 'rechazada' ? 'Rechazada' : 'Pendiente'}
                     </span>
                     {/* Ver los datos con los que se cargó (sirve igual si está pendiente o ya pagada). */}
-                    <button onClick={() => setDetalle(s)} aria-label="Ver detalles" title="Ver detalles"
-                      className="flex items-center justify-center rounded-lg transition-all shrink-0"
-                      style={{ width: 30, height: 30, background: 'rgba(0,212,255,0.08)', border: '1px solid rgba(0,212,255,0.3)', color: '#00d4ff', cursor: 'pointer' }}>
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
-                        <circle cx="12" cy="12" r="9" /><line x1="12" y1="11" x2="12" y2="16" /><line x1="12" y1="7.5" x2="12" y2="7.6" />
-                      </svg>
-                    </button>
+                    <BotonDetalle onClick={() => setDetalle(s)} />
                   </div>
                 </div>
                 <div className="text-[11px] mt-1.5" style={{ color: 'rgba(148,163,184,0.5)' }}>
