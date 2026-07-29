@@ -74,7 +74,7 @@ export const UNIDADES: Record<UnidadId, Unidad> = {
     // 'Copter MS' pasó acá en la migración de jul 2026 (antes era una "billetera de
     // terceros" dentro de CriptoBlue). 'Otras' es el cajón de pagos manuales sueltos,
     // que toda unidad necesita.
-    wallets: ['Copter MS', 'Otras'],
+    wallets: ['Copter MS', 'Bitso FluoGames', 'Otras'],
     // MS arranca de cero el 27/07/2026 00:00 ART: lo anterior se borró y no vuelve
     // a entrar. Las tres fechas son la misma porque la unidad empieza ahí.
     cutoffs: {

@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// Auditoría de los webhooks de pagos (Notificador, Copter).
+// Auditoría de los webhooks de pagos (Notificador, Copter, Bitso).
 //
 // Deja rastro de TODA request, entre o no entre el pago. Antes, los caminos que
 // respondían 200 sin cargar nada (los chequeos de "duplicado") no registraban
@@ -20,6 +20,9 @@ import type { NextRequest, NextResponse } from 'next/server'
 import { getClient } from './storage'
 
 export type EstadoIngreso = 'recibido' | 'aceptado' | 'duplicado' | 'ignorado' | 'rechazado' | 'error'
+
+// De qué webhook vino. Al agregar uno nuevo, sumarlo acá.
+export type FuenteWebhook = 'notificador' | 'copter' | 'bitso'
 
 // Datos del pago que se van conociendo a medida que se parsea el payload.
 export interface DatosPago {
@@ -56,7 +59,7 @@ const fechaValida = (v: unknown): string | null => {
 // mismo prueba que el pago llegó y que el problema fue nuestro. Sin esto, una
 // caída no deja ninguna huella.
 export async function abrirAuditoria(
-  fuente: 'notificador' | 'copter',
+  fuente: FuenteWebhook,
   req: NextRequest,
   payload: unknown,
 ): Promise<Auditoria> {
