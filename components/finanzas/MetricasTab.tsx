@@ -6,7 +6,7 @@ import { ARS } from '@/lib/utils'
 import type { Toast } from './FinanzasApp'
 
 interface MetricaTienda { storeId: string; storeName: string; netoUsdt: number; volumenArs: number; comisionArs: number; ordenes: number }
-interface MetricaBilletera { wallet: string; netoArs: number }
+interface MetricaBilletera { wallet: string; netoArs: number; volumenArs: number }
 interface MetricaReembolsos { storeId: string; storeName: string; cantidad: number }
 interface Metricas {
   desde: string; hasta: string
@@ -112,9 +112,15 @@ export default function MetricasTab({ notify }: { notify: (msg: string, type?: T
               <BarrasPct items={data.tiendas.map((t, i) => ({ label: t.storeName, value: t.netoUsdt, color: PALETA[i % PALETA.length] }))} />
             </Panel>
 
-            <Panel titulo="Saldo que nos debe cada billetera">
-              <BarrasHorizontales items={data.billeteras.map((b, i) => ({ label: b.wallet, value: b.netoArs, color: PALETA[i % PALETA.length] }))}
-                fmt={ARS.format} mostrarTodos />
+            {/* El saldo por billetera salió de acá: ese número ya está en la pestaña de
+                cada billetera, con su desglose. Lo que no estaba en ningún lado es el
+                volumen bruto, que es lo que pasó por cada una en el período. */}
+            <Panel titulo="Volumen bruto por billetera">
+              <BarrasHorizontales items={data.billeteras
+                .filter(b => b.volumenArs > 0)
+                .sort((a, b) => b.volumenArs - a.volumenArs)   // primero la que más movió
+                .map((b, i) => ({ label: b.wallet, value: b.volumenArs, color: PALETA[i % PALETA.length] }))}
+                fmt={ARS.format} />
             </Panel>
 
             <Panel titulo="Volumen bruto por tienda">

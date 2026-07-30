@@ -22,6 +22,7 @@ import { getClient, getStores, loadHotState } from './storage'
 import { getComisiones, comisionTiendaSobre, comisionBilletera, comisionTiendaEnFecha, comisionTiendaActual, comisionTiendaVaria, diaART } from './comisiones'
 import { walletsDeUnidad } from './unidad'
 import { resolveWallet, getCortesBilletera } from './billeteras'
+import { ACCION_SOLO_BILLETERA } from './config'
 import { getUsdtRateSinMargen } from './cotizacion'
 
 export interface MetricaTienda {
@@ -32,7 +33,11 @@ export interface MetricaTienda {
   comisionArs: number   // comisión aportada = volumen emparejado (ARS) × pct de la tienda
   ordenes: number       // órdenes emparejadas en el período
 }
-export interface MetricaBilletera { wallet: string; netoArs: number }
+export interface MetricaBilletera {
+  wallet: string
+  netoArs: number      // cambio neto de saldo en el período
+  volumenArs: number   // volumen BRUTO que ingresó, sin descontar comisión ni salidas
+}
 export interface MetricaReembolsos { storeId: string; storeName: string; cantidad: number }
 
 export interface Metricas {
@@ -94,26 +99,47 @@ export async function getMetricas(desdeMs: number, hastaMs: number): Promise<Met
     return Number.isFinite(t) && t < c.desde
   }
 
-  // 1) registro_log matcheado en el período (por ts) → órdenes por tienda + ingresos por billetera.
-  // Para la billetera importa CUÁNDO ENTRÓ la plata (fechaPago), que es lo que compara el corte.
+  // Tiendas y billeteras miran VENTANAS DISTINTAS del mismo registro, y confundirlas
+  // es un bug que ya pasó: una tienda mueve su saldo cuando la orden EMPAREJA (ts),
+  // pero a una billetera la plata le entró cuando entró (payment_received_at). Un pago
+  // que ingresó a las 23:59 y emparejó a las 00:01 es ingreso del día ANTERIOR para la
+  // billetera, y de HOY para la tienda.
+  //
+  // El filtro de billetera va por payment_received_at y no por payment->>fechaPago
+  // porque ese campo del JSON está guardado en dos formatos (unos con Z y otros con
+  // offset -03:00): compararlo como texto en SQL daría mal. payment_received_at es una
+  // columna timestamp real y coincide con fechaPago en 4.942 de 4.943 filas.
+
+  // 1a) Por ts → lo de las TIENDAS (órdenes y volumen emparejado).
   const matched = await fetchAllRows((f, t) =>
     sb.from('registro_log')
-      .select('store_id, store_name, ts, payment_received_at, source:payment->>source, monto:payment->>monto, amount, fechaPago:payment->>fechaPago')
+      .select('store_id, store_name, ts, monto:payment->>monto, amount')
       .in('action', ['manual_paid', 'auto_paid']).eq('hidden', false)
       .gte('ts', desdeISO).lt('ts', hastaISO)
       .range(f, t))
 
   const ordenesPorTienda = new Map<string, number>()
   const volTienda = new Map<string, number>()   // volumen ARS emparejado por tienda (base de la comisión)
-  const ingBilletera = new Map<string, number>()
   for (const r of matched) {
+    if (!r.store_id) continue
     const ars = Number(r.monto ?? r.amount) || 0
-    if (r.store_id) {
-      inc(ordenesPorTienda, r.store_id, 1); inc(volTienda, r.store_id, ars)
-      if (r.store_name && !nombreEnRegistro.has(r.store_id)) nombreEnRegistro.set(r.store_id, r.store_name)
-    }
+    inc(ordenesPorTienda, r.store_id, 1); inc(volTienda, r.store_id, ars)
+    if (r.store_name && !nombreEnRegistro.has(r.store_id)) nombreEnRegistro.set(r.store_id, r.store_name)
+  }
+
+  // 1b) Por payment_received_at → lo de las BILLETERAS (cuándo entró la plata).
+  // ACCION_SOLO_BILLETERA incluida: los pagos de las billeteras que no emparejan
+  // (Bitso FluoGames, LB CriptoBlue) viven ahí y son ingreso igual.
+  const ingBilletera = new Map<string, number>()
+  const ingresados = await fetchAllRows((f, t) =>
+    sb.from('registro_log')
+      .select('payment_received_at, source:payment->>source, monto:payment->>monto, amount, fechaPago:payment->>fechaPago')
+      .in('action', ['manual_paid', 'auto_paid', ACCION_SOLO_BILLETERA]).eq('hidden', false)
+      .gte('payment_received_at', desdeISO).lt('payment_received_at', hastaISO)
+      .range(f, t))
+  for (const r of ingresados) {
     const w = resolveWallet(r.source)
-    if (w && !antesDelCorte(w, r.fechaPago || r.payment_received_at || r.ts)) inc(ingBilletera, w, ars)
+    if (w && !antesDelCorte(w, r.fechaPago || r.payment_received_at)) inc(ingBilletera, w, Number(r.monto ?? r.amount) || 0)
   }
   // Cola (no emparejados) por fechaPago dentro del período → ingreso a la billetera.
   for (const u of hot.unmatchedPayments ?? []) {
@@ -211,10 +237,15 @@ export async function getMetricas(desdeMs: number, hastaMs: number): Promise<Met
     const corte = cortes[w]
     const saldoInicial = corte && corte.desde >= desdeMs && corte.desde <= hastaMs ? corte.saldoInicial : 0
     // "Solo saldo inicial": la billetera ignora toda su actividad, igual que en su panel.
-    if (corte?.soloInicial) return { wallet: w, netoArs: saldoInicial }
+    if (corte?.soloInicial) return { wallet: w, netoArs: saldoInicial, volumenArs: 0 }
     const ingresos = ingBilletera.get(w) ?? 0
     const comision = ingresos * comisionBilletera(cfg, w) / 100
-    return { wallet: w, netoArs: saldoInicial + ingresos - comision - (reembBill.get(w) ?? 0) - (salidasBill.get(w) ?? 0) }
+    return {
+      wallet: w,
+      netoArs: saldoInicial + ingresos - comision - (reembBill.get(w) ?? 0) - (salidasBill.get(w) ?? 0),
+      // Bruto: lo que ENTRÓ, sin descontar comisión, reembolsos ni retiros.
+      volumenArs: ingresos,
+    }
   })
     .filter(b => walletsDeUnidad().includes(b.wallet) || b.netoArs !== 0)
     .sort((a, b) => b.netoArs - a.netoArs)
