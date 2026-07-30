@@ -11,6 +11,10 @@
     {
       "path": "/api/cron/limpiar-comprobantes",
       "schedule": "0 4 * * *"
+    },
+    {
+      "path": "/api/cron/bitso",
+      "schedule": "*/5 * * * *"
     }
   ]
 }

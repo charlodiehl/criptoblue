@@ -54,7 +54,8 @@ export const PAYMENT_SOURCE_NAMES: Record<string, string> = {
   montemar: 'Montemar',
   // Los pagos de ExchangeCopter entran por email (Apps Script → webhook) a "Copter Hemat".
   copter: 'Copter Hemat',
-  // Los pagos de Bitso entran por email (Apps Script → webhook) a "Bitso FluoGames".
+  // Los pagos de Bitso entran por API (cron cada 5 min, ver lib/bitso.ts) a
+  // "Bitso FluoGames". El circuito por email se retiró en jul 2026.
   bitso: 'Bitso FluoGames',
   // ESPEJO de los pagos de LB Finanzas en la unidad MS. Es el MISMO dinero que entra
   // a la billetera "MS" de CriptoBlue: el pago se escribe dos veces, una en cada
@@ -151,6 +152,15 @@ export const billeteraNoEmpareja = (wallet: string): boolean =>
 // Acción con la que se asientan esos pagos en registro_log. NO es un emparejamiento:
 // no lleva tienda ni orden, y el extracto de la billetera la muestra como pendiente.
 export const ACCION_SOLO_BILLETERA = 'pago_billetera' as const
+
+// ─── Desde cuándo se traen los depósitos de Bitso ────────────────────────────
+// Piso de la integración por API de "Bitso FluoGames". Sin esto, rearmar el cron
+// traería el histórico entero de la cuenta de Bitso, incluidas operaciones previas a
+// que la billetera existiera en el sistema.
+//
+// El cron toma el MÁS TARDÍO entre esto y el corte de la unidad, así que nunca puede
+// colar algo anterior a que MS exista.
+export const BITSO_DESDE = new Date('2026-07-30T03:00:00.000Z')   // 30/07/2026 00:00 ART
 
 // ─── Desde cuándo valen los avisos de LB Finanzas ────────────────────────────
 // Todo depósito ANTERIOR a este instante ya entró por el bot de Notificador: los
