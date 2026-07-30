@@ -14,8 +14,20 @@ import { kvKey } from './unidad'
 // Cada unidad de negocio tiene su propia tabla de comisiones.
 const KEY = () => kvKey('comisiones')
 
-export const DEFAULT_COMISION_TIENDA = 3.5
-export const DEFAULT_COMISION_BILLETERA = 1
+// Comisión con la que arranca una tienda o billetera NUEVA, hasta que se le configure
+// una propia. Vale para las dos unidades de negocio.
+//
+// OJO AL CAMBIARLOS: el default no se aplica solo a lo nuevo. Se aplica a TODO lo que no
+// tenga valor propio, y de forma RETROACTIVA, porque la comisión se calcula al leer y no
+// se guarda con cada movimiento. Antes de tocarlos hay que fijarle su valor actual a lo
+// que venía usando el default, si no se le mueve el saldo a tiendas que llevan meses
+// operando. Para eso está scripts/fijar-comisiones-actuales.mjs.
+//
+// jul 2026: pasaron de 3,5% y 1% a 4% y 0%. Todo lo que existía en ese momento quedó
+// con su valor viejo fijado explícitamente, así que el cambio solo afecta a lo que
+// conecte de acá en adelante.
+export const DEFAULT_COMISION_TIENDA = 4
+export const DEFAULT_COMISION_BILLETERA = 0
 
 // Comisión de tienda CON VIGENCIA: un cambio rige desde el día en que se hace; los
 // días anteriores conservan lo que se cobraba. Se guarda como una lista de tramos
