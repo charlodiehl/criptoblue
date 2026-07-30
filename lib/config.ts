@@ -56,6 +56,11 @@ export const PAYMENT_SOURCE_NAMES: Record<string, string> = {
   copter: 'Copter Hemat',
   // Los pagos de Bitso entran por email (Apps Script → webhook) a "Bitso FluoGames".
   bitso: 'Bitso FluoGames',
+  // ESPEJO de los pagos de LB Finanzas en la unidad MS. Es el MISMO dinero que entra
+  // a la billetera "MS" de CriptoBlue: el pago se escribe dos veces, una en cada
+  // unidad, y nunca se mezclan porque cada unidad filtra por su columna `unidad`.
+  // MS lo quiere en su propio libro, sin emparejar ordenes.
+  lbcriptoblue: 'LB CriptoBlue',
 }
 
 // CATÁLOGO GLOBAL de billeteras del sistema: todos los nombres que existen, de
@@ -71,7 +76,7 @@ export const PAYMENT_SOURCE_NAMES: Record<string, string> = {
 // PAYMENT_SOURCE_TO_WALLET.
 // "Otras" es un cajón para pagos manuales que no entraron por ninguna billetera
 // conocida: su source se codifica como `otras:<nombre libre>` y NO cobra comisión.
-export const WALLETS = ['MF', 'Lacar', 'MS', 'Montemar', 'Copter Hemat', 'Bitso FluoGames', 'Otras'] as const
+export const WALLETS = ['MF', 'Lacar', 'MS', 'Montemar', 'Copter Hemat', 'Bitso FluoGames', 'LB CriptoBlue', 'Otras'] as const
 
 // SEGURO: todo pago que entra al registro sin una billetera identificable (sin
 // payment, source vacío o desconocido) se guarda con este source → cae en "Otras".
@@ -108,6 +113,7 @@ export const PAYMENT_SOURCE_TO_WALLET: Record<string, string> = {
   montemar: 'Montemar',
   copter: 'Copter Hemat',
   bitso: 'Bitso FluoGames',
+  lbcriptoblue: 'LB CriptoBlue',
 }
 
 // Billeteras cuyos pagos sin emparejar NUNCA vencen: no se purgan de la cola ni
@@ -116,13 +122,35 @@ export const PAYMENT_SOURCE_TO_WALLET: Record<string, string> = {
 // vuelven al comportamiento normal de expiración a las 48hs.
 // MF y Montemar quedaron desconectadas (jul 2026): salen de esta lista para que
 // cualquier pago rezagado de esos medios expire solo por antigüedad.
-export const WALLETS_SIN_VENCIMIENTO: readonly string[] = ['Lacar', 'MS', 'Copter Hemat', 'Bitso FluoGames']
+export const WALLETS_SIN_VENCIMIENTO: readonly string[] = ['Lacar', 'MS', 'Copter Hemat']
 
 // MercadoPago desconectado (jul 2026): se cerró la billetera "MF" (MercadoPago +
 // Fiwind). El ciclo cada 5 min ya NO pide pagos a MercadoPago (ver lib/cycle.ts).
 // El código de traída se conserva para poder reactivarlo si hiciera falta:
 // poner en true y MP vuelve a ingresar pagos a la cola.
 export const MERCADOPAGO_ACTIVO = false
+
+// ─── Billeteras que NO emparejan órdenes ─────────────────────────────────────
+// Son registro financiero puro: la plata entra, queda asentada en el extracto de la
+// billetera, y NUNCA se ofrece para emparejar con una orden. Sus pagos figuran
+// siempre como "Pendiente" y sin tienda, porque no hay ninguna que los reclame.
+//
+// No pasan por la cola (hot state) como el resto: se escriben derecho al registro con
+// la acción ACCION_SOLO_BILLETERA. La cola es un único JSON que se reescribe en cada
+// ciclo, y un pago que nunca empareja se quedaría ahí para siempre — a ~100 por día
+// serían 36.000 al año en ese blob. El registro es una tabla y escala.
+//
+// Consecuencia de no estar en la cola: tampoco aparecen en la pestaña Pagos, ni en
+// "sin coincidencia", ni en el emparejamiento manual, ni las mira el auto-match. Eso
+// sale gratis, no hay que filtrarlas en cada consumidor.
+export const WALLETS_SIN_EMPAREJAMIENTO: readonly string[] = ['Bitso FluoGames', 'LB CriptoBlue']
+
+export const billeteraNoEmpareja = (wallet: string): boolean =>
+  WALLETS_SIN_EMPAREJAMIENTO.includes(wallet)
+
+// Acción con la que se asientan esos pagos en registro_log. NO es un emparejamiento:
+// no lleva tienda ni orden, y el extracto de la billetera la muestra como pendiente.
+export const ACCION_SOLO_BILLETERA = 'pago_billetera' as const
 
 // ─── Desde cuándo valen los avisos de LB Finanzas ────────────────────────────
 // Todo depósito ANTERIOR a este instante ya entró por el bot de Notificador: los

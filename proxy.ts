@@ -35,7 +35,6 @@ function isPublicRoute(pathname: string): boolean {
     || pathname.startsWith('/api/shopify/connect')
     || pathname.startsWith('/tn-success')      // pantalla de "conectada" que ve el dueño tras instalar
     || pathname.startsWith('/shopify-success')
-    || pathname.startsWith('/api/notificador/webhook') // valida por su propio secreto (servicio externo)
     || pathname.startsWith('/api/copter/webhook')      // pagos de ExchangeCopter por email (secret propio)
     || pathname.startsWith('/api/bitso/webhook')       // pagos de Bitso por email (secret propio)
     || pathname.startsWith('/api/lbfinanzas/webhook')  // pagos de LB Finanzas (billetera MS) por email

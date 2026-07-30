@@ -6,7 +6,7 @@
 import type { LogEntry, Payment, Order } from './types'
 import { getClient, kvGet, kvSet } from './storage'
 import { registrarIngresoOrden, actualizarDescripcionIngreso } from './balance'
-import { SOURCE_SIN_BILLETERA } from './config'
+import { SOURCE_SIN_BILLETERA, ACCION_SOLO_BILLETERA } from './config'
 import { billeteraLabel, billeteraIdentificada } from './utils'
 import { notifyTienda } from './push'
 import { kvKey, cutoffBalance } from './unidad'
@@ -595,9 +595,37 @@ export async function isPaymentAlreadyUsed(mpPaymentId: string): Promise<boolean
     .select('id', { count: 'exact', head: true })
     .eq('mp_payment_id', mpPaymentId)
     .eq('hidden', false)
-    .in('action', ['manual_paid', 'auto_paid'])
+    // ACCION_SOLO_BILLETERA va incluida: los pagos de las billeteras que no emparejan
+    // se asientan con esa accion, y si no estuviera acá el mismo email entraria dos veces.
+    .in('action', ['manual_paid', 'auto_paid', ACCION_SOLO_BILLETERA])
   if (error) throw new Error(`isPaymentAlreadyUsed falló: ${error.message} [${error.code}]`)
   return (count ?? 0) > 0
+}
+
+// ─── Pagos de billeteras que NO emparejan órdenes ────────────────────────────
+
+// Asienta un pago de una billetera que no empareja (ver WALLETS_SIN_EMPAREJAMIENTO):
+// va DERECHO al registro, sin pasar por la cola, y sin tienda ni orden. El extracto de
+// la billetera lo lee de acá y lo muestra como pendiente.
+//
+// No usa la cola a propósito: esos pagos nunca emparejan, así que se quedarían ahí para
+// siempre. La cola es un único JSON que se reescribe en cada ciclo — a ~100 pagos por
+// día serían decenas de miles adentro. El registro es una tabla y escala.
+//
+// Idempotente: si el pago ya estaba asentado devuelve false y no duplica.
+export async function registrarPagoSoloBilletera(payment: Payment): Promise<boolean> {
+  if (payment.mpPaymentId && await isPaymentAlreadyUsed(payment.mpPaymentId)) return false
+  await insertRegistroEntry({
+    timestamp: payment.fechaPago || new Date().toISOString(),
+    action: ACCION_SOLO_BILLETERA,
+    amount: payment.monto,
+    mpPaymentId: payment.mpPaymentId,
+    paymentReceivedAt: payment.fechaPago,
+    customerName: payment.nombrePagador || undefined,
+    cuitPagador: payment.cuitPagador || undefined,
+    payment,
+  })
+  return true
 }
 
 export interface PagoEmparejado {

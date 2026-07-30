@@ -1,11 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { loadHotState, saveHotState, loadLogs, saveLogs, appendActivity, appendError, waitForLock, releaseLock } from '@/lib/storage'
-import { isPaymentAlreadyUsed } from '@/lib/registro'
-import type { Payment, UnmatchedPayment } from '@/lib/types'
-import { nowART } from '@/lib/utils'
+import { loadLogs, saveLogs, appendActivity, appendError } from '@/lib/storage'
+import { isPaymentAlreadyUsed, registrarPagoSoloBilletera } from '@/lib/registro'
+import type { Payment } from '@/lib/types'
 import { runEnUnidad, unidadDeBilletera, cutoffPagos, unidadActiva } from '@/lib/unidad'
 
-const LOCK_HOLDER = 'bitso-webhook'
 const BILLETERA = 'Bitso FluoGames'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -204,45 +202,39 @@ async function procesar(req: NextRequest) {
       return NextResponse.json({ success: true, duplicate: true, reason: 'ya emparejado en el registro' })
     }
 
-    const locked = await waitForLock(LOCK_HOLDER, `pago ${paymentId}`, 6000, 400)
-    if (!locked) {
-      await registrarErrorPago(
-        `No se pudo procesar el pago de Bitso ${paymentId} ($${datos.monto} · ${datos.remitente || 'sin remitente'}): el sistema quedó ocupado. Recuperarlo a mano si no reintenta.`,
-        { messageId, ...datos, paymentId })
-      return NextResponse.json({ error: 'El sistema está procesando otra operación. Reintentá en unos segundos.' }, { status: 409 })
+    // "Bitso FluoGames" no empareja ordenes (ver WALLETS_SIN_EMPAREJAMIENTO): el pago
+    // va DERECHO al registro, sin pasar por la cola. Por eso tampoco hace falta el lock:
+    // no se toca el hot state, y el insert es una sola fila.
+    const payment: Payment = {
+      mpPaymentId: paymentId,
+      monto: datos.monto,
+      nombrePagador: datos.remitente,
+      emailPagador: '',
+      cuitPagador: '',
+      referencia: datos.origen,          // CBU/CVU de origen que informa Bitso
+      operationId: datos.identificador,
+      metodoPago: 'Bitso / transferencia',
+      fechaPago: fecha.toISOString(),    // FECHA REAL de la acreditación
+      status: 'approved',
+      source: 'bitso',
+      rawData: { asunto: asunto ?? '', messageId, origen: datos.origen },
     }
+
+    const asentado = await registrarPagoSoloBilletera(payment)
+    if (!asentado) {
+      return NextResponse.json({ success: true, duplicate: true, reason: 'ya estaba asentado' })
+    }
+
     try {
-      const [hot, logs] = await Promise.all([loadHotState(), loadLogs()])
-      if (hot.unmatchedPayments.some(u => (u.payment?.mpPaymentId || u.mpPaymentId) === paymentId)) {
-        return NextResponse.json({ success: true, duplicate: true, reason: 'ya estaba en la cola' })
-      }
-
-      const payment: Payment = {
-        mpPaymentId: paymentId,
-        monto: datos.monto,
-        nombrePagador: datos.remitente,
-        emailPagador: '',
-        cuitPagador: '',
-        referencia: datos.origen,          // CBU/CVU de origen que informa Bitso
-        operationId: datos.identificador,
-        metodoPago: 'Bitso / transferencia',
-        fechaPago: fecha.toISOString(),    // FECHA REAL de la acreditación
-        status: 'approved',
-        source: 'bitso',
-        rawData: { asunto: asunto ?? '', messageId, origen: datos.origen },
-      }
-      const unmatched: UnmatchedPayment = { payment, timestamp: nowART(), mpPaymentId: paymentId }
-      hot.unmatchedPayments.push(unmatched)
+      const logs = await loadLogs()
       appendActivity(logs, 'system', 'bitso_pago_recibido', { monto: datos.monto, titular: datos.remitente })
-      await Promise.all([saveHotState(hot), saveLogs(logs)])
+      await saveLogs(logs)
+    } catch { /* el pago ya quedó asentado: el log de actividad no puede romperlo */ }
 
-      return NextResponse.json({
-        success: true, mpPaymentId: paymentId,
-        interpretado: { fecha: fecha.toISOString(), titular: datos.remitente, monto: datos.monto, moneda: datos.moneda },
-      })
-    } finally {
-      await releaseLock(LOCK_HOLDER)
-    }
+    return NextResponse.json({
+      success: true, mpPaymentId: paymentId,
+      interpretado: { fecha: fecha.toISOString(), titular: datos.remitente, monto: datos.monto, moneda: datos.moneda },
+    })
   } catch (err) {
     await registrarErrorPago(`Error inesperado procesando un pago de Bitso: ${String(err)}`)
     return NextResponse.json({ error: String(err) }, { status: 500 })

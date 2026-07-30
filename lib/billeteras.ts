@@ -30,12 +30,17 @@ import { getComisiones, comisionBilletera } from './comisiones'
 import { sumRefundsByWallet, getRefundsDeWallet, getOrdenesReembolsadas } from './reembolsos'
 import { sumSalidasByWallet, getSalidasDeWallet, type SalidaBilletera } from './billetera-salidas'
 import { kvKey, walletsDeUnidad } from './unidad'
+import { ACCION_SOLO_BILLETERA } from './config'
 
 export type { SalidaBilletera }
 
 const OCULTAS_KEY = () => kvKey('billeteras-ocultas')
 const EXTRACTO_LIMIT = 200
 const MATCHED_ACTIONS = ['auto_paid', 'manual_paid']
+// Acciones que cuentan como INGRESO de una billetera. Además de los emparejamientos,
+// los pagos de las billeteras que no emparejan órdenes (WALLETS_SIN_EMPAREJAMIENTO):
+// esos no pasan por la cola, se asientan derecho en el registro con esta acción.
+const ACCIONES_INGRESO = [...MATCHED_ACTIONS, ACCION_SOLO_BILLETERA]
 const CORTES_KEY = () => kvKey('billetera-cortes')
 
 // Corte por billetera: fecha desde la que se cuenta y saldo inicial (NETO) previo,
@@ -181,7 +186,7 @@ async function idsEmparejados(): Promise<Set<string>> {
     const { data, error } = await (c.from('registro_log') as any)
       .select('mp_payment_id')
       .eq('hidden', false)
-      .in('action', MATCHED_ACTIONS)
+      .in('action', ACCIONES_INGRESO)
       .not('mp_payment_id', 'is', null)
       .range(from, from + PAGE - 1)
     if (error) throw new Error(`idsEmparejados falló: ${error.message} [${error.code}]`)
@@ -206,9 +211,9 @@ async function ingresosEmparejados(): Promise<Ingreso[]> {
   for (;;) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data, error } = await (c.from('registro_log') as any)
-      .select('amount, ts, payment_received_at, store_id, store_name, order_number, source:payment->>source, monto:payment->>monto, titular:payment->>nombrePagador, fechaPago:payment->>fechaPago')
+      .select('action, amount, ts, payment_received_at, store_id, store_name, order_number, source:payment->>source, monto:payment->>monto, titular:payment->>nombrePagador, fechaPago:payment->>fechaPago')
       .eq('hidden', false)
-      .in('action', MATCHED_ACTIONS)
+      .in('action', ACCIONES_INGRESO)
       .order('id', { ascending: true })
       .range(from, from + PAGE - 1)
     if (error) throw new Error(`ingresosEmparejados falló: ${error.message} [${error.code}]`)
@@ -218,16 +223,19 @@ async function ingresosEmparejados(): Promise<Ingreso[]> {
       // salteaba acá y desaparecía de las billeteras (sumaba por tienda, no por billetera).
       if (!r.ts) continue
       const ingreso = r.fechaPago || r.payment_received_at || r.ts
+      // Los de billeteras que no emparejan no tienen orden ni tienda: figuran como
+      // pendientes para siempre, que es lo que son.
+      const soloBilletera = r.action === ACCION_SOLO_BILLETERA
       out.push({
         source: r.source ?? '',
         monto: Number(r.monto ?? r.amount) || 0,
         fechaDia: ingreso,     // agrupa por el día en que ENTRÓ el pago (no el del match)
         fechaPago: ingreso,    // y se muestra con esa misma fecha
         titular: r.titular || '',
-        estado: 'emparejado',
-        storeId: r.store_id ?? undefined,
-        storeName: r.store_name ?? undefined,
-        orderNumber: r.order_number != null ? String(r.order_number) : undefined,
+        estado: soloBilletera ? 'en_cola' : 'emparejado',
+        storeId: soloBilletera ? undefined : (r.store_id ?? undefined),
+        storeName: soloBilletera ? undefined : (r.store_name ?? undefined),
+        orderNumber: soloBilletera || r.order_number == null ? undefined : String(r.order_number),
       })
     }
     if (!data || data.length < PAGE) break

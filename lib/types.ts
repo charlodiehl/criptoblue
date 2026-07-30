@@ -43,7 +43,9 @@ export interface Store {
 
 export interface LogEntry {
   timestamp: string
-  action: 'auto_paid' | 'manual_paid' | 'needs_review' | 'no_match' | 'dismissed' | 'cancelled'
+  // 'pago_billetera': ingreso de una billetera que NO empareja ordenes (ver
+  // WALLETS_SIN_EMPAREJAMIENTO). No lleva tienda ni orden: es registro financiero.
+  action: 'auto_paid' | 'manual_paid' | 'needs_review' | 'no_match' | 'dismissed' | 'cancelled' | 'pago_billetera'
   // Origen de la entrada — determina a qué tarjeta de stats pertenece:
   // 'emparejamiento' → tarjeta 1 (Pagos emparejados)
   // 'manual_pagos'   → tarjeta 2 (Marcados manualmente) — desde pestaña Pagos/Sin coincidencia

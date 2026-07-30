@@ -20,7 +20,7 @@ export const UNIDADES = {
     nombre: 'MS',
     rol: 'superadmin-ms',
     kvPrefix: 'ms',
-    wallets: ['Copter Hemat', 'Bitso FluoGames', 'Otras'],
+    wallets: ['Copter Hemat', 'Bitso FluoGames', 'LB CriptoBlue', 'Otras'],
   },
 }
 

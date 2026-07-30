@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { loadHotState, saveHotState, loadLogs, saveLogs, appendActivity, appendError, waitForLock, releaseLock } from '@/lib/storage'
-import { isPaymentAlreadyUsed } from '@/lib/registro'
+import { isPaymentAlreadyUsed, registrarPagoSoloBilletera } from '@/lib/registro'
 import type { Payment, UnmatchedPayment } from '@/lib/types'
 import { nowART } from '@/lib/utils'
 import { runEnUnidad, unidadDeBilletera, cutoffPagos } from '@/lib/unidad'
@@ -305,8 +305,30 @@ async function procesar(req: NextRequest) {
       appendActivity(logs, 'system', 'lbfinanzas_pago_recibido', { monto: datos.monto, titular: datos.origen })
       await Promise.all([saveHotState(hot), saveLogs(logs)])
 
+      // ── ESPEJO en la unidad MS ──────────────────────────────────────────────
+      // El mismo dinero se asienta en su propio libro, en la billetera "LB CriptoBlue".
+      // No es plata duplicada: cada unidad ve solo lo suyo (todo filtra por la columna
+      // `unidad`), y MS necesita el registro financiero de este flujo.
+      //
+      // Va al registro y no a la cola porque esa billetera no empareja ordenes, y va
+      // DESPUES de la copia de criptoblue y en su propio try: si el espejo falla, el
+      // pago que si empareja ya quedo guardado y no se pierde.
+      let espejo: boolean | null = null
+      try {
+        espejo = await runEnUnidad('ms', () => registrarPagoSoloBilletera({
+          ...payment,
+          mpPaymentId: `lbcriptoblue-${messageId}`,   // id propio: el dedupe es por unidad
+          source: 'lbcriptoblue',
+        }))
+      } catch (err) {
+        await registrarErrorPago(
+          `El pago ${paymentId} entro bien a CriptoBlue pero NO se pudo asentar el espejo en la billetera LB CriptoBlue (unidad MS). Asentarlo a mano.`,
+          { messageId, monto: datos.monto, titular: datos.origen, error: String(err) }, 'warning')
+      }
+
       return NextResponse.json({
         success: true, mpPaymentId: paymentId,
+        espejoMs: espejo,
         interpretado: { fecha: fecha.toISOString(), titular: datos.origen, monto: datos.monto, moneda: datos.moneda,
           acreditado: datos.montoAcreditado, comision: datos.comisionArs },
       })
