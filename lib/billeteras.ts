@@ -538,7 +538,7 @@ export interface ExtractoRangoBilletera {
 }
 
 export async function getExtractoBilleteraRango(
-  wallet: string, desdeART: string, hastaART: string,
+  wallet: string, desde: number, hasta: number,
 ): Promise<ExtractoRangoBilletera> {
   const cfg = await getComisiones()
   const pct = comisionBilletera(cfg, wallet)
@@ -555,10 +555,8 @@ export async function getExtractoBilleteraRango(
   const fechaAjuste = corte?.etiqueta ?? corte?.desde
   const enPeriodo = corte?.soloInicial ? () => false : (f: string) => (new Date(f).getTime() || 0) >= desdeCorte
 
-  // El rango va de las 00:00 del primer día a las 00:00 del siguiente al último, en
-  // horario Argentina — igual que el recorte por día del extracto en pantalla.
-  const desde = new Date(`${desdeART}T00:00:00-03:00`).getTime()
-  const hasta = new Date(`${hastaART}T00:00:00-03:00`).getTime() + 24 * 60 * 60 * 1000
+  // El rango llega ya resuelto a instantes (ver parseRangoART): el selector manda
+  // fecha Y hora, así que el recorte no es por día sino por momento exacto.
   const enRango = (f: string) => {
     const t = new Date(f).getTime() || 0
     return t >= desde && t < hasta
@@ -577,7 +575,7 @@ export async function getExtractoBilleteraRango(
   const movimientos: MovimientoDia[] = [
     ...(corteEnRango ? [{
       clase: 'ajuste' as const, fecha: new Date(fechaAjuste!).toISOString(),
-      concepto: `Saldo inicial al ${desdeART.split('-').reverse().join('/')}`,
+      concepto: `Saldo inicial al ${new Date(fechaAjuste! - 3 * 60 * 60 * 1000).toISOString().slice(0, 10).split('-').reverse().join('/')}`,
       ars: corte!.saldoInicial, moneda: 'ARS' as const, montoOrigen: corte!.saldoInicial, cotizacion: null,
     }] : []),
     ...salidas.map((s): MovimientoDia => ({

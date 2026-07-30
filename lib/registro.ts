@@ -745,11 +745,10 @@ export async function queryRegistroByStoreDay(
 // Igual que queryRegistroByStoreDay pero para un RANGO [desdeART, hastaART] (inclusive,
 // por día ART). Para armar el Excel del registro. Paginado; ordenado por ts ascendente.
 export async function queryRegistroByStoreRango(
-  storeId: string, desdeART: string, hastaART: string,
+  storeId: string, desdeMs: number, hastaMs: number,
 ): Promise<Array<{ registroId: number; entry: LogEntry }>> {
   const supabase = getClient()
-  const desdeMs = new Date(`${desdeART}T00:00:00-03:00`).getTime()
-  const hasta = new Date(new Date(`${hastaART}T00:00:00-03:00`).getTime() + 24 * 60 * 60 * 1000).toISOString()
+  const hasta = new Date(hastaMs).toISOString()
   const desde = new Date(Math.max(desdeMs, cutoffBalance().getTime())).toISOString()
   const out: Array<{ registroId: number; entry: LogEntry }> = []
   const PAGE = 1000

@@ -668,7 +668,7 @@ export default function BalanceTab({ storeId, qs, notify, admin = false, refresh
       )}
 
       {descargarOpen && (
-        <DescargarRegistroModal qs={qs} fechaInicial={fecha} onClose={() => setDescargarOpen(false)} notify={notify} />
+        <DescargarRegistroModal qs={qs} onClose={() => setDescargarOpen(false)} notify={notify} />
       )}
     </div>
   )

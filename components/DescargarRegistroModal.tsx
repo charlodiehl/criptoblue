@@ -4,34 +4,44 @@ import { useState } from 'react'
 
 type TipoToast = 'success' | 'error' | 'info'
 
-// Modal para descargar el registro de un rango de fechas como Excel. Lo usan las dos
-// superficies —tiendas y billeteras— con el mismo flujo: se piden "desde" y "hasta",
-// se pega al endpoint que arma el .xlsx y se dispara la descarga con el nombre de
-// archivo que mande el servidor.
+// "YYYY-MM-DDTHH:mm" en hora Argentina a partir de un instante — el formato que come
+// <input type="datetime-local">. Mismo helper que usa la pestaña de Métricas.
+function artLocal(ms: number): string {
+  return new Date(ms - 3 * 60 * 60 * 1000).toISOString().slice(0, 16)
+}
+
+// Modal para descargar el registro de un período como Excel. Lo usan las dos
+// superficies —tiendas y billeteras— con el mismo flujo: se piden "desde" y "hasta"
+// con FECHA Y HORA, se pega al endpoint que arma el .xlsx y se dispara la descarga con
+// el nombre de archivo que mande el servidor.
 export default function DescargarRegistroModal({
-  qs, fechaInicial, onClose, notify,
+  qs, onClose, notify,
   endpoint = '/api/tienda/registro-excel',
   hojas = 'todas las órdenes emparejadas en la hoja Ventas',
 }: {
   qs: string
-  fechaInicial: string   // 'YYYY-MM-DD' — prefill de desde/hasta (el día que está viendo)
   onClose: () => void
   notify: (msg: string, type?: TipoToast) => void
   endpoint?: string
   hojas?: string         // qué trae el Excel, para el texto de ayuda
 }) {
-  const [desde, setDesde] = useState(fechaInicial)
-  const [hasta, setHasta] = useState(fechaInicial)
+  // Por defecto, lo que va del día de HOY: desde las 00:00 hasta este momento. Se
+  // calcula al abrir el modal (useState perezoso), no en cada render.
+  const [desde, setDesde] = useState(() => `${artLocal(Date.now()).slice(0, 10)}T00:00`)
+  const [hasta, setHasta] = useState(() => artLocal(Date.now()))
   const [bajando, setBajando] = useState(false)
 
   async function descargar() {
     if (bajando) return
-    if (!desde || !hasta) { notify('Elegí las fechas desde y hasta', 'error'); return }
-    if (desde > hasta) { notify('"Desde" no puede ser posterior a "hasta"', 'error'); return }
+    if (!desde || !hasta) { notify('Elegí desde y hasta', 'error'); return }
+    if (hasta <= desde) { notify('"Hasta" tiene que ser posterior a "desde"', 'error'); return }
     setBajando(true)
     try {
       const sep = qs ? '&' : '?'
-      const res = await fetch(`${endpoint}${qs}${sep}desde=${desde}&hasta=${hasta}`)
+      // Los inputs son hora local de Argentina: se les pega el offset para que el
+      // servidor reciba un instante sin ambigüedad.
+      const q = (v: string) => encodeURIComponent(`${v}:00-03:00`)
+      const res = await fetch(`${endpoint}${qs}${sep}desde=${q(desde)}&hasta=${q(hasta)}`)
       if (!res.ok) {
         const d = await res.json().catch(() => ({}))
         throw new Error(d.error || 'No se pudo generar el Excel')
@@ -42,7 +52,7 @@ export default function DescargarRegistroModal({
       a.href = url
       const cd = res.headers.get('Content-Disposition') || ''
       const m = cd.match(/filename="(.+?)"/)
-      a.download = m ? m[1] : `registro-${desde}_a_${hasta}.xlsx`
+      a.download = m ? m[1] : `registro-${desde.replace('T', '_')}_a_${hasta.replace('T', '_')}.xlsx`
       document.body.appendChild(a)
       a.click()
       a.remove()
@@ -74,17 +84,18 @@ export default function DescargarRegistroModal({
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'rgba(148,163,184,0.5)', cursor: 'pointer', fontSize: '20px', lineHeight: 1 }}>×</button>
         </div>
         <p style={{ fontSize: '12px', color: 'rgba(148,163,184,0.6)', marginBottom: '18px', lineHeight: 1.5 }}>
-          Elegí el rango de días. Se arma un Excel con <span style={{ color: 'rgba(0,212,255,0.75)' }}>{hojas}</span>.
+          Elegí el período con fecha y hora. Se arma un Excel con <span style={{ color: 'rgba(0,212,255,0.75)' }}>{hojas}</span>.
+          Por defecto viene lo que va de hoy, desde las 00:00.
         </p>
 
-        <div style={{ display: 'flex', gap: '12px', marginBottom: '20px' }}>
-          <div style={{ flex: 1 }}>
+        <div style={{ display: 'flex', gap: '12px', marginBottom: '20px', flexWrap: 'wrap' }}>
+          <div style={{ flex: '1 1 180px' }}>
             <label style={labelStyle}>Desde</label>
-            <input type="date" value={desde} max={hasta || undefined} onChange={e => setDesde(e.target.value)} style={inputStyle} />
+            <input type="datetime-local" value={desde} max={hasta || undefined} onChange={e => setDesde(e.target.value)} style={inputStyle} />
           </div>
-          <div style={{ flex: 1 }}>
+          <div style={{ flex: '1 1 180px' }}>
             <label style={labelStyle}>Hasta</label>
-            <input type="date" value={hasta} min={desde || undefined} onChange={e => setHasta(e.target.value)} style={inputStyle} />
+            <input type="datetime-local" value={hasta} min={desde || undefined} onChange={e => setHasta(e.target.value)} style={inputStyle} />
           </div>
         </div>
 

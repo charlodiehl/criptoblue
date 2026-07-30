@@ -465,7 +465,6 @@ export default function BilleteraTab({
         <DescargarRegistroModal
           endpoint="/api/billetera/registro-excel"
           qs={`?wallet=${encodeURIComponent(wallet)}`}
-          fechaInicial={fecha}
           hojas="los pagos, reembolsos y retiros del período"
           onClose={() => setDescargarOpen(false)}
           notify={notify}

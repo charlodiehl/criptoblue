@@ -119,6 +119,23 @@ export function fechaEgresoSaldo(base: Date = new Date()): string {
   return new Date(base.getTime() - 24 * 60 * 60 * 1000).toISOString()
 }
 
+// Rango de descarga del registro (tiendas y billeteras). Los selectores mandan un
+// instante completo con offset ("2026-07-30T14:35:00-03:00"), pero también se acepta
+// una fecha suelta ("2026-07-30") para no romper un link viejo: ahí "desde" es el
+// arranque del día en Argentina y "hasta" el final. Devuelve null si el rango no sirve.
+export function parseRangoART(desde: string, hasta: string): { desdeMs: number; hastaMs: number } | null {
+  const soloFecha = /^\d{4}-\d{2}-\d{2}$/
+  const desdeMs = new Date(soloFecha.test(desde) ? `${desde}T00:00:00-03:00` : desde).getTime()
+  // Con fecha suelta el "hasta" es INCLUSIVO: el día entero, hasta las 00:00 del siguiente.
+  const hastaMs = soloFecha.test(hasta)
+    ? new Date(`${hasta}T00:00:00-03:00`).getTime() + 24 * 60 * 60 * 1000
+    : new Date(hasta).getTime()
+  if (!Number.isFinite(desdeMs) || !Number.isFinite(hastaMs) || hastaMs <= desdeMs) return null
+  // Tope de seguridad, igual que en métricas: un rango absurdo se rechaza.
+  if (hastaMs - desdeMs > 400 * 24 * 60 * 60 * 1000) return null
+  return { desdeMs, hastaMs }
+}
+
 export const ARS = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 0 })
 
 export function fmtDate(iso: string): string {

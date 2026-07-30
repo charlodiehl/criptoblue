@@ -6,13 +6,20 @@ import { getMovimientosPorRegistroIds, getMovimientosExtractoRango } from '@/lib
 import { getComisiones, comisionTiendaSobre, comisionTiendaEnFecha, diaART } from '@/lib/comisiones'
 import { getStores } from '@/lib/storage'
 import { tiendaLlevaSaldoEnPesos } from '@/lib/config'
+import { parseRangoART } from '@/lib/utils'
 
 export const runtime = 'nodejs'
+// Etiqueta para el nombre del archivo: "2026-07-30_1435" en hora Argentina.
+function sello(ms: number): string {
+  return new Date(ms - 3 * 60 * 60 * 1000).toISOString().slice(0, 16).replace('T', '_').replace(':', '')
+}
 
-// GET /api/tienda/registro-excel?desde=YYYY-MM-DD&hasta=YYYY-MM-DD[&storeId=]
+
+// GET /api/tienda/registro-excel?desde=<ISO>&hasta=<ISO>[&storeId=]
 //
 // Descarga un Excel con TODAS las órdenes emparejadas de la tienda en el rango, en una
-// hoja "Ventas". Mismas columnas y valores que la tabla del registro: la comisión se
+// hoja "Ventas". El rango es por fecha Y hora (el selector manda un instante con offset;
+// una fecha suelta se sigue aceptando y toma el día entero — ver parseRangoART). Mismas columnas y valores que la tabla del registro: la comisión se
 // calcula con el % vigente del día de cada orden (respeta los tramos de comisión).
 
 // 'D/M/YYYY HH:mm:ss' en horario Argentina (UTC-3), igual que la tabla en pantalla.
@@ -38,18 +45,17 @@ export async function GET(req: NextRequest) {
     const enPesos = tiendaLlevaSaldoEnPesos(storeId)
     const SIN_USDT = '—'
 
-    const desde = req.nextUrl.searchParams.get('desde') || ''
-    const hasta = req.nextUrl.searchParams.get('hasta') || ''
-    const re = /^\d{4}-\d{2}-\d{2}$/
-    if (!re.test(desde) || !re.test(hasta)) {
-      return NextResponse.json({ error: 'Rango inválido: se requieren desde y hasta (YYYY-MM-DD)' }, { status: 400 })
+    const rango = parseRangoART(
+      req.nextUrl.searchParams.get('desde') || '',
+      req.nextUrl.searchParams.get('hasta') || '',
+    )
+    if (!rango) {
+      return NextResponse.json({ error: 'Rango inválido: "hasta" tiene que ser posterior a "desde", y el período no puede superar los 400 días' }, { status: 400 })
     }
-    if (desde > hasta) {
-      return NextResponse.json({ error: 'La fecha "desde" no puede ser posterior a "hasta"' }, { status: 400 })
-    }
+    const { desdeMs, hastaMs } = rango
 
     const [entradas, cfg, stores] = await Promise.all([
-      queryRegistroByStoreRango(storeId, desde, hasta),
+      queryRegistroByStoreRango(storeId, desdeMs, hastaMs),
       getComisiones(),
       getStores(),
     ])
@@ -110,7 +116,7 @@ export async function GET(req: NextRequest) {
     for (const col of ['monto', 'comision', 'cotizacion', 'usdt']) ws.getColumn(col).numFmt = N2
 
     // ── Hojas "Reembolsos" y "Transferencias" (movimientos que no son órdenes) ──
-    const movs = await getMovimientosExtractoRango(storeId, desde, hasta)
+    const movs = await getMovimientosExtractoRango(storeId, desdeMs, hastaMs)
 
     const wsReem = wb.addWorksheet('Reembolsos')
     wsReem.columns = [
@@ -165,7 +171,7 @@ export async function GET(req: NextRequest) {
 
     const buf = await wb.xlsx.writeBuffer()
     const nombreTienda = (stores[storeId]?.storeName || storeId).replace(/[^\p{L}\p{N} _-]/gu, '').trim() || 'registro'
-    const filename = `registro-${nombreTienda}-${desde}_a_${hasta}.xlsx`
+    const filename = `registro-${nombreTienda}-${sello(desdeMs)}_a_${sello(hastaMs)}.xlsx`
     return new NextResponse(buf, {
       status: 200,
       headers: {

@@ -4,16 +4,23 @@ import { requireUser, resolveWalletScope, setUnidad } from '@/lib/auth/server'
 import { getExtractoBilleteraRango, getBilleterasOcultas } from '@/lib/billeteras'
 import { puedeEnBilletera } from '@/lib/permisos'
 import { walletsDeUnidad } from '@/lib/unidad'
+import { parseRangoART } from '@/lib/utils'
 
 export const runtime = 'nodejs'
 // Un rango largo de la billetera más movida son miles de filas: leer el registro y
 // armar el .xlsx puede pasar el techo por defecto. Medido en local: ~4 s por mes.
 export const maxDuration = 60
 
-// GET /api/billetera/registro-excel?wallet=<w>&desde=YYYY-MM-DD&hasta=YYYY-MM-DD
+// Etiqueta para el nombre del archivo: "2026-07-30_1435" en hora Argentina.
+function sello(ms: number): string {
+  return new Date(ms - 3 * 60 * 60 * 1000).toISOString().slice(0, 16).replace('T', '_').replace(':', '')
+}
+
+// GET /api/billetera/registro-excel?wallet=<w>&desde=<ISO>&hasta=<ISO>
 //
 // Espejo de /api/tienda/registro-excel, para billeteras: baja el extracto del rango en
-// un Excel con tres hojas — Ingresos, Reembolsos y Retiros. Mismos valores que la
+// un Excel con tres hojas — Ingresos, Reembolsos y Retiros. El rango es por fecha Y
+// hora (una fecha suelta se sigue aceptando y toma el día entero — ver parseRangoART). Mismos valores que la
 // pantalla (el pago figura en el día que ENTRÓ, la comisión es la vigente de la
 // billetera, y el corte se respeta).
 //
@@ -63,17 +70,16 @@ export async function GET(req: NextRequest) {
     const ocultas = await getBilleterasOcultas()
     if (ocultas.includes(wallet)) return NextResponse.json({ error: 'Billetera no disponible' }, { status: 404 })
 
-    const desde = req.nextUrl.searchParams.get('desde') || ''
-    const hasta = req.nextUrl.searchParams.get('hasta') || ''
-    const re = /^\d{4}-\d{2}-\d{2}$/
-    if (!re.test(desde) || !re.test(hasta)) {
-      return NextResponse.json({ error: 'Rango inválido: se requieren desde y hasta (YYYY-MM-DD)' }, { status: 400 })
+    const rango = parseRangoART(
+      req.nextUrl.searchParams.get('desde') || '',
+      req.nextUrl.searchParams.get('hasta') || '',
+    )
+    if (!rango) {
+      return NextResponse.json({ error: 'Rango inválido: "hasta" tiene que ser posterior a "desde", y el período no puede superar los 400 días' }, { status: 400 })
     }
-    if (desde > hasta) {
-      return NextResponse.json({ error: 'La fecha "desde" no puede ser posterior a "hasta"' }, { status: 400 })
-    }
+    const { desdeMs, hastaMs } = rango
 
-    const extracto = await getExtractoBilleteraRango(wallet, desde, hasta)
+    const extracto = await getExtractoBilleteraRango(wallet, desdeMs, hastaMs)
     // "Otras" agrupa pagos de billeteras con nombre libre: se agrega la columna que las
     // distingue, igual que en pantalla. En el resto sería una columna vacía.
     const esOtras = wallet === 'Otras'
@@ -161,7 +167,7 @@ export async function GET(req: NextRequest) {
 
     const buf = await wb.xlsx.writeBuffer()
     const nombre = wallet.replace(/[^\p{L}\p{N} _-]/gu, '').trim() || 'billetera'
-    const filename = `registro-${nombre}-${desde}_a_${hasta}.xlsx`
+    const filename = `registro-${nombre}-${sello(desdeMs)}_a_${sello(hastaMs)}.xlsx`
     return new NextResponse(buf, {
       status: 200,
       headers: {

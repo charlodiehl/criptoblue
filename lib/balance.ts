@@ -557,10 +557,10 @@ async function getConceptoRegistro(ids: number[]): Promise<Map<number, { concept
 // personalizado) de un rango, enriquecidos con su concepto/orden/comprobante. Para
 // las hojas "Reembolsos" y "Transferencias" del Excel del registro. Montos en absoluto.
 export async function getMovimientosExtractoRango(
-  storeId: string, desdeART: string, hastaART: string,
+  storeId: string, desdeMs: number, hastaMs: number,
 ): Promise<MovimientoExtracto[]> {
-  const desde = new Date(`${desdeART}T00:00:00-03:00`).toISOString()
-  const hasta = new Date(new Date(`${hastaART}T00:00:00-03:00`).getTime() + 24 * 60 * 60 * 1000).toISOString()
+  const desde = new Date(desdeMs).toISOString()
+  const hasta = new Date(hastaMs).toISOString()
   const TIPOS = ['egreso_transferencia', 'reembolso', 'ajuste', 'ingreso_manual']
 
   const movs: BalanceMovement[] = []
