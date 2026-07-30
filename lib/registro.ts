@@ -612,9 +612,30 @@ export async function isPaymentAlreadyUsed(mpPaymentId: string): Promise<boolean
 // siempre. La cola es un único JSON que se reescribe en cada ciclo — a ~100 pagos por
 // día serían decenas de miles adentro. El registro es una tabla y escala.
 //
-// Idempotente: si el pago ya estaba asentado devuelve false y no duplica.
+// Descartar uno de estos pagos ("no es de tiendas") se hace ocultando su fila:
+// hidden = true lo saca del extracto, del saldo y de las métricas, y es reversible.
+// Pero isPaymentAlreadyUsed() solo mira las filas VISIBLES —a propósito: una fila
+// oculta por una corrección no debe bloquear que el pago se vuelva a emparejar—, así
+// que para estos pagos hace falta preguntar aparte incluyendo las ocultas. Sin esto,
+// el cron vuelve a traer el depósito en la corrida siguiente y el pago descartado
+// reaparece a los 5 minutos.
+async function yaDescartadoComoSoloBilletera(mpPaymentId: string): Promise<boolean> {
+  const supabase = getClient()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { count, error } = await (supabase.from(TABLE) as any)
+    .select('id', { count: 'exact', head: true })
+    .eq('mp_payment_id', mpPaymentId)
+    .eq('action', ACCION_SOLO_BILLETERA)
+    .eq('hidden', true)
+  if (error) throw new Error(`yaDescartadoComoSoloBilletera falló: ${error.message} [${error.code}]`)
+  return (count ?? 0) > 0
+}
+
+// Idempotente: si el pago ya estaba asentado —o si se descartó ocultándolo— devuelve
+// false y no duplica.
 export async function registrarPagoSoloBilletera(payment: Payment): Promise<boolean> {
   if (payment.mpPaymentId && await isPaymentAlreadyUsed(payment.mpPaymentId)) return false
+  if (payment.mpPaymentId && await yaDescartadoComoSoloBilletera(payment.mpPaymentId)) return false
   await insertRegistroEntry({
     timestamp: payment.fechaPago || new Date().toISOString(),
     action: ACCION_SOLO_BILLETERA,
