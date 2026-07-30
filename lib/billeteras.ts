@@ -84,6 +84,7 @@ export interface IngresoBilletera {
 export interface PagoBilletera {
   fecha: string
   titular: string
+  cuit: string              // CUIT/CUIL del pagador. '' cuando la fuente no lo informa.
   monto: number
   comision: number          // comisión ARS de este pago (monto × pct/100)
   // 'reembolsado' es un estado SOLO visual: el pago sigue emparejado y su saldo no
@@ -151,6 +152,9 @@ interface Ingreso {
   fechaDia: string
   fechaPago: string
   titular: string
+  // Lo informan pocas fuentes: hoy Bitso (por API) y el histórico de Montemar y
+  // MercadoPago. El resto lo deja vacío y la UI muestra un guión.
+  cuit: string
   estado: 'emparejado' | 'en_cola'
   storeId?: string          // solo emparejados: para cruzar con los reembolsos de la orden
   storeName?: string        // solo emparejados: un pago en cola todavía no tiene tienda
@@ -211,7 +215,7 @@ async function ingresosEmparejados(): Promise<Ingreso[]> {
   for (;;) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data, error } = await (c.from('registro_log') as any)
-      .select('action, amount, ts, payment_received_at, store_id, store_name, order_number, source:payment->>source, monto:payment->>monto, titular:payment->>nombrePagador, fechaPago:payment->>fechaPago')
+      .select('action, amount, ts, payment_received_at, store_id, store_name, order_number, cuit_pagador, source:payment->>source, monto:payment->>monto, titular:payment->>nombrePagador, cuit:payment->>cuitPagador, fechaPago:payment->>fechaPago')
       .eq('hidden', false)
       .in('action', ACCIONES_INGRESO)
       .order('id', { ascending: true })
@@ -232,6 +236,7 @@ async function ingresosEmparejados(): Promise<Ingreso[]> {
         fechaDia: ingreso,     // agrupa por el día en que ENTRÓ el pago (no el del match)
         fechaPago: ingreso,    // y se muestra con esa misma fecha
         titular: r.titular || '',
+        cuit: (r.cuit || r.cuit_pagador || '').trim(),
         estado: soloBilletera ? 'en_cola' : 'emparejado',
         storeId: soloBilletera ? undefined : (r.store_id ?? undefined),
         storeName: soloBilletera ? undefined : (r.store_name ?? undefined),
@@ -266,6 +271,7 @@ function ingresosEnCola(hot: any, emparejadosIds: Set<string>, filtro?: (source:
       fechaDia: fecha,     // mientras está en cola, agrupa por su día de ingreso…
       fechaPago: fecha,    // …que es la misma fecha que se muestra
       titular: p.nombrePagador || '',
+      cuit: String(p.cuitPagador || '').trim(),
       estado: 'en_cola',
     })
   }
@@ -498,6 +504,7 @@ export async function getIngresosBilletera(wallet: string, diaART?: string): Pro
     pagos: visibles.slice(0, EXTRACTO_LIMIT).map(m => ({
       fecha: m.fechaPago,   // siempre la fecha del pago, aunque el día elegido sea otro
       titular: m.titular,
+      cuit: m.cuit,
       monto: m.monto,
       comision: m.monto * pct / 100,
       // Estado visual: si la orden del pago emparejado tuvo un reembolso (total o
@@ -508,5 +515,99 @@ export async function getIngresosBilletera(wallet: string, diaART?: string): Pro
       detalle: detalleOtras(m.source) || undefined,
       tienda: m.storeName || undefined,
     })),
+  }
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Extracto de un RANGO de días, para exportarlo a Excel.
+//
+// Es la misma vista que arma getIngresosBilletera() para UN día, extendida a varios y
+// sin el tope de EXTRACTO_LIMIT: acá el objetivo es que no falte ninguna fila. Se
+// reusan los mismos criterios, para que el Excel diga exactamente lo que la pantalla:
+//   • un pago figura en el día en que ENTRÓ (fechaDia), aunque se haya emparejado otro
+//   • retiros y reembolsos, en el día en que se hicieron
+//   • el corte manda: lo anterior al corte no se lista (ya está en el saldo inicial),
+//     y con soloInicial no se lista nada
+// ─────────────────────────────────────────────────────────────────────────────
+export interface ExtractoRangoBilletera {
+  wallet: string
+  comisionPct: number
+  pagos: PagoBilletera[]
+  movimientos: MovimientoDia[]   // retiros, reembolsos y el ajuste del corte
+}
+
+export async function getExtractoBilleteraRango(
+  wallet: string, desdeART: string, hastaART: string,
+): Promise<ExtractoRangoBilletera> {
+  const cfg = await getComisiones()
+  const pct = comisionBilletera(cfg, wallet)
+  const esDeEsta = (s: string) => resolveWallet(s) === wallet
+
+  const [emparejados, hot, refundsAll, salidasAll, yaEmparejados, cortes, reembolsadas, stores] = await Promise.all([
+    ingresosEmparejados(), loadHotState(), getRefundsDeWallet(wallet), getSalidasDeWallet(wallet),
+    idsEmparejados(), getCortesBilletera(), getOrdenesReembolsadas(), getStores(),
+  ])
+  const nombreTienda = (storeId?: string | null) => (storeId ? stores[storeId]?.storeName : undefined)
+
+  const corte = cortes[wallet]
+  const desdeCorte = corte?.desde ?? -Infinity
+  const fechaAjuste = corte?.etiqueta ?? corte?.desde
+  const enPeriodo = corte?.soloInicial ? () => false : (f: string) => (new Date(f).getTime() || 0) >= desdeCorte
+
+  // El rango va de las 00:00 del primer día a las 00:00 del siguiente al último, en
+  // horario Argentina — igual que el recorte por día del extracto en pantalla.
+  const desde = new Date(`${desdeART}T00:00:00-03:00`).getTime()
+  const hasta = new Date(`${hastaART}T00:00:00-03:00`).getTime() + 24 * 60 * 60 * 1000
+  const enRango = (f: string) => {
+    const t = new Date(f).getTime() || 0
+    return t >= desde && t < hasta
+  }
+
+  const ingresos = [
+    ...emparejados.filter(m => esDeEsta(m.source)),
+    ...ingresosEnCola(hot, yaEmparejados, esDeEsta),
+  ].filter(m => enPeriodo(m.fechaDia) && enRango(m.fechaDia))
+    .sort((a, b) => (new Date(a.fechaPago).getTime() || 0) - (new Date(b.fechaPago).getTime() || 0))
+
+  const refunds = refundsAll.filter(r => enPeriodo(r.createdAt) && enRango(r.createdAt))
+  const salidas = salidasAll.filter(s => enPeriodo(s.fecha) && enRango(s.fecha))
+  const corteEnRango = corte != null && fechaAjuste != null && fechaAjuste >= desde && fechaAjuste < hasta
+
+  const movimientos: MovimientoDia[] = [
+    ...(corteEnRango ? [{
+      clase: 'ajuste' as const, fecha: new Date(fechaAjuste!).toISOString(),
+      concepto: `Saldo inicial al ${desdeART.split('-').reverse().join('/')}`,
+      ars: corte!.saldoInicial, moneda: 'ARS' as const, montoOrigen: corte!.saldoInicial, cotizacion: null,
+    }] : []),
+    ...salidas.map((s): MovimientoDia => ({
+      clase: 'retiro', fecha: s.fecha, concepto: s.motivo, ars: s.ars,
+      moneda: s.moneda, montoOrigen: s.montoOrigen, cotizacion: s.cotizacion,
+    })),
+    ...refunds.map((r): MovimientoDia => ({
+      clase: 'reembolso', fecha: r.createdAt, ars: r.monto,
+      concepto: `Reembolso orden #${r.orderNumber}${r.seq > 1 ? ` (${r.seq})` : ''}`
+        + (detalleOtras(r.wallet) ? ` · ${detalleOtras(r.wallet)}` : ''),
+      moneda: 'ARS' as const, montoOrigen: r.monto, cotizacion: null,
+      tienda: nombreTienda(r.storeId),
+    })),
+  ].sort((a, b) => (new Date(a.fecha).getTime() || 0) - (new Date(b.fecha).getTime() || 0))
+
+  return {
+    wallet,
+    comisionPct: pct,
+    pagos: ingresos.map(m => ({
+      fecha: m.fechaPago,
+      titular: m.titular,
+      cuit: m.cuit,
+      monto: m.monto,
+      comision: m.monto * pct / 100,
+      estado: m.estado === 'emparejado' && m.storeId && reembolsadas.has(`${m.storeId}|${m.orderNumber}`)
+        ? 'reembolsado' as const
+        : m.estado,
+      detalle: detalleOtras(m.source) || undefined,
+      tienda: m.storeName || undefined,
+    })),
+    movimientos,
   }
 }

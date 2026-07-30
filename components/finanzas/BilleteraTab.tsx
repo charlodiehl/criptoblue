@@ -7,6 +7,7 @@ import AnimatedNumber, { NumberSkeleton } from '@/components/AnimatedNumber'
 import SelectorDia from '@/components/SelectorDia'
 import BilleteraRetiros from './BilleteraRetiros'
 import EditarMovimientoModal, { type MovimientoEditable } from '@/components/EditarMovimientoModal'
+import DescargarRegistroModal from '@/components/DescargarRegistroModal'
 import type { Toast } from './FinanzasApp'
 
 // Los montos vienen en null cuando el integrante no tiene el permiso 'ver_saldo':
@@ -19,6 +20,15 @@ interface Pago {
   estado: 'emparejado' | 'en_cola' | 'reembolsado'
   detalle?: string   // billetera "Otras": nombre libre del pago
   tienda?: string    // vacío mientras el pago está en cola (todavía no tiene orden)
+  cuit?: string      // solo lo informan algunas fuentes; vacío se muestra como guión
+}
+
+// El CUIT/CUIL llega sin formato y no siempre con 11 dígitos (Bitso a veces manda el
+// DNI). Se puntea solo cuando corresponde; cualquier otra cosa se muestra tal cual.
+function fmtCuit(v?: string): string {
+  const d = (v || '').replace(/\D/g, '')
+  if (!d) return ''
+  return d.length === 11 ? `${d.slice(0, 2)}-${d.slice(2, 10)}-${d.slice(10)}` : d
 }
 const ESTADO_LABEL: Record<Pago['estado'], string> = { emparejado: 'Emparejado', en_cola: 'Pendiente', reembolsado: 'Reembolsado' }
 const ESTADO_STYLE: Record<Pago['estado'], React.CSSProperties> = {
@@ -64,7 +74,7 @@ const fmtPct = (n: number) => n.toLocaleString('es-AR', { maximumFractionDigits:
 const fmtArs = (n: number) => ARS.format(n)
 
 // Columnas ordenables del extracto del día.
-type SortKey = 'fecha' | 'titular' | 'tienda' | 'detalle' | 'monto' | 'comision' | 'estado'
+type SortKey = 'fecha' | 'titular' | 'cuit' | 'tienda' | 'detalle' | 'monto' | 'comision' | 'estado'
 
 // Hoy en horario Argentina (UTC-3) como 'YYYY-MM-DD'
 function hoyART(): string {
@@ -95,6 +105,7 @@ export default function BilleteraTab({
   const [sortKey, setSortKey] = useState<SortKey>('fecha')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
   const [editandoMov, setEditandoMov] = useState<MovimientoEditable | null>(null)
+  const [descargarOpen, setDescargarOpen] = useState(false)
 
   // Sin permiso 'ver_saldo' los montos se muestran tapados (***). Lo decide el SERVIDOR:
   // manda verSaldo:false y los montos en null. Mientras carga se asume que sí puede, así
@@ -144,6 +155,7 @@ export default function BilleteraTab({
   const columnas: { key: SortKey; label: string }[] = [
     { key: 'fecha', label: 'Fecha y hora del pago' },
     { key: 'titular', label: 'Titular' },
+    { key: 'cuit', label: 'CUIT' },
     { key: 'tienda', label: 'Tienda' },
     ...(esOtras ? [{ key: 'detalle' as SortKey, label: 'Billetera' }] : []),
     { key: 'monto', label: 'Monto (ARS)' },
@@ -165,6 +177,7 @@ export default function BilleteraTab({
       switch (sortKey) {
         case 'fecha':   cmp = (new Date(a.fecha).getTime() || 0) - (new Date(b.fecha).getTime() || 0); break
         case 'titular': cmp = (a.titular || '').localeCompare(b.titular || '', 'es'); break
+        case 'cuit':    cmp = (a.cuit || '').localeCompare(b.cuit || '', 'es'); break
         case 'tienda':  cmp = (a.tienda || '').localeCompare(b.tienda || '', 'es'); break
         case 'detalle': cmp = (a.detalle || '').localeCompare(b.detalle || '', 'es'); break
         case 'monto':   cmp = (a.monto ?? 0) - (b.monto ?? 0); break
@@ -237,6 +250,15 @@ export default function BilleteraTab({
         <div className="flex items-center gap-3 flex-wrap">
           <label className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'rgba(0,212,255,0.7)' }}>Día</label>
           <SelectorDia value={fecha} dias={data?.dias ?? []} onChange={setFecha} disabled={!data?.dias?.length} />
+          {/* Sin permiso 'ver_saldo' no se ofrece: un Excel son los montos completos,
+              no se pueden tapar como en pantalla. El endpoint también lo rechaza. */}
+          {!sinVerSaldo && (
+            <button onClick={() => setDescargarOpen(true)} title="Descargar el registro de un rango de fechas en Excel"
+              className="inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold transition-all shrink-0"
+              style={{ background: 'rgba(0,212,255,0.08)', border: '1px solid rgba(0,212,255,0.3)', color: '#00d4ff', cursor: 'pointer' }}>
+              <span>⬇</span> Descargar registro
+            </button>
+          )}
         </div>
         <p className="text-[11px] leading-relaxed max-w-md" style={{ color: 'rgba(148,163,184,0.5)' }}>
           Cada pago figura en el día en que <span style={{ color: 'rgba(148,163,184,0.75)' }}>ingresó a la billetera</span>, sin importar cuándo se emparejó con una orden.
@@ -303,9 +325,9 @@ export default function BilleteraTab({
             </thead>
             <tbody>
               {loading && !data ? (
-                <tr><td colSpan={esOtras ? 7 : 6} className="px-3 py-8 text-center text-sm" style={{ color: 'rgba(148,163,184,0.5)' }}>Cargando…</td></tr>
+                <tr><td colSpan={columnas.length} className="px-3 py-8 text-center text-sm" style={{ color: 'rgba(148,163,184,0.5)' }}>Cargando…</td></tr>
               ) : !data || data.pagos.length === 0 ? (
-                <tr><td colSpan={esOtras ? 7 : 6} className="px-3 py-8 text-center text-sm" style={{ color: 'rgba(148,163,184,0.5)' }}>Sin pagos este día</td></tr>
+                <tr><td colSpan={columnas.length} className="px-3 py-8 text-center text-sm" style={{ color: 'rgba(148,163,184,0.5)' }}>Sin pagos este día</td></tr>
               ) : (
                 pagosOrdenados.map((p, i) => (
                   <motion.tr key={i} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3, delay: Math.min(i * 0.025, 0.4) }}
@@ -314,6 +336,11 @@ export default function BilleteraTab({
                     <td className="px-3 py-2.5" style={{ color: 'rgba(226,232,240,0.85)' }}>
                       {p.titular || '—'}
                       {!esOtras && p.detalle && <span className="ml-1.5 text-[11px]" style={{ color: 'rgba(167,139,250,0.9)' }}>· {p.detalle}</span>}
+                    </td>
+                    {/* Pocas fuentes informan el CUIT del pagador: las que no, van con guión. */}
+                    <td className="px-3 py-2.5 whitespace-nowrap tabular-nums"
+                      style={{ color: p.cuit ? 'rgba(226,232,240,0.85)' : 'rgba(148,163,184,0.4)' }}>
+                      {fmtCuit(p.cuit) || '—'}
                     </td>
                     {/* Un pago en cola todavía no tiene orden, así que no tiene tienda. */}
                     <td className="px-3 py-2.5 whitespace-nowrap" style={{ color: p.tienda ? 'rgba(226,232,240,0.85)' : 'rgba(148,163,184,0.4)' }}>
@@ -434,6 +461,17 @@ export default function BilleteraTab({
         </div>
       )}
       </>}
+      {descargarOpen && (
+        <DescargarRegistroModal
+          endpoint="/api/billetera/registro-excel"
+          qs={`?wallet=${encodeURIComponent(wallet)}`}
+          fechaInicial={fecha}
+          hojas="los pagos, reembolsos y retiros del período"
+          onClose={() => setDescargarOpen(false)}
+          notify={notify}
+        />
+      )}
+
       {editandoMov && (
         <EditarMovimientoModal mov={editandoMov} notify={notify}
           onCerrar={() => setEditandoMov(null)} onGuardado={fetchData} />

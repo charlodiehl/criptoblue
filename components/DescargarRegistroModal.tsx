@@ -1,17 +1,24 @@
 'use client'
 
 import { useState } from 'react'
-import type { Toast } from './TiendaPortal'
 
-// Modal para descargar el registro (órdenes emparejadas) de un rango de fechas como
-// Excel. Pide "desde" y "hasta"; siempre arma un .xlsx con la hoja "Ventas".
+type TipoToast = 'success' | 'error' | 'info'
+
+// Modal para descargar el registro de un rango de fechas como Excel. Lo usan las dos
+// superficies —tiendas y billeteras— con el mismo flujo: se piden "desde" y "hasta",
+// se pega al endpoint que arma el .xlsx y se dispara la descarga con el nombre de
+// archivo que mande el servidor.
 export default function DescargarRegistroModal({
   qs, fechaInicial, onClose, notify,
+  endpoint = '/api/tienda/registro-excel',
+  hojas = 'todas las órdenes emparejadas en la hoja Ventas',
 }: {
   qs: string
   fechaInicial: string   // 'YYYY-MM-DD' — prefill de desde/hasta (el día que está viendo)
   onClose: () => void
-  notify: (msg: string, type?: Toast['type']) => void
+  notify: (msg: string, type?: TipoToast) => void
+  endpoint?: string
+  hojas?: string         // qué trae el Excel, para el texto de ayuda
 }) {
   const [desde, setDesde] = useState(fechaInicial)
   const [hasta, setHasta] = useState(fechaInicial)
@@ -24,7 +31,7 @@ export default function DescargarRegistroModal({
     setBajando(true)
     try {
       const sep = qs ? '&' : '?'
-      const res = await fetch(`/api/tienda/registro-excel${qs}${sep}desde=${desde}&hasta=${hasta}`)
+      const res = await fetch(`${endpoint}${qs}${sep}desde=${desde}&hasta=${hasta}`)
       if (!res.ok) {
         const d = await res.json().catch(() => ({}))
         throw new Error(d.error || 'No se pudo generar el Excel')
@@ -67,7 +74,7 @@ export default function DescargarRegistroModal({
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'rgba(148,163,184,0.5)', cursor: 'pointer', fontSize: '20px', lineHeight: 1 }}>×</button>
         </div>
         <p style={{ fontSize: '12px', color: 'rgba(148,163,184,0.6)', marginBottom: '18px', lineHeight: 1.5 }}>
-          Elegí el rango de días. Se arma un Excel con todas las órdenes emparejadas en la hoja <span style={{ color: 'rgba(0,212,255,0.75)' }}>Ventas</span>.
+          Elegí el rango de días. Se arma un Excel con <span style={{ color: 'rgba(0,212,255,0.75)' }}>{hojas}</span>.
         </p>
 
         <div style={{ display: 'flex', gap: '12px', marginBottom: '20px' }}>
