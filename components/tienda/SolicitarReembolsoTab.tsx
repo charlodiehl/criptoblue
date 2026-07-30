@@ -169,12 +169,12 @@ export default function SolicitarReembolsoTab({ qs, notify }: Props) {
                   <div>
                     <label style={labelStyle}>Alias o CBU <span style={{ color: '#f87171' }}>*</span></label>
                     <input style={inputStyle} value={aliasCbu} onChange={e => setAliasCbu(e.target.value)}
-                      maxLength={100} placeholder="mi.alias.mp o 0000003100000000000000" disabled={enviando} />
+                      maxLength={100} placeholder="Colocar SOLAMENTE la información bancaria sin agregados extra" disabled={enviando} />
                   </div>
                   <div>
                     <label style={labelStyle}>Nombre del titular <span style={{ color: 'rgba(148,163,184,0.5)', fontWeight: 400 }}>(opcional)</span></label>
                     <input style={inputStyle} value={titular} onChange={e => setTitular(e.target.value)}
-                      maxLength={100} placeholder="Si la cuenta es de otra persona" disabled={enviando} />
+                      maxLength={100} placeholder="Nombre del titular de la cuenta bancaria" disabled={enviando} />
                   </div>
                 </div>
 
