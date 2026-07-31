@@ -21,7 +21,7 @@
 import { getClient, getStores, loadHotState } from './storage'
 import { getComisiones, comisionTiendaSobre, comisionBilletera, comisionTiendaEnFecha, comisionTiendaActual, comisionTiendaVaria, diaART } from './comisiones'
 import { walletsDeUnidad } from './unidad'
-import { resolveWallet, getCortesBilletera } from './billeteras'
+import { resolveWallet, getCortesBilletera, idsEmparejados } from './billeteras'
 import { ACCION_SOLO_BILLETERA } from './config'
 import { getUsdtRateSinMargen } from './cotizacion'
 
@@ -142,9 +142,19 @@ export async function getMetricas(desdeMs: number, hastaMs: number): Promise<Met
     if (w && !antesDelCorte(w, r.fechaPago || r.payment_received_at)) inc(ingBilletera, w, Number(r.monto ?? r.amount) || 0)
   }
   // Cola (no emparejados) por fechaPago dentro del período → ingreso a la billetera.
+  //
+  // La cola se DEPURA con el mismo criterio que el extracto de la billetera (ver
+  // ingresosEnCola en lib/billeteras.ts). Sin esto las métricas contaban de más:
+  //   • los marcados "No es de tiendas" no son plata nuestra y no deben sumar;
+  //   • un pago ya asentado en el registro que además quedó en la cola se contaba
+  //     DOS veces (pasó de verdad, por eso el extracto ya se defendía de esto).
+  const externos = new Set((hot.externallyMarkedPayments ?? []).map(e => e.id))
+  const yaEnRegistro = await idsEmparejados()
   for (const u of hot.unmatchedPayments ?? []) {
     const p = u.payment
     if (!p?.source) continue
+    const idPago = u.mpPaymentId || p.mpPaymentId || ''
+    if (externos.has(idPago) || yaEnRegistro.has(idPago)) continue
     if (!enRango(p.fechaPago ? new Date(p.fechaPago).getTime() : NaN)) continue
     const w = resolveWallet(p.source)
     if (w && !antesDelCorte(w, p.fechaPago)) inc(ingBilletera, w, Number(p.monto) || 0)

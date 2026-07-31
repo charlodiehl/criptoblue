@@ -180,7 +180,10 @@ export async function getBilleterasOcultas(): Promise<string[]> {
 // debería sacar el pago de la cola, pero si por una inconsistencia queda en las
 // dos partes lo contaríamos dos veces. Con este set la cola se deduplica contra
 // el registro: manda el registro (el pago ya está emparejado).
-async function idsEmparejados(): Promise<Set<string>> {
+// Ids de pago que ya están asentados en el registro. Se exporta porque lib/metricas.ts
+// necesita el MISMO criterio para depurar la cola: si los dos lados no descartan lo
+// mismo, el extracto y las métricas dan números distintos sobre los mismos pagos.
+export async function idsEmparejados(): Promise<Set<string>> {
   const c = getClient()
   const out = new Set<string>()
   const PAGE = 1000
