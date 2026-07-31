@@ -432,11 +432,7 @@ export function GestionReembolsos() {
                       <label style={labelStyle}>Monto a reembolsar (ARS)</label>
                       <div style={{ position: 'relative' }}>
                         {/* paddingRight deja lugar al botón, que va montado adentro del campo */}
-                        {/* TEMPORAL — formato en-US (miles "," decimal ".") SOLO en este campo:
-                            el monto se copia y se pega en una billetera que exige punto decimal;
-                            con coma descarta los decimales. Al copiar se van los miles, así que
-                            "145,414.8" llega como "145414.8". Para volver atrás: sacar `formato`. */}
-                        <MontoInput formato="en-US" style={{ ...inputStyle, paddingRight: '58px' }} value={monto} onChange={setMonto} placeholder="0.00" />
+                        <MontoInput style={{ ...inputStyle, paddingRight: '58px' }} value={monto} onChange={setMonto} placeholder="0,00" />
                         <button
                           type="button"
                           onClick={() => setMonto(maxReembolsable)}
