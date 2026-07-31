@@ -28,10 +28,17 @@ const BILLETERA = 'MS'
 // secret propio.
 // ─────────────────────────────────────────────────────────────────────────────
 
-async function registrarErrorPago(message: string, context?: Record<string, unknown>, level: 'error' | 'warning' = 'error') {
+// `dedupeKey`: para los avisos que el script de Gmail va a repetir. Si el email no se
+// puede cargar, el webhook responde con error, el script no lo etiqueta como cargado y
+// lo reintenta en la corrida siguiente — cada 5 minutos, para siempre. Sin acotarlo, un
+// solo email escribe ~288 errores por día y se lleva puesto el resto del log.
+async function registrarErrorPago(
+  message: string, context?: Record<string, unknown>,
+  level: 'error' | 'warning' = 'error', dedupeKey?: string,
+) {
   try {
     const logs = await loadLogs()
-    appendError(logs, 'lbfinanzas', level, message, context)
+    appendError(logs, 'lbfinanzas', level, message, context, dedupeKey)
     await saveLogs(logs)
   } catch { /* el error ya se devuelve por HTTP */ }
 }
@@ -231,7 +238,10 @@ async function procesar(req: NextRequest) {
     // La app lleva los saldos en pesos: un aviso en otra moneda NO se carga como si
     // fueran ARS. Se avisa en el centro de errores para resolverlo a mano.
     if (datos.moneda !== 'ARS') {
-      await registrarErrorPago(`Llegó un pago de LB Finanzas en ${datos.moneda} (${datos.monto}) — NO se cargó: la billetera opera en ARS.`, { messageId, ...datos })
+      // Un aviso por email, no uno por reintento: el script lo va a seguir mandando.
+      await registrarErrorPago(
+        `Llegó un pago de LB Finanzas en ${datos.moneda} (${datos.monto}) — NO se cargó: la billetera opera en ARS.`,
+        { messageId, ...datos }, 'error', `moneda:${messageId}`)
       return NextResponse.json({ error: `Moneda no soportada: ${datos.moneda}` }, { status: 400 })
     }
 

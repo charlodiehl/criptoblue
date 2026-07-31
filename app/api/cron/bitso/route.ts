@@ -60,9 +60,11 @@ async function run() {
         if (String(d.currency).toLowerCase() !== 'ars') {
           ignorados++
           const logs = await loadLogs()
+          // Una sola vez por depósito: el cron relee el MISMO rango cada 5 minutos, así
+          // que sin la clave este aviso se repetiría en cada corrida para siempre.
           appendError(logs, 'bitso', 'warning',
             `Depósito de Bitso en ${String(d.currency).toUpperCase()} (${d.amount}) — NO se cargó: la billetera opera en ARS.`,
-            { fid: d.fid })
+            { fid: d.fid }, `moneda:${d.fid}`)
           await saveLogs(logs)
           continue
         }

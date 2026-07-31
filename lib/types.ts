@@ -177,6 +177,10 @@ export interface ErrorEntry {
   // `resolved` (que indica si el problema se solucionó y controla la limpieza a 7 días).
   // El badge de la campana cuenta los errores con seen !== true.
   seen?: boolean
+  // Clave para NO repetir el mismo aviso. La usan los errores que se generan en un
+  // reintento automático: si el emisor vuelve a fallar por lo mismo (el mismo email,
+  // el mismo depósito), appendError lo ignora en vez de sumar otra fila idéntica.
+  dedupeKey?: string
 }
 
 // ─── Portal de tiendas / Administración financiera ─────────────────────────

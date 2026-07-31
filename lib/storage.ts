@@ -652,15 +652,24 @@ export async function saveState(state: AppState): Promise<void> {
 // Funciones auxiliares — mutan el objeto recibido (intencional)
 // ─────────────────────────────────────────────
 
+// `dedupeKey`: si ya hay un error de la misma fuente con esa clave, NO se agrega otro.
+// Los avisos que nacen de un reintento automático (un email que el script de Gmail
+// reenvía cada 5 minutos, un depósito que el cron vuelve a leer en cada corrida) si no
+// se acotan escriben cientos de filas idénticas por día y tapan todo lo demás — el log
+// se queda en las últimas 500. Se compara contra TODOS los errores, resueltos incluidos:
+// darlo por resuelto es justamente decir "ya lo vi, no me lo muestres más".
 export function appendError(
   target: { errorLog: ErrorEntry[] },
   source: string,
   level: 'error' | 'warning' | 'info',
   message: string,
-  context?: Record<string, unknown>
+  context?: Record<string, unknown>,
+  dedupeKey?: string,
 ): void {
   target.errorLog = target.errorLog ?? []
+  if (dedupeKey && target.errorLog.some(e => e.source === source && e.dedupeKey === dedupeKey)) return
   target.errorLog.push({
+    dedupeKey,
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     timestamp: nowART(),
     source,
