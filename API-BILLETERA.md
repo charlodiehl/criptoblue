@@ -8,7 +8,7 @@ Solo lectura · v1.0 · CriptoBlue
 
 ```
 GET https://criptoblue.vercel.app/api/v1/billetera?desde=YYYY-MM-DD&hasta=YYYY-MM-DD
-Authorization: Bearer cb_live_4b595e36427a032f68fa7325dcdedfb84213d737c6c7e0b1
+Authorization: Bearer <API_KEY>
 ```
 
 | | |
@@ -21,6 +21,11 @@ Authorization: Bearer cb_live_4b595e36427a032f68fa7325dcdedfb84213d737c6c7e0b1
 | Antigüedad máxima | 180 días hacia atrás |
 
 La key es de esta billetera únicamente. En la base solo vive su hash SHA-256.
+
+> **La key NO va en este archivo.** Este repositorio es público: cualquier key escrita
+> acá queda expuesta y hay que revocarla. Se genera con
+> `node scripts/generar-api-key.mjs --billetera "<nombre>"`, se muestra una sola vez y
+> se entrega por un canal privado.
 
 ```bash
 curl -H "Authorization: Bearer $KEY" \
