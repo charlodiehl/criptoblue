@@ -20,22 +20,35 @@ export function hashKey(key: string): string {
   return createHash('sha256').update(key.trim()).digest('hex')
 }
 
-// Genera una key para una tienda. Devuelve el texto plano (mostrar una vez) + guarda el hash.
-export async function generarApiKey(storeId: string, label?: string): Promise<{ key: string; id: number; prefix: string }> {
+// Una key pertenece a UNA tienda o a UNA billetera, nunca a las dos (lo garantiza el
+// CHECK store_api_keys_dueno_unico). El endpoint que la recibe sabe cuál espera.
+type Dueno = { store_id: string; wallet?: null } | { wallet: string; store_id?: null }
+
+async function crearKey(dueno: Dueno, label?: string): Promise<{ key: string; id: number; prefix: string }> {
   const key = PREFIX + randomBytes(24).toString('hex')   // cb_live_ + 48 hex
   const key_prefix = key.slice(0, 12)                    // cb_live_xxxx (identifica en logs, no es secreto)
   // getClient() le pone la unidad sola: la key nace en la unidad de quien la genera.
   const { data, error } = await getClient()
     .from('store_api_keys')
-    .insert({ store_id: storeId, key_hash: hashKey(key), key_prefix, label: label ?? null })
+    .insert({ ...dueno, key_hash: hashKey(key), key_prefix, label: label ?? null })
     .select('id')
     .single<{ id: number }>()
   if (error) throw new Error(error.message)
   return { key, id: data.id, prefix: key_prefix }
 }
 
+// Genera una key para una tienda. Devuelve el texto plano (mostrar una vez) + guarda el hash.
+export async function generarApiKey(storeId: string, label?: string) {
+  return crearKey({ store_id: storeId }, label)
+}
+
+// Ídem para una billetera (GET /api/v1/billetera).
+export async function generarApiKeyBilletera(wallet: string, label?: string) {
+  return crearKey({ wallet }, label)
+}
+
 export type ValidacionKey =
-  | { ok: true; keyId: number; storeId: string; unidad: UnidadId }
+  | { ok: true; keyId: number; storeId: string | null; wallet: string | null; unidad: UnidadId }
   | { ok: false; reason: 'invalid' | 'revoked' }
 
 // Valida una key por su hash. No compara texto plano: lookup por el hash indexado.
@@ -47,12 +60,12 @@ export async function validarApiKey(key: string): Promise<ValidacionKey> {
   if (!key) return { ok: false, reason: 'invalid' }
   const { data } = await serviceClient()
     .from('store_api_keys')
-    .select('id, store_id, unidad, revoked_at')
+    .select('id, store_id, wallet, unidad, revoked_at')
     .eq('key_hash', hashKey(key))
-    .maybeSingle<{ id: number; store_id: string; unidad: string | null; revoked_at: string | null }>()
+    .maybeSingle<{ id: number; store_id: string | null; wallet: string | null; unidad: string | null; revoked_at: string | null }>()
   if (!data) return { ok: false, reason: 'invalid' }
   if (data.revoked_at) return { ok: false, reason: 'revoked' }
-  return { ok: true, keyId: data.id, storeId: data.store_id, unidad: parseUnidad(data.unidad) }
+  return { ok: true, keyId: data.id, storeId: data.store_id ?? null, wallet: data.wallet ?? null, unidad: parseUnidad(data.unidad) }
 }
 
 export async function marcarUso(keyId: number): Promise<void> {
@@ -77,7 +90,7 @@ export async function llamadasRecientes(keyId: number, ventanaSeg: number): Prom
 
 // Registra una request en el log de auditoría (best-effort: nunca rompe la respuesta).
 export async function auditarRequest(row: {
-  storeId: string | null; keyId: number | null; endpoint: string
+  storeId: string | null; wallet?: string | null; keyId: number | null; endpoint: string
   desde: string | null; hasta: string | null; status: number; error?: string | null
   ip: string | null; userAgent: string | null; durationMs: number; diasDevueltos: number | null
 }): Promise<void> {
@@ -87,7 +100,7 @@ export async function auditarRequest(row: {
     // quién era el intento: queda en la unidad original).
     await getClientSinUnidad().from('api_audit_log').insert({
       unidad: getUnidadOpcional() ?? UNIDAD_DEFAULT,
-      store_id: row.storeId, key_id: row.keyId, endpoint: row.endpoint,
+      store_id: row.storeId, wallet: row.wallet ?? null, key_id: row.keyId, endpoint: row.endpoint,
       desde: row.desde, hasta: row.hasta, status: row.status, error: row.error ?? null,
       ip: row.ip, user_agent: row.userAgent, duration_ms: row.durationMs, dias_devueltos: row.diasDevueltos,
     })

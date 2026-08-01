@@ -92,6 +92,7 @@ export interface PagoBilletera {
   estado: 'emparejado' | 'en_cola' | 'reembolsado'
   detalle?: string          // billetera "Otras": el nombre libre que se le puso al pago
   tienda?: string           // vacío mientras el pago está en cola: todavía no tiene orden
+  orden?: string            // ídem: solo lo tienen los emparejados. Lo usa la API pública.
 }
 
 export interface ReembolsoBilletera {
@@ -517,6 +518,7 @@ export async function getIngresosBilletera(wallet: string, diaART?: string): Pro
         : m.estado,
       detalle: detalleOtras(m.source) || undefined,
       tienda: m.storeName || undefined,
+      orden: m.orderNumber || undefined,
     })),
   }
 }
@@ -608,6 +610,7 @@ export async function getExtractoBilleteraRango(
         : m.estado,
       detalle: detalleOtras(m.source) || undefined,
       tienda: m.storeName || undefined,
+      orden: m.orderNumber || undefined,
     })),
     movimientos,
   }

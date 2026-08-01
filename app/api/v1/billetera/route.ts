@@ -1,15 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { validarApiKey, llamadasRecientes, marcarUso, auditarRequest } from '@/lib/api-keys'
-import { getRegistroRango } from '@/lib/registro-api'
-import { getStores } from '@/lib/storage'
-import { setUnidad } from '@/lib/unidad'
+import { getRegistroBilleteraRango } from '@/lib/billetera-api'
+import { getBilleterasOcultas } from '@/lib/billeteras'
+import { setUnidad, walletsDeUnidad } from '@/lib/unidad'
 
-// GET /api/v1/registro?desde=YYYY-MM-DD&hasta=YYYY-MM-DD
-// API pública (ruta pública en proxy.ts) con su propia auth por API key.
-// Devuelve el registro diario de la tienda dueña de la key en el rango pedido.
+// GET /api/v1/billetera?desde=YYYY-MM-DD&hasta=YYYY-MM-DD
+// API pública de SOLO LECTURA (ruta pública en proxy.ts) con su propia auth por API key.
+// Espejo de /api/v1/registro, que hace lo mismo para tiendas: devuelve el registro
+// diario de la billetera dueña de la key en el rango pedido.
 // Node runtime: api-keys usa `crypto` (hash de la key).
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
+// Una billetera movida son miles de pagos por mes; el rango llega hasta 180 días.
+export const maxDuration = 60
 
 const RATE_LIMIT = 10          // llamadas
 const RATE_WINDOW_SEG = 60     // por minuto
@@ -27,7 +30,7 @@ export async function GET(req: NextRequest) {
   const hasta = sp.get('hasta')
 
   let keyId: number | null = null
-  let storeId: string | null = null
+  let wallet: string | null = null
   let diasDevueltos: number | null = null
 
   const done = async (
@@ -37,7 +40,7 @@ export async function GET(req: NextRequest) {
     const error = opts.auditError
       ?? (status >= 400 && body && typeof body === 'object' && 'error' in body ? String((body as { error: unknown }).error) : null)
     await auditarRequest({
-      storeId, keyId, endpoint: '/api/v1/registro', desde, hasta, status, error,
+      storeId: null, wallet, keyId, endpoint: '/api/v1/billetera', desde, hasta, status, error,
       ip, userAgent: ua, durationMs: Date.now() - started, diasDevueltos,
     })
     return NextResponse.json(body, { status, headers: opts.headers })
@@ -55,9 +58,9 @@ export async function GET(req: NextRequest) {
         : done(401, { error: 'API key inválida' })
     }
     keyId = val.keyId
-    // Una key de billetera no sirve acá: cada endpoint acepta solo las suyas.
-    if (!val.storeId) return done(403, { error: 'Esta API key no es de una tienda. Usá GET /api/v1/billetera' })
-    storeId = val.storeId
+    // Una key de tienda no sirve acá: cada endpoint acepta solo las suyas.
+    if (!val.wallet) return done(403, { error: 'Esta API key no es de una billetera. Usá GET /api/v1/registro' })
+    wallet = val.wallet
     // La unidad de negocio la define la propia key, y se aplica ACÁ, en el frame del
     // handler: de acá en adelante la API solo ve datos de esa unidad (ver lib/unidad.ts).
     setUnidad(val.unidad)
@@ -81,19 +84,23 @@ export async function GET(req: NextRequest) {
     const limite = new Date(`${hoyART}T00:00:00-03:00`).getTime() - MAX_DIAS * diaMs
     if (t0 < limite) return done(422, { error: `No se sirven datos anteriores a ${MAX_DIAS} días. Pedilos por privado.` })
 
-    // 4. La tienda de la key tiene que existir / estar conectada
-    const stores = await getStores()
-    const store = stores[storeId]
-    if (!store) return done(404, { error: 'La tienda de esta key no existe o está desconectada' })
+    // 4. La billetera de la key tiene que pertenecer a la unidad y estar visible.
+    // Si se la ocultó o se la sacó de la unidad, la key deja de servir sola.
+    if (!walletsDeUnidad().includes(wallet)) {
+      return done(404, { error: 'La billetera de esta key ya no existe en esta unidad de negocio' })
+    }
+    if ((await getBilleterasOcultas()).includes(wallet)) {
+      return done(404, { error: 'La billetera de esta key no está disponible' })
+    }
 
     // 5. Cómputo + respuesta
-    const data = await getRegistroRango(storeId, store.storeName, desde, hasta)
+    const data = await getRegistroBilleteraRango(wallet, desde, hasta)
     diasDevueltos = data.dias.length
     await marcarUso(keyId)
     return done(200, data)
   } catch (err) {
     // El detalle real queda en el audit/log, NUNCA se filtra al caller.
-    console.error('[api/v1/registro] error:', err)
+    console.error('[api/v1/billetera] error:', err)
     return done(500, { error: 'Error interno' }, { auditError: err instanceof Error ? err.message : String(err) })
   }
 }
