@@ -90,6 +90,11 @@ export interface UnmatchedPayment {
   timestamp: string
   mpPaymentId?: string
   storeName?: string
+  // Ocultamiento manual, puntual, de la vista "Sin coincidencia" (no de "Pagos"). NO
+  // afecta ningún saldo: billeteras.ts nunca lo mira, así que el pago sigue sumando
+  // igual al total de su billetera. Se setea a mano sobre pagos puntuales que ya
+  // existen — no es un filtro automático por monto ni una regla para pagos futuros.
+  ocultoDeVista?: boolean
 }
 
 export interface RecentMatch {

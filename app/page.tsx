@@ -781,6 +781,9 @@ export default function Dashboard() {
     const now = Date.now()
     return unmatchedPayments
       .filter(u => {
+        // Ocultamiento manual puntual (ver UnmatchedPayment.ocultoDeVista): solo afecta
+        // esta vista, el pago sigue sumando en su billetera y en la pestaña Pagos.
+        if (u.ocultoDeVista) return false
         if ((now - new Date(u.payment.fechaPago).getTime()) <= HOURS_48) return true
         // Billeteras "sin vencimiento" (MF, Lacar): se mantienen visibles pasadas
         // las 48hs. Si ya se marcaron como externas, el filtro de abajo las saca igual.
